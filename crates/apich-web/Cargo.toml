@@ -1,0 +1,55 @@
+[package]
+name = "apich-web"
+version = "0.1.0"
+edition = "2021"
+authors = ["APICH Team"]
+description = "Isomorphic Full-Stack Web Server, Leptos Frontend, Project Lifecycle Sandbox, SSO Provider, and Passkey/FIDO2 Auth for APICH"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+apich-db = { path = "../apich-db" }
+apich-sandbox = { path = "../apich-sandbox" }
+apich-vcs = { path = "../apich-vcs" }
+
+# Web Framework & SSR
+axum = { version = "0.7.9", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+leptos = { version = "0.7.7", features = ["ssr"] }
+leptos_axum = { version = "0.7.8" }
+leptos_router = { version = "0.7.7", features = ["ssr"] }
+
+# Async & Runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7" }
+
+# Serialization & Core Data
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+
+# Cryptography, Auth & Security
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+jsonwebtoken = "9.3"
+p256 = { version = "0.14", features = ["ecdsa", "std"] }
+
+# Logging, Errors & HTTP
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2.0"
+http = "1.1"
+urlencoding = "2.1"
+
+# Email / Mailer
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
+tower = { version = "0.5", features = ["util"] }

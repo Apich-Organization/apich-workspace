@@ -1,0 +1,83 @@
+# ==============================================================================
+# APICH Next-Gen Technical & Academic Workspace Sandbox Image
+# Includes: Rust toolchain, Python3 scientific stack, Git, R, LaTeX (XeTeX/latexmk), Typst
+# ==============================================================================
+
+FROM debian:bookworm-slim
+
+LABEL maintainer="APICH Team"
+LABEL description="Full-stack scientific, engineering and academic compilation sandbox"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:/home/apich/.cargo/bin:$PATH
+
+# 1. Install base utilities, C/C++ build tools, Git, Python, R, and LaTeX
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    gnupg \
+    git \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    r-base \
+    r-base-dev \
+    texlive-latex-base \
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    texlive-xetex \
+    texlive-fonts-recommended \
+    latexmk \
+    lmodern \
+    xz-utils \
+    jq \
+    sqlite3 \
+    procps \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Install Rust toolchain (system-wide accessible)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal \
+    && chmod -R a+w /usr/local/cargo /usr/local/rustup \
+    && rustc --version && cargo --version
+
+# 3. Install Typst CLI (latest binary release)
+ARG TYPST_VERSION=v0.13.0
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    if [ "$ARCH" = "x86_64" ]; then \
+        TYPST_ARCH="x86_64-unknown-linux-musl"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        TYPST_ARCH="aarch64-unknown-linux-musl"; \
+    else \
+        TYPST_ARCH="x86_64-unknown-linux-musl"; \
+    fi; \
+    TAR_URL="https://github.com/typst/typst/releases/download/${TYPST_VERSION}/typst-${TYPST_ARCH}.tar.xz"; \
+    curl -fsSL "$TAR_URL" -o /tmp/typst.tar.xz \
+    || curl -fsSL "https://github.com/typst/typst/releases/latest/download/typst-${TYPST_ARCH}.tar.xz" -o /tmp/typst.tar.xz; \
+    tar -xf /tmp/typst.tar.xz -C /tmp; \
+    cp /tmp/typst-*/typst /usr/local/bin/typst; \
+    chmod +x /usr/local/bin/typst; \
+    rm -rf /tmp/typst* \
+    && typst --version
+
+# 4. Create non-root developer user (apich, UID 1000)
+RUN useradd -m -u 1000 -s /bin/bash apich \
+    && echo "apich ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && mkdir -p /workspace \
+    && chown -R apich:apich /workspace
+
+WORKDIR /workspace
+USER apich
+
+CMD ["sleep", "infinity"]

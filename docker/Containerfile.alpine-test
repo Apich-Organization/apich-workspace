@@ -1,0 +1,10 @@
+# Lightweight test container for rapid integration testing
+FROM alpine:latest
+
+RUN apk add --no-cache bash git python3 py3-pip R curl
+
+RUN mkdir -p /workspace
+
+WORKDIR /workspace
+
+CMD ["sleep", "infinity"]

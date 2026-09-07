@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # APICH Developer & Academic Sandbox Environment
+  # ----------------------------------------------------------------------------
+  sandbox:
+    container_name: apich-sandbox-dev
+    build:
+      context: .
+      dockerfile: docker/Containerfile.sandbox
+    image: apich-sandbox:latest
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    volumes:
+      # Mount user workspace with SELinux relabeling (:Z)
+      - ./data/workspaces/default:/workspace:Z
+    environment:
+      - TZ=UTC
+      - LANG=C.UTF-8
+      - WORKSPACE_ROOT=/workspace
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4096M
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - apich-network
+    command: ["sleep", "infinity"]
+
+  # ----------------------------------------------------------------------------
+  # Forgejo / Gitea Instance (Plan.md Section 8: Native Git Code Hosting)
+  # ----------------------------------------------------------------------------
+  forgejo:
+    container_name: apich-forgejo
+    image: codeberg.org/forgejo/forgejo:9
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - FORGEJO__server__DOMAIN=localhost
+      - FORGEJO__server__SSH_PORT=2222
+      - FORGEJO__server__ROOT_URL=http://localhost:3000/
+      - FORGEJO__database__DB_TYPE=sqlite3
+    volumes:
+      - ./data/forgejo:/data:Z
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    networks:
+      - apich-network
+
+  # ----------------------------------------------------------------------------
+  # PostgreSQL 18 Instance (Containerized Workspace Database)
+  # ----------------------------------------------------------------------------
+  postgres:
+    container_name: apich-postgres
+    image: docker.io/library/postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=apich_postgres_secret
+      - POSTGRES_DB=apich_workspace
+    volumes:
+      - ./data/postgres:/var/lib/postgresql:Z
+      - ./data/backups:/backups:Z
+    ports:
+      - "5432:5432"
+    networks:
+      - apich-network
+
+networks:
+  apich-network:
+    driver: bridge
