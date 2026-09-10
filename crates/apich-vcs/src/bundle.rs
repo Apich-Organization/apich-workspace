@@ -1,5 +1,6 @@
 use crate::api::ProjectVcs;
 use crate::error::{Result, VcsError};
+use crate::model::Branch;
 use chrono::{DateTime, Utc};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
@@ -10,6 +11,15 @@ use std::io::{Read, Write};
 use std::path::Path;
 use tar::{Archive, Builder, Header};
 use uuid::Uuid;
+
+/// Result of accepting an uploaded bundle as a "push" (or, symmetrically, of accepting a
+/// downloaded bundle as a "pull"): which branches advanced, and which were left untouched
+/// because they were not a fast-forward of the receiving side's current history.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PushOutcome {
+    pub accepted_branches: Vec<String>,
+    pub rejected_branches: Vec<(String, String)>,
+}
 
 /// Metadata manifest stored within every APICH project bundle
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +131,116 @@ impl ProjectBundle {
     ) -> Result<ProjectVcs> {
         let file = File::open(bundle_path)?;
         Self::import(file, target_dir)
+    }
+
+    /// Accept an uploaded/downloaded bundle as a "push" (or symmetrically, a "pull" -- the same
+    /// merge logic is safe in both directions) into an *existing* project: unlike `import`, this
+    /// never replaces or wipes anything already there.
+    ///
+    /// CAS objects (chunks/trees/snapshots) are merged in unconditionally -- they're
+    /// content-addressed, so a file with the same relative path always has identical content, and
+    /// copying it in is always safe. Branch refs are the one part of `.apich` that *isn't*
+    /// append-only, so each incoming branch is only advanced if the receiving side's current HEAD
+    /// for that branch is an ancestor of the incoming HEAD (a fast-forward) or the branch doesn't
+    /// exist here yet; anything else is left untouched and reported back, mirroring how a real
+    /// Git server rejects a non-fast-forward push rather than silently discarding history.
+    pub fn accept_push<R: Read>(vcs: &ProjectVcs, reader: R) -> Result<PushOutcome> {
+        let tmp = tempfile::tempdir().map_err(VcsError::Io)?;
+        let decoder = GzDecoder::new(reader);
+        let mut archive = Archive::new(decoder);
+        archive.unpack(tmp.path())?;
+
+        let incoming_apich = tmp.path().join(".apich");
+        if !incoming_apich.exists() {
+            return Err(VcsError::Internal("Uploaded bundle has no .apich directory".to_string()));
+        }
+
+        let local_apich = vcs.project_root().join(".apich");
+        for sub in ["cas/chunks", "cas/trees", "cas/snapshots"] {
+            let src = incoming_apich.join(sub);
+            if src.exists() {
+                Self::merge_copy_dir(&src, &local_apich.join(sub))?;
+            }
+        }
+
+        let mut outcome = PushOutcome::default();
+        let incoming_branches_dir = incoming_apich.join("branches");
+        if incoming_branches_dir.exists() {
+            for entry in fs::read_dir(&incoming_branches_dir)? {
+                let path = entry?.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                let incoming_branch: Branch = serde_json::from_slice(&fs::read(&path)?)?;
+
+                let is_current_branch = vcs.current_branch()?.as_deref() == Some(incoming_branch.name.as_str());
+
+                match vcs.get_branch(&incoming_branch.name)? {
+                    None => {
+                        let new_head = incoming_branch.head_snapshot_id;
+                        vcs.save_branch(&incoming_branch)?;
+                        outcome.accepted_branches.push(incoming_branch.name);
+                        if is_current_branch {
+                            vcs.checkout_tree(new_head)?;
+                        }
+                    }
+                    Some(local_branch) if local_branch.head_snapshot_id == incoming_branch.head_snapshot_id => {
+                        outcome.accepted_branches.push(incoming_branch.name);
+                    }
+                    Some(local_branch) => {
+                        if Self::is_ancestor(vcs, local_branch.head_snapshot_id, incoming_branch.head_snapshot_id) {
+                            let new_head = incoming_branch.head_snapshot_id;
+                            vcs.save_branch(&incoming_branch)?;
+                            outcome.accepted_branches.push(incoming_branch.name);
+                            // Materialize the new content into the working directory -- without
+                            // this, a subsequent local snapshot would scan the still-stale working
+                            // tree and silently create a new snapshot that reverts the branch ref
+                            // right back to the old (pre-push) content.
+                            if is_current_branch {
+                                vcs.checkout_tree(new_head)?;
+                            }
+                        } else {
+                            outcome.rejected_branches.push((
+                                incoming_branch.name,
+                                "not a fast-forward of the current history -- pull before pushing".to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(outcome)
+    }
+
+    /// Walk `descendant_id`'s parent chain looking for `ancestor_id`.
+    fn is_ancestor(vcs: &ProjectVcs, ancestor_id: Uuid, descendant_id: Uuid) -> bool {
+        let mut curr = Some(descendant_id);
+        while let Some(id) = curr {
+            if id == ancestor_id {
+                return true;
+            }
+            curr = vcs.cas().get_snapshot(id).ok().and_then(|s| s.parent_snapshot_id);
+        }
+        false
+    }
+
+    /// Recursively copy files from `src` into `dest`, skipping any path that already exists at
+    /// the destination -- correct here specifically because every file under `.apich/cas/` is
+    /// named by the content hash of its own bytes, so "already exists" means "already identical".
+    fn merge_copy_dir(src: &Path, dest: &Path) -> Result<()> {
+        fs::create_dir_all(dest)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let path = entry.path();
+            let dest_path = dest.join(entry.file_name());
+            if path.is_dir() {
+                Self::merge_copy_dir(&path, &dest_path)?;
+            } else if !dest_path.exists() {
+                fs::copy(&path, &dest_path)?;
+            }
+        }
+        Ok(())
     }
 
     /// Export a clean archive (tar.gz) of a specific snapshot without .apich metadata

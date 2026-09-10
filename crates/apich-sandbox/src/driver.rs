@@ -1,6 +1,6 @@
 use crate::config::SandboxConfig;
 use crate::error::{Result, SandboxError};
-use crate::exec::{ExecOptions, ExecResult, ExecStream, OutputChunk};
+use crate::exec::{ExecOptions, ExecResult, ExecStream, InteractiveExec, OutputChunk};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -660,6 +660,139 @@ impl PodmanDriver {
         });
 
         Ok(ExecStream::new(rx))
+    }
+
+    /// Like `exec_stream`, but also opens the process's stdin for writing -- for commands that
+    /// need real interactive input mid-run (e.g. `claude auth login`, which prints an OAuth URL
+    /// then waits for the user to paste back a code from the browser callback page). Passes
+    /// `-i` to `podman exec` so stdin is actually forwarded into the container; plain
+    /// `exec`/`exec_stream` don't, and input written to a non-`-i` exec session is silently
+    /// discarded by podman.
+    pub async fn exec_interactive(
+        &self,
+        container_name: &str,
+        opts: &ExecOptions,
+    ) -> Result<InteractiveExec> {
+        let mut cmd = Command::new(&self.bin_path);
+        cmd.arg("exec").arg("-i");
+
+        if opts.tty {
+            cmd.arg("-t");
+        }
+
+        if let Some(ref wd) = opts.working_dir {
+            cmd.arg("-w").arg(wd);
+        }
+
+        if let Some(ref user) = opts.user {
+            cmd.arg("-u").arg(user);
+        }
+
+        for (k, v) in &opts.env {
+            cmd.arg("-e").arg(format!("{}={}", k, v));
+        }
+
+        cmd.arg(container_name);
+
+        for arg in &opts.cmd {
+            cmd.arg(arg);
+        }
+
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(SandboxError::Io)?;
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        let (out_tx, out_rx) = mpsc::channel(128);
+        let (in_tx, mut in_rx) = mpsc::channel::<Vec<u8>>(16);
+
+        if let Some(mut stdin) = stdin {
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                while let Some(bytes) = in_rx.recv().await {
+                    if stdin.write_all(&bytes).await.is_err() {
+                        break;
+                    }
+                    let _ = stdin.flush().await;
+                }
+                // Dropping `stdin` here (receiver closed / loop ended) closes the pipe, signaling
+                // EOF to the process -- matches what a real closed terminal stdin would do.
+            });
+        }
+
+        let tx_out = out_tx.clone();
+        if let Some(mut out) = stdout {
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match out.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if tx_out.send(OutputChunk::Stdout(buf[..n].to_vec())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error reading stdout: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        let tx_err = out_tx.clone();
+        if let Some(mut err) = stderr {
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match err.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if tx_err.send(OutputChunk::Stderr(buf[..n].to_vec())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error reading stderr: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        let timeout = opts.timeout;
+        tokio::spawn(async move {
+            let wait_fut = child.wait();
+            let exit_code = if let Some(dur) = timeout {
+                match tokio::time::timeout(dur, wait_fut).await {
+                    Ok(res) => match res {
+                        Ok(status) => status.code().unwrap_or(-1),
+                        Err(_) => -1,
+                    },
+                    Err(_) => {
+                        let _ = child.kill().await;
+                        -124
+                    }
+                }
+            } else {
+                match wait_fut.await {
+                    Ok(status) => status.code().unwrap_or(-1),
+                    Err(_) => -1,
+                }
+            };
+            let _ = out_tx.send(OutputChunk::Exit(exit_code)).await;
+        });
+
+        Ok(InteractiveExec {
+            stream: ExecStream::new(out_rx),
+            stdin_tx: in_tx,
+        })
     }
 
     /// List container names matching a label filter

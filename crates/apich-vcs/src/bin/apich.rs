@@ -7,7 +7,7 @@ use apich_vcs::{BundleOptions, ProjectVcs};
 #[derive(Parser)]
 #[command(
     name = "apich",
-    about = "APICH VCS - Containerized & Host Unified Version Control CLI",
+    about = "apich-vcs: a standalone, local-first version control tool. Works on any directory without a server; `git`/`remote` subcommands are the only ones that need a network peer.",
     version = "0.1.0"
 )]
 struct Cli {
@@ -21,6 +21,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Clone a remote Git repository and start tracking it with apich-vcs
+    Clone {
+        /// Git clone URL
+        url: String,
+        /// Destination directory (defaults to the repository name inferred from the URL)
+        dest: Option<PathBuf>,
+    },
+
     /// Initialize a new APICH VCS repository
     Init,
 
@@ -33,6 +41,19 @@ enum Commands {
         /// Snapshot commit message
         #[arg(short, long)]
         message: String,
+        /// GPG-sign this snapshot using the local keyring. Pass a key ID/fingerprint/email to
+        /// select which key, or use the flag alone to sign with gpg's own default key.
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        sign: Option<String>,
+    },
+
+    /// Verify a snapshot's GPG signature against a public key
+    Verify {
+        /// Target snapshot UUID
+        snapshot_id: Uuid,
+        /// Path to the ASCII-armored public key file to verify against
+        #[arg(long)]
+        pubkey: PathBuf,
     },
 
     /// List snapshot history
@@ -138,6 +159,40 @@ enum Commands {
         #[command(subcommand)]
         command: ConfigCommands,
     },
+
+    /// apich-vcs's own remote protocol (distinct from the Git bridge above): clone, push, and
+    /// pull a project's native apich-vcs history over HTTP.
+    Remote {
+        #[command(subcommand)]
+        command: RemoteCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum RemoteCommands {
+    /// Clone a project from its apich-vcs remote URL
+    /// (e.g. https://host/vcs-remote/<project-id-or-slug>/bundle)
+    Clone {
+        url: String,
+        /// Destination directory (defaults to the last path segment before "/bundle")
+        dest: Option<PathBuf>,
+        /// Personal access token (or set APICH_TOKEN)
+        #[arg(long, env = "APICH_TOKEN")]
+        token: Option<String>,
+    },
+    /// Push local apich-vcs history to a remote URL (fast-forward only -- rejected branches are
+    /// reported, not silently discarded)
+    Push {
+        url: String,
+        #[arg(long, env = "APICH_TOKEN")]
+        token: Option<String>,
+    },
+    /// Pull remote apich-vcs history into the local repository (fast-forward only)
+    Pull {
+        url: String,
+        #[arg(long, env = "APICH_TOKEN")]
+        token: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -218,6 +273,16 @@ enum GitCommands {
         /// Branch name (e.g. main)
         branch: String,
     },
+    /// Fetch changes from a remote without merging
+    Fetch {
+        /// Remote name (e.g. origin)
+        remote: String,
+    },
+    /// Rebase the current branch onto an upstream branch
+    Rebase {
+        /// Upstream branch or commit-ish (e.g. origin/main)
+        upstream: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -252,6 +317,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_path = &cli.path;
 
     match cli.command {
+        Commands::Clone { url, dest } => {
+            let dest = dest.unwrap_or_else(|| {
+                let stem = url
+                    .trim_end_matches('/')
+                    .trim_end_matches(".git")
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("repository");
+                PathBuf::from(stem)
+            });
+            let vcs = ProjectVcs::git_clone(&url, &dest)?;
+            println!("Cloned {} into {}", url, vcs.project_root().display());
+        }
         Commands::Init => {
             ProjectVcs::open_or_init(repo_path)?;
             let canonical = repo_path.canonicalize().unwrap_or_else(|_| repo_path.clone());
@@ -283,15 +361,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!("\nTotal tracked files: {}", status.total_files);
         }
-        Commands::Snapshot { message } => {
+        Commands::Snapshot { message, sign } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             if !vcs.has_changes()? {
                 println!("Nothing to snapshot: working tree clean (no changes detected).");
                 return Ok(());
             }
-            let snap = vcs.snapshot(&message)?;
             let branch = vcs.current_branch()?.unwrap_or_else(|| "main".to_string());
-            println!("[{} {}] {}", branch, snap.id, snap.message);
+            match sign {
+                Some(key_id) => {
+                    let key_id = if key_id.is_empty() { None } else { Some(key_id.as_str()) };
+                    let snap = vcs.snapshot_signed(&message, key_id)?;
+                    println!("[{} {}] {} (GPG-signed)", branch, snap.id, snap.message);
+                }
+                None => {
+                    let snap = vcs.snapshot(&message)?;
+                    println!("[{} {}] {}", branch, snap.id, snap.message);
+                }
+            }
         }
         Commands::Log { limit } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
@@ -314,6 +401,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Commands::Verify { snapshot_id, pubkey } => {
+            let vcs = ProjectVcs::open_or_init(repo_path)?;
+            let public_key = std::fs::read_to_string(&pubkey)?;
+            match vcs.verify_snapshot_signature(snapshot_id, &public_key)? {
+                None => {
+                    println!("Snapshot {} is not signed.", snapshot_id);
+                    std::process::exit(1);
+                }
+                Some(apich_vcs::SignatureStatus::Valid { fingerprint }) => {
+                    println!("Good signature from key {} on snapshot {}.", fingerprint, snapshot_id);
+                }
+                Some(apich_vcs::SignatureStatus::Invalid(reason)) => {
+                    println!("BAD signature on snapshot {}: {}", snapshot_id, reason);
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::Show { snapshot_id } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             let snap = vcs.get_snapshot(snapshot_id)?;
@@ -327,6 +431,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if let Some(ref oid) = snap.git_commit_oid {
                 println!("Git-Commit:  {}", oid);
+            }
+            if snap.gpg_signature.is_some() {
+                println!("GPG-Signed:  yes (run `apich verify {} --pubkey <file>` to check)", snap.id);
+            } else {
+                println!("GPG-Signed:  no");
             }
             println!("\n    {}\n", snap.message);
 
@@ -548,6 +657,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 vcs.git_pull(&remote, &branch)?;
                 println!("Pulled from remote '{}' branch '{}'", remote, branch);
             }
+            GitCommands::Fetch { remote } => {
+                let vcs = ProjectVcs::open_or_init(repo_path)?;
+                vcs.git_fetch(&remote)?;
+                println!("Fetched from remote '{}'", remote);
+            }
+            GitCommands::Rebase { upstream } => {
+                let vcs = ProjectVcs::open_or_init(repo_path)?;
+                vcs.git_rebase(&upstream)?;
+                println!("Rebased current branch onto '{}'", upstream);
+            }
         },
         Commands::Material { command } => match command {
             MaterialCommands::Clone { url, path } => {
@@ -599,7 +718,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Set LFS size threshold to {} bytes and updated config", bytes);
             }
         },
+        Commands::Remote { command } => match command {
+            RemoteCommands::Clone { url, dest, token } => {
+                let dest = dest.unwrap_or_else(|| {
+                    let stem = url
+                        .trim_end_matches('/')
+                        .trim_end_matches("/bundle")
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or("repository");
+                    PathBuf::from(stem)
+                });
+                if dest.exists() {
+                    return Err(format!("Clone destination already exists: {}", dest.display()).into());
+                }
+                let bytes = remote_get(&url, token.as_deref())?;
+                let vcs = ProjectVcs::import_bundle(&bytes[..], &dest)?;
+                println!("Cloned {} into {}", url, vcs.project_root().display());
+            }
+            RemoteCommands::Push { url, token } => {
+                let vcs = ProjectVcs::open_or_init(repo_path)?;
+                let mut bytes = Vec::new();
+                vcs.export_bundle(&mut bytes, apich_vcs::BundleOptions::default())?;
+                let outcome = remote_post(&url, token.as_deref(), bytes)?;
+                print_push_outcome(&outcome);
+            }
+            RemoteCommands::Pull { url, token } => {
+                let vcs = ProjectVcs::open_or_init(repo_path)?;
+                let bytes = remote_get(&url, token.as_deref())?;
+                let outcome = vcs.accept_push_bundle(&bytes[..])?;
+                print_push_outcome(&outcome);
+            }
+        },
     }
 
     Ok(())
+}
+
+fn remote_get(url: &str, token: Option<&str>) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let client = reqwest::blocking::Client::new();
+    let mut req = client.get(url);
+    if let Some(t) = token {
+        req = req.bearer_auth(t);
+    }
+    let resp = req.send()?;
+    if !resp.status().is_success() {
+        return Err(format!("remote returned HTTP {}: {}", resp.status(), resp.text().unwrap_or_default()).into());
+    }
+    Ok(resp.bytes()?.to_vec())
+}
+
+fn remote_post(url: &str, token: Option<&str>, body: Vec<u8>) -> Result<apich_vcs::PushOutcome, Box<dyn std::error::Error>> {
+    let client = reqwest::blocking::Client::new();
+    let mut req = client.post(url).body(body);
+    if let Some(t) = token {
+        req = req.bearer_auth(t);
+    }
+    let resp = req.send()?;
+    if !resp.status().is_success() {
+        return Err(format!("remote returned HTTP {}: {}", resp.status(), resp.text().unwrap_or_default()).into());
+    }
+    Ok(resp.json()?)
+}
+
+fn print_push_outcome(outcome: &apich_vcs::PushOutcome) {
+    for b in &outcome.accepted_branches {
+        println!("  {} -> accepted", b);
+    }
+    for (b, reason) in &outcome.rejected_branches {
+        println!("  {} -> rejected: {}", b, reason);
+    }
+    if outcome.accepted_branches.is_empty() && outcome.rejected_branches.is_empty() {
+        println!("  (no branches in bundle)");
+    }
 }

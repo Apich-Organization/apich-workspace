@@ -375,5 +375,24 @@ impl IdentityService {
         repo.update_user_password(user_id, &new_hash).await?;
         Ok(())
     }
+
+    /// Check if user has administrative roles in any organization or team
+    pub async fn is_org_or_team_admin(&self, user_id: Uuid) -> WebResult<bool> {
+        let result: (bool,) = sqlx::query_as(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM org_members WHERE user_id = $1 AND role IN ('owner', 'admin')
+                UNION ALL
+                SELECT 1 FROM team_members WHERE user_id = $1 AND role = 'admin'
+            )
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(self.db.pool())
+        .await
+        .map_err(apich_db::DbError::from)?;
+
+        Ok(result.0)
+    }
 }
 

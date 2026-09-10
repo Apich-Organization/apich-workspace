@@ -157,6 +157,17 @@ impl ExecStream {
     }
 }
 
+/// A running exec session with a writable stdin, for commands that need real interactive input
+/// mid-run -- e.g. `claude auth login`, which prints an OAuth URL and then waits for the user to
+/// paste back a code from the browser callback page. Plain `ExecStream` only reads output;
+/// this additionally lets the caller write bytes into the process's stdin at any point before it
+/// exits. Dropping `stdin_tx` (or the whole `InteractiveExec`) closes stdin, which is how a
+/// command that reads until EOF (rather than a specific delimiter) is told input is done.
+pub struct InteractiveExec {
+    pub stream: ExecStream,
+    pub stdin_tx: mpsc::Sender<Vec<u8>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

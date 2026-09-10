@@ -49,17 +49,25 @@ pub struct Team {
     pub name: String,
     pub slug: String,
     pub description: Option<String>,
+    pub chat_url: Option<String>,
+    pub meeting_url: Option<String>,
+    pub drive_url: Option<String>,
+    pub ai_agent_url: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateTeamDto {
     pub org_id: Uuid,
     pub parent_team_id: Option<Uuid>,
     pub name: String,
     pub slug: String,
     pub description: Option<String>,
+    pub chat_url: Option<String>,
+    pub meeting_url: Option<String>,
+    pub drive_url: Option<String>,
+    pub ai_agent_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -68,6 +76,10 @@ pub struct UpdateTeamDto {
     pub slug: Option<String>,
     pub description: Option<String>,
     pub parent_team_id: Option<Option<Uuid>>,
+    pub chat_url: Option<String>,
+    pub meeting_url: Option<String>,
+    pub drive_url: Option<String>,
+    pub ai_agent_url: Option<String>,
 }
 
 

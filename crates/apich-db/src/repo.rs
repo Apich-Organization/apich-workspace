@@ -3,12 +3,12 @@ use crate::models::{
     AuditLog, CreateAuditLogDto, CreateDocumentDto, CreateInvitationDto, CreateKnowledgeEdgeDto,
     CreateKnowledgeNodeDto, CreateOAuthClientDto, CreateOrganizationDto, CreateProjectDto,
     CreateTeamDto, CreateUserDto, CreateWorkspaceDto, Document, DocumentSearchResult,
-    Fido2Credential, Invitation, KnowledgeEdge, KnowledgeNode, MemberRole, OAuthAuthCode,
-    OAuthClient, OrgMemberWithUser, Organization, Project, ProjectMember, ProjectMemberWithUser,
-    ProjectSandbox, SystemSettings, Team, TeamMemberWithUser, TeamTreeNode,
+    Fido2Credential, GpgPublicKey, Invitation, KnowledgeEdge, KnowledgeNode, MemberRole,
+    OAuthAuthCode, OAuthClient, OrgMemberWithUser, Organization, PersonalAccessToken, Project,
+    ProjectMember, ProjectMemberWithUser, ProjectSandbox, SshPublicKey, SystemSettings, Team,
+    TeamMemberWithUser, TeamTreeNode,
     UpdateOrganizationDto, UpdateSystemSettingsDto, UpdateTeamDto, UpdateUserProfileDto, User,
-    UserRole, UserSession, Workspace, WorkspaceMember,
-
+    UserRole, UserSession, Workspace, WorkspaceMember, EffectiveHubLinks,
 };
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -450,11 +450,12 @@ impl<'a> Repository<'a> {
     ) -> Result<Organization> {
         let id = Uuid::now_v7();
         let mut tx = self.pool.begin().await?;
+        let allow_team_override = dto.allow_team_override.unwrap_or(true);
 
         let org = sqlx::query_as::<_, Organization>(
             r#"
-            INSERT INTO organizations (id, slug, name, description)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO organizations (id, slug, name, description, chat_url, meeting_url, drive_url, ai_agent_url, allow_team_override)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
             "#,
         )
@@ -462,6 +463,11 @@ impl<'a> Repository<'a> {
         .bind(&dto.slug)
         .bind(&dto.name)
         .bind(&dto.description)
+        .bind(&dto.chat_url)
+        .bind(&dto.meeting_url)
+        .bind(&dto.drive_url)
+        .bind(&dto.ai_agent_url)
+        .bind(allow_team_override)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -591,6 +597,11 @@ impl<'a> Repository<'a> {
             SET name = COALESCE($2, name),
                 slug = COALESCE($3, slug),
                 description = COALESCE($4, description),
+                chat_url = CASE WHEN $5::text IS NOT NULL THEN NULLIF($5, '') ELSE chat_url END,
+                meeting_url = CASE WHEN $6::text IS NOT NULL THEN NULLIF($6, '') ELSE meeting_url END,
+                drive_url = CASE WHEN $7::text IS NOT NULL THEN NULLIF($7, '') ELSE drive_url END,
+                ai_agent_url = CASE WHEN $8::text IS NOT NULL THEN NULLIF($8, '') ELSE ai_agent_url END,
+                allow_team_override = COALESCE($9, allow_team_override),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
             RETURNING *
@@ -600,6 +611,11 @@ impl<'a> Repository<'a> {
         .bind(dto.name)
         .bind(dto.slug)
         .bind(dto.description)
+        .bind(dto.chat_url)
+        .bind(dto.meeting_url)
+        .bind(dto.drive_url)
+        .bind(dto.ai_agent_url)
+        .bind(dto.allow_team_override)
         .fetch_one(self.pool)
         .await?;
 
@@ -614,6 +630,75 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Resolve effective external hub links (Chat, Video, Drive, AI) following recursive override rules.
+    ///
+    /// Rules:
+    /// - If Org has `allow_team_override == false`, Org links are strictly enforced globally.
+    /// - If Org has `allow_team_override == true` and `team_id` is provided, traverses the team hierarchy
+    ///   upwards to find team-level customizations, falling back to Org links for any unconfigured items.
+    pub async fn resolve_hub_links(
+        &self,
+        org_id: Uuid,
+        team_id: Option<Uuid>,
+    ) -> Result<EffectiveHubLinks> {
+        let org = match self.get_organization_by_id(org_id).await? {
+            Some(o) => o,
+            None => return Ok(EffectiveHubLinks::default()),
+        };
+
+        if !org.allow_team_override || team_id.is_none() {
+            return Ok(EffectiveHubLinks {
+                chat_url: org.chat_url,
+                meeting_url: org.meeting_url,
+                drive_url: org.drive_url,
+                ai_agent_url: org.ai_agent_url,
+                is_team_override: false,
+                allow_team_override: org.allow_team_override,
+            });
+        }
+
+        let mut curr_team_id = team_id;
+        let mut chat_url = None;
+        let mut meeting_url = None;
+        let mut drive_url = None;
+        let mut ai_agent_url = None;
+        let mut is_team_override = false;
+
+        // Traverse team hierarchy upwards from child to parents
+        while let Some(tid) = curr_team_id {
+            if let Some(t) = self.get_team_by_id(tid).await? {
+                if chat_url.is_none() && t.chat_url.is_some() {
+                    chat_url = t.chat_url;
+                    is_team_override = true;
+                }
+                if meeting_url.is_none() && t.meeting_url.is_some() {
+                    meeting_url = t.meeting_url;
+                    is_team_override = true;
+                }
+                if drive_url.is_none() && t.drive_url.is_some() {
+                    drive_url = t.drive_url;
+                    is_team_override = true;
+                }
+                if ai_agent_url.is_none() && t.ai_agent_url.is_some() {
+                    ai_agent_url = t.ai_agent_url;
+                    is_team_override = true;
+                }
+                curr_team_id = t.parent_team_id;
+            } else {
+                break;
+            }
+        }
+
+        Ok(EffectiveHubLinks {
+            chat_url: chat_url.or(org.chat_url),
+            meeting_url: meeting_url.or(org.meeting_url),
+            drive_url: drive_url.or(org.drive_url),
+            ai_agent_url: ai_agent_url.or(org.ai_agent_url),
+            is_team_override,
+            allow_team_override: true,
+        })
+    }
+
     // --- Team Operations (Recursive tree) ---
 
 
@@ -623,8 +708,8 @@ impl<'a> Repository<'a> {
 
         let team = sqlx::query_as::<_, Team>(
             r#"
-            INSERT INTO teams (id, org_id, parent_team_id, name, slug, description)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO teams (id, org_id, parent_team_id, name, slug, description, chat_url, meeting_url, drive_url, ai_agent_url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
             "#,
         )
@@ -634,6 +719,10 @@ impl<'a> Repository<'a> {
         .bind(&dto.name)
         .bind(&dto.slug)
         .bind(&dto.description)
+        .bind(&dto.chat_url)
+        .bind(&dto.meeting_url)
+        .bind(&dto.drive_url)
+        .bind(&dto.ai_agent_url)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -769,6 +858,10 @@ impl<'a> Repository<'a> {
                 slug = COALESCE($3, slug),
                 description = COALESCE($4, description),
                 parent_team_id = CASE WHEN $5 = true THEN $6 ELSE parent_team_id END,
+                chat_url = CASE WHEN $7::text IS NOT NULL THEN NULLIF($7, '') ELSE chat_url END,
+                meeting_url = CASE WHEN $8::text IS NOT NULL THEN NULLIF($8, '') ELSE meeting_url END,
+                drive_url = CASE WHEN $9::text IS NOT NULL THEN NULLIF($9, '') ELSE drive_url END,
+                ai_agent_url = CASE WHEN $10::text IS NOT NULL THEN NULLIF($10, '') ELSE ai_agent_url END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
             RETURNING *
@@ -780,6 +873,10 @@ impl<'a> Repository<'a> {
         .bind(dto.description)
         .bind(update_parent)
         .bind(parent_id)
+        .bind(dto.chat_url)
+        .bind(dto.meeting_url)
+        .bind(dto.drive_url)
+        .bind(dto.ai_agent_url)
         .fetch_one(self.pool)
         .await?;
 
@@ -892,6 +989,15 @@ impl<'a> Repository<'a> {
     pub async fn set_project_vcs_initialized(&self, id: Uuid, initialized: bool) -> Result<()> {
         sqlx::query("UPDATE projects SET vcs_initialized = $1 WHERE id = $2")
             .bind(initialized)
+            .bind(id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn update_project_settings(&self, id: Uuid, settings: serde_json::Value) -> Result<()> {
+        sqlx::query("UPDATE projects SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
+            .bind(settings)
             .bind(id)
             .execute(self.pool)
             .await?;
@@ -1024,13 +1130,14 @@ impl<'a> Repository<'a> {
 
         let sandbox = sqlx::query_as::<_, ProjectSandbox>(
             r#"
-            INSERT INTO project_sandboxes (id, project_id, user_id, container_name, status, last_started_at)
-            VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE NULL END)
+            INSERT INTO project_sandboxes (id, project_id, user_id, container_name, status, last_started_at, last_activity_at)
+            VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE NULL END, CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE NULL END)
             ON CONFLICT (project_id, user_id) DO UPDATE
             SET container_name = EXCLUDED.container_name,
                 status = EXCLUDED.status,
                 last_started_at = CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE project_sandboxes.last_started_at END,
                 last_stopped_at = CASE WHEN NOT $6 THEN CURRENT_TIMESTAMP ELSE project_sandboxes.last_stopped_at END,
+                last_activity_at = CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE project_sandboxes.last_activity_at END,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
             "#,
@@ -1060,6 +1167,70 @@ impl<'a> Repository<'a> {
         .fetch_optional(self.pool)
         .await?;
         Ok(sandbox)
+    }
+
+    /// Record real activity in a running sandbox (a terminal command, script run, or agent run),
+    /// resetting its idle clock. The idle reaper (`ProjectManagerService::reap_idle_sandboxes`)
+    /// stops any `running` sandbox whose activity is older than the configured idle timeout.
+    pub async fn touch_sandbox_activity(&self, project_id: Uuid, user_id: Uuid) -> Result<()> {
+        sqlx::query(
+            "UPDATE project_sandboxes SET last_activity_at = CURRENT_TIMESTAMP WHERE project_id = $1 AND user_id = $2",
+        )
+        .bind(project_id)
+        .bind(user_id)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// All `running` sandboxes whose last real activity (or, if none was ever recorded, their
+    /// start time) is older than `idle_since` -- candidates for the idle reaper to stop.
+    pub async fn list_idle_running_sandboxes(&self, idle_since: DateTime<Utc>) -> Result<Vec<ProjectSandbox>> {
+        let rows = sqlx::query_as::<_, ProjectSandbox>(
+            "SELECT * FROM project_sandboxes WHERE status = 'running' AND COALESCE(last_activity_at, last_started_at) < $1",
+        )
+        .bind(idle_since)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// All `stopped` sandboxes that have sat stopped for longer than `stopped_since` -- candidates
+    /// for actual removal (`podman rm`), not just stopping. The idle reaper only ever stops a
+    /// running container; nothing previously deleted a stopped one, so every sandbox this app ever
+    /// started accumulated on the host forever once idle-stopped -- confirmed live: dozens of
+    /// `apich-proj-*` containers going back over a day, none of them removed.
+    pub async fn list_stale_stopped_sandboxes(&self, stopped_since: DateTime<Utc>) -> Result<Vec<ProjectSandbox>> {
+        let rows = sqlx::query_as::<_, ProjectSandbox>(
+            "SELECT * FROM project_sandboxes WHERE status = 'stopped' AND last_stopped_at IS NOT NULL AND last_stopped_at < $1",
+        )
+        .bind(stopped_since)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Every tracked (project, user) -> container_name mapping regardless of status -- used to
+    /// cross-reference against the real, ground-truth list of containers podman reports, so a
+    /// container that exists on the host but was never recorded here (or whose record was already
+    /// deleted) can be recognized as orphaned and removed.
+    pub async fn list_all_sandbox_container_names(&self) -> Result<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT container_name FROM project_sandboxes")
+            .fetch_all(self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|(n,)| n).collect())
+    }
+
+    /// Removes a sandbox's tracking row entirely, once its container has actually been removed
+    /// from the host -- leaving a stale row around (even with `status = 'stopped'`) after the real
+    /// container is gone serves no purpose and only risks a future stale-container mixup.
+    pub async fn delete_project_sandbox(&self, project_id: Uuid, user_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM project_sandboxes WHERE project_id = $1 AND user_id = $2")
+            .bind(project_id)
+            .bind(user_id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
     }
 
     // --- User Session Operations ---
@@ -1175,6 +1346,204 @@ impl<'a> Repository<'a> {
         .bind(credential_id)
         .execute(self.pool)
         .await?;
+        Ok(())
+    }
+
+    // --- Personal Access Tokens ---
+
+    pub async fn create_personal_access_token(
+        &self,
+        user_id: Uuid,
+        name: &str,
+        token_hash: &str,
+        token_prefix: &str,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<PersonalAccessToken> {
+        let id = Uuid::now_v7();
+        let pat = sqlx::query_as::<_, PersonalAccessToken>(
+            r#"
+            INSERT INTO personal_access_tokens (id, user_id, name, token_hash, token_prefix, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(name)
+        .bind(token_hash)
+        .bind(token_prefix)
+        .bind(expires_at)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(pat)
+    }
+
+    pub async fn list_personal_access_tokens(&self, user_id: Uuid) -> Result<Vec<PersonalAccessToken>> {
+        let tokens = sqlx::query_as::<_, PersonalAccessToken>(
+            "SELECT * FROM personal_access_tokens WHERE user_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(tokens)
+    }
+
+    /// Look up the active user behind a plaintext PAT's hash, for Basic/Bearer auth on the
+    /// self-hosted git and apich-vcs remote endpoints. Touches `last_used_at` on a hit.
+    pub async fn get_user_by_active_pat_hash(&self, token_hash: &str) -> Result<Option<User>> {
+        let user = sqlx::query_as::<_, User>(
+            r#"
+            SELECT u.* FROM users u
+            JOIN personal_access_tokens t ON u.id = t.user_id
+            WHERE t.token_hash = $1
+              AND t.revoked_at IS NULL
+              AND (t.expires_at IS NULL OR t.expires_at > CURRENT_TIMESTAMP)
+              AND u.is_active = true
+            "#,
+        )
+        .bind(token_hash)
+        .fetch_optional(self.pool)
+        .await?;
+
+        if user.is_some() {
+            let _ = sqlx::query(
+                "UPDATE personal_access_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = $1",
+            )
+            .bind(token_hash)
+            .execute(self.pool)
+            .await;
+        }
+        Ok(user)
+    }
+
+    pub async fn revoke_personal_access_token(&self, user_id: Uuid, token_id: Uuid) -> Result<()> {
+        sqlx::query(
+            "UPDATE personal_access_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2",
+        )
+        .bind(token_id)
+        .bind(user_id)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // --- SSH Public Keys (storage/identity only -- no SSH transport server) ---
+
+    pub async fn add_ssh_public_key(
+        &self,
+        user_id: Uuid,
+        name: &str,
+        key_type: &str,
+        public_key: &str,
+        fingerprint: &str,
+    ) -> Result<SshPublicKey> {
+        let id = Uuid::now_v7();
+        let key = sqlx::query_as::<_, SshPublicKey>(
+            r#"
+            INSERT INTO ssh_public_keys (id, user_id, name, key_type, public_key, fingerprint)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(name)
+        .bind(key_type)
+        .bind(public_key)
+        .bind(fingerprint)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(key)
+    }
+
+    pub async fn list_ssh_public_keys(&self, user_id: Uuid) -> Result<Vec<SshPublicKey>> {
+        let keys = sqlx::query_as::<_, SshPublicKey>(
+            "SELECT * FROM ssh_public_keys WHERE user_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(keys)
+    }
+
+    pub async fn delete_ssh_public_key(&self, user_id: Uuid, key_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM ssh_public_keys WHERE id = $1 AND user_id = $2")
+            .bind(key_id)
+            .bind(user_id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // --- GPG Public Keys (signature verification for apich-vcs snapshots) ---
+
+    pub async fn add_gpg_public_key(
+        &self,
+        user_id: Uuid,
+        name: &str,
+        public_key: &str,
+        fingerprint: &str,
+    ) -> Result<GpgPublicKey> {
+        let id = Uuid::now_v7();
+        let key = sqlx::query_as::<_, GpgPublicKey>(
+            r#"
+            INSERT INTO gpg_public_keys (id, user_id, name, public_key, fingerprint)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(name)
+        .bind(public_key)
+        .bind(fingerprint)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(key)
+    }
+
+    pub async fn list_gpg_public_keys(&self, user_id: Uuid) -> Result<Vec<GpgPublicKey>> {
+        let keys = sqlx::query_as::<_, GpgPublicKey>(
+            "SELECT * FROM gpg_public_keys WHERE user_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(keys)
+    }
+
+    pub async fn delete_gpg_public_key(&self, user_id: Uuid, key_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM gpg_public_keys WHERE id = $1 AND user_id = $2")
+            .bind(key_id)
+            .bind(user_id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// All GPG public keys belonging to anyone with access to a project (owner + members) --
+    /// used to check a snapshot's signature under "vigilant mode" without needing to know exactly
+    /// which member authored it (apich-vcs snapshots don't yet carry a real per-member author id).
+    pub async fn list_gpg_public_keys_for_project(&self, project_id: Uuid) -> Result<Vec<GpgPublicKey>> {
+        let keys = sqlx::query_as::<_, GpgPublicKey>(
+            r#"
+            SELECT DISTINCT k.* FROM gpg_public_keys k
+            WHERE k.user_id = (SELECT owner_id FROM projects WHERE id = $1)
+               OR k.user_id IN (SELECT user_id FROM project_members WHERE project_id = $1)
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(keys)
+    }
+
+    pub async fn set_project_vigilant_mode(&self, project_id: Uuid, enabled: bool) -> Result<()> {
+        sqlx::query("UPDATE projects SET vigilant_mode = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
+            .bind(enabled)
+            .bind(project_id)
+            .execute(self.pool)
+            .await?;
         Ok(())
     }
 

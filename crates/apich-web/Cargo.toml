@@ -3,21 +3,21 @@ name = "apich-web"
 version = "0.1.0"
 edition = "2021"
 authors = ["APICH Team"]
-description = "Isomorphic Full-Stack Web Server, Leptos Frontend, Project Lifecycle Sandbox, SSO Provider, and Passkey/FIDO2 Auth for APICH"
+description = "Full-Stack Web Server with a Leptos SSR Frontend, Project Lifecycle Sandbox, SSO Provider, and Passkey/FIDO2 Auth for APICH"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
 apich-db = { path = "../apich-db" }
 apich-sandbox = { path = "../apich-sandbox" }
 apich-vcs = { path = "../apich-vcs" }
+apich-islands = { path = "../apich-islands", features = ["ssr"] }
 
 # Web Framework & SSR
 axum = { version = "0.7.9", features = ["macros"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
-leptos = { version = "0.7.7", features = ["ssr"] }
-leptos_axum = { version = "0.7.8" }
-leptos_router = { version = "0.7.7", features = ["ssr"] }
+leptos = { version = "0.7.7", features = ["ssr", "islands"] }
+hydration_context = "0.2"
 
 # Async & Runtime
 tokio = { version = "1", features = ["full"] }
@@ -45,11 +45,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2.0"
 http = "1.1"
 urlencoding = "2.1"
+regex = "1.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Email / Mailer
 lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
 
 [dev-dependencies]
 tempfile = "3.10"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
 tower = { version = "0.5", features = ["util"] }
+

@@ -1,0 +1,944 @@
+use crate::error::{WebError, WebResult};
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarkdownTask {
+    pub id: String, // hash or file:line
+    pub file_path: String,
+    pub line_number: usize,
+    pub raw_line: String,
+    pub title: String,
+    pub completed: bool,
+    pub status: String, // "todo", "in_progress", "done"
+    pub tags: Vec<String>,
+    pub due_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KanbanColumn {
+    pub id: String,
+    pub title: String,
+    pub tasks: Vec<MarkdownTask>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KanbanBoard {
+    pub columns: Vec<KanbanColumn>,
+    pub total_tasks: usize,
+    pub completed_tasks: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WikiLink {
+    pub source_path: String,
+    pub target_title: String,
+    pub display_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub label: String,
+    pub file_path: Option<String>,
+    pub exists: bool,
+    pub backlink_count: usize,
+    pub task_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdge {
+    pub source: String,
+    pub target: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarEvent {
+    pub id: String,
+    pub date: String, // YYYY-MM-DD
+    pub title: String,
+    pub source_file: String,
+    pub line_number: Option<usize>,
+    pub is_task: bool,
+    pub completed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSummary {
+    pub relative_path: String,
+    pub title: String,
+    pub modified_rfc3339: Option<String>,
+    pub outgoing_links: Vec<String>,
+    pub incoming_backlinks: Vec<String>,
+    pub task_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UnifiedNoteMeta {
+    pub title: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub tags: Vec<String>,
+    pub author: Option<String>,
+    pub whiteboard: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteHeading {
+    pub level: usize,
+    pub text: String,
+    pub line: usize,
+}
+
+pub struct KnowledgeSyncService;
+
+impl KnowledgeSyncService {
+    /// Discover all Markdown and Unified Note (.anote, .note, .md) files in a workspace directory
+    pub fn discover_markdown_files<P: AsRef<Path>>(project_dir: P) -> Vec<PathBuf> {
+        let mut md_files = Vec::new();
+        let project_dir = project_dir.as_ref();
+
+        if !project_dir.exists() {
+            return md_files;
+        }
+
+        fn walk(dir: &Path, acc: &mut Vec<PathBuf>) {
+            let entries = match std::fs::read_dir(dir) {
+                Ok(e) => e,
+                Err(_) => return,
+            };
+
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+
+                if path.is_dir() {
+                    if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" {
+                        continue;
+                    }
+                    walk(&path, acc);
+                } else if path.is_file() {
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if ext.eq_ignore_ascii_case("md")
+                        || ext.eq_ignore_ascii_case("markdown")
+                        || ext.eq_ignore_ascii_case("anote")
+                        || ext.eq_ignore_ascii_case("note")
+                    {
+                        acc.push(path);
+                    }
+                }
+            }
+        }
+
+        walk(project_dir, &mut md_files);
+        md_files.sort();
+        md_files
+    }
+
+    /// Extract all actionable tasks from Markdown files in the project
+    pub fn extract_all_tasks<P: AsRef<Path>>(project_dir: P) -> WebResult<Vec<MarkdownTask>> {
+        let root = project_dir.as_ref();
+        let files = Self::discover_markdown_files(root);
+        let mut tasks = Vec::new();
+
+        // Pattern for markdown tasks: - [ ] or - [x] or - [/]
+        // Group 1: check character
+        // Group 2: remaining line content
+        let task_regex = Regex::new(r"^\s*[-*]\s+\[([ xX/])\]\s+(.*)$")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+        let tag_regex = Regex::new(r"#([a-zA-Z0-9_\-]+)")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+        let date_regex = Regex::new(r"@(\d{4}-\d{2}-\d{2})")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+
+        for file in files {
+            let rel_path = file
+                .strip_prefix(root)
+                .unwrap_or(&file)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            let content = match std::fs::read_to_string(&file) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            for (idx, line) in content.lines().enumerate() {
+                let line_number = idx + 1;
+                if let Some(caps) = task_regex.captures(line) {
+                    let mark = caps.get(1).map(|m| m.as_str()).unwrap_or(" ");
+                    let raw_body = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+
+                    let completed = mark == "x" || mark == "X";
+                    let status = if completed {
+                        "done"
+                    } else if mark == "/" {
+                        "in_progress"
+                    } else {
+                        "todo"
+                    };
+
+                    // Extract tags
+                    let tags: Vec<String> = tag_regex
+                        .find_iter(raw_body)
+                        .map(|m| m.as_str().trim_start_matches('#').to_string())
+                        .collect();
+
+                    // Extract due date
+                    let due_date = date_regex
+                        .captures(raw_body)
+                        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
+
+                    // Clean title: strip #tags and @date for display
+                    let mut clean_title = tag_regex.replace_all(raw_body, "").to_string();
+                    clean_title = date_regex.replace_all(&clean_title, "").to_string();
+                    let title = clean_title.trim().to_string();
+
+                    let id = format!("{}:{}", rel_path, line_number);
+
+                    tasks.push(MarkdownTask {
+                        id,
+                        file_path: rel_path.clone(),
+                        line_number,
+                        raw_line: line.to_string(),
+                        title: if title.is_empty() { raw_body.to_string() } else { title },
+                        completed,
+                        status: status.to_string(),
+                        tags,
+                        due_date,
+                    });
+                }
+            }
+        }
+
+        Ok(tasks)
+    }
+
+    /// Build Kanban Board representation directly from Markdown tasks
+    pub fn build_kanban_board<P: AsRef<Path>>(project_dir: P) -> WebResult<KanbanBoard> {
+        let tasks = Self::extract_all_tasks(project_dir)?;
+        let total_tasks = tasks.len();
+        let completed_tasks = tasks.iter().filter(|t| t.completed).count();
+
+        let mut todo_tasks = Vec::new();
+        let mut in_progress_tasks = Vec::new();
+        let mut done_tasks = Vec::new();
+
+        for task in tasks {
+            match task.status.as_str() {
+                "done" => done_tasks.push(task),
+                "in_progress" => in_progress_tasks.push(task),
+                _ => todo_tasks.push(task),
+            }
+        }
+
+        let columns = vec![
+            KanbanColumn {
+                id: "todo".to_string(),
+                title: "To Do".to_string(),
+                tasks: todo_tasks,
+            },
+            KanbanColumn {
+                id: "in_progress".to_string(),
+                title: "In Progress".to_string(),
+                tasks: in_progress_tasks,
+            },
+            KanbanColumn {
+                id: "done".to_string(),
+                title: "Completed".to_string(),
+                tasks: done_tasks,
+            },
+        ];
+
+        Ok(KanbanBoard {
+            columns,
+            total_tasks,
+            completed_tasks,
+        })
+    }
+
+    /// Toggle or update a task status in the physical Markdown document
+    pub fn update_task_status<P: AsRef<Path>>(
+        project_dir: P,
+        rel_path: &str,
+        line_number: usize,
+        new_status: &str,
+    ) -> WebResult<()> {
+        let clean = rel_path.trim().trim_start_matches('/');
+        if clean.contains("..") || clean.is_empty() {
+            return Err(WebError::BadRequest("Invalid file path".to_string()));
+        }
+
+        let full_path = project_dir.as_ref().join(clean);
+        if !full_path.exists() {
+            return Err(WebError::NotFound(format!("File not found: {}", rel_path)));
+        }
+
+        let content = std::fs::read_to_string(&full_path)
+            .map_err(|e| WebError::Internal(format!("Failed to read file: {}", e)))?;
+
+        let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        if lines.is_empty() {
+            return Err(WebError::BadRequest("File is empty".to_string()));
+        }
+
+        let task_regex = Regex::new(r"^(\s*[-*]\s+)\[([ xX/])\](.*)$")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+
+        // 1. Direct file line match
+        let mut target_idx = if line_number > 0 && line_number <= lines.len() && task_regex.is_match(&lines[line_number - 1]) {
+            Some(line_number - 1)
+        } else {
+            None
+        };
+
+        // 2. If not matched, try body-relative line offset (e.g. for .anote with frontmatter)
+        if target_idx.is_none() {
+            let (_, body) = Self::parse_unified_note(&content);
+            if !body.is_empty() {
+                if let Some(body_start) = content.find(&body) {
+                    let prefix_lines = content[..body_start].lines().count();
+                    let candidate = line_number + prefix_lines;
+                    if candidate > 0 && candidate <= lines.len() && task_regex.is_match(&lines[candidate - 1]) {
+                        target_idx = Some(candidate - 1);
+                    }
+                }
+            }
+        }
+
+        // 3. If still not matched, check nearby lines (+/- 1, 2)
+        if target_idx.is_none() {
+            for delta in [-1isize, 1, -2, 2] {
+                let test_idx = (line_number as isize - 1) + delta;
+                if test_idx >= 0 && (test_idx as usize) < lines.len() && task_regex.is_match(&lines[test_idx as usize]) {
+                    target_idx = Some(test_idx as usize);
+                    break;
+                }
+            }
+        }
+
+        let idx = match target_idx {
+            Some(i) => i,
+            None => {
+                if line_number == 0 || line_number > lines.len() {
+                    return Err(WebError::BadRequest(format!(
+                        "Line number {} out of bounds (file has {} lines)",
+                        line_number,
+                        lines.len()
+                    )));
+                } else {
+                    return Err(WebError::BadRequest(format!(
+                        "Line {} is not a recognized markdown task: {}",
+                        line_number, lines[line_number - 1]
+                    )));
+                }
+            }
+        };
+
+        let line = &lines[idx];
+        if let Some(caps) = task_regex.captures(line) {
+            let prefix = caps.get(1).map(|m| m.as_str()).unwrap_or("- ");
+            let suffix = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+
+            let mark = match new_status {
+                "done" => "x",
+                "in_progress" => "/",
+                _ => " ",
+            };
+
+            lines[idx] = format!("{}[{}]{}", prefix, mark, suffix);
+        }
+
+        let new_content = lines.join("\n") + if content.ends_with('\n') { "\n" } else { "" };
+        std::fs::write(&full_path, new_content.as_bytes())
+            .map_err(|e| WebError::Internal(format!("Failed to write updated file: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Extract bidirectional Wiki links [[Target]] or [[Target|Display]] and construct Knowledge Graph
+    pub fn build_knowledge_graph<P: AsRef<Path>>(project_dir: P) -> WebResult<KnowledgeGraph> {
+        let root = project_dir.as_ref();
+        let files = Self::discover_markdown_files(root);
+
+        let wiki_regex = Regex::new(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+
+        let mut node_set: HashMap<String, GraphNode> = HashMap::new();
+        let mut edges: Vec<GraphEdge> = Vec::new();
+        let mut backlinks: HashMap<String, HashSet<String>> = HashMap::new();
+
+        // 1. Register all existing markdown notes as nodes
+        for file in &files {
+            let rel_path = file
+                .strip_prefix(root)
+                .unwrap_or(file)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            let base_name = file
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| rel_path.clone());
+
+            let task_count = match std::fs::read_to_string(file) {
+                Ok(c) => c.lines().filter(|l| l.contains("- [ ]") || l.contains("- [x]")).count(),
+                Err(_) => 0,
+            };
+
+            node_set.insert(
+                base_name.to_lowercase(),
+                GraphNode {
+                    id: base_name.clone(),
+                    label: base_name.clone(),
+                    file_path: Some(rel_path),
+                    exists: true,
+                    backlink_count: 0,
+                    task_count,
+                },
+            );
+        }
+
+        // 2. Scan for [[Links]] and construct edges
+        for file in &files {
+            let source_base = file
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let content = match std::fs::read_to_string(file) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            for caps in wiki_regex.captures_iter(&content) {
+                let target_raw = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+                let display = caps.get(2).map(|m| m.as_str().trim().to_string());
+
+                if target_raw.is_empty() {
+                    continue;
+                }
+
+                let target_key = target_raw.to_lowercase();
+                if !node_set.contains_key(&target_key) {
+                    // Create uncreated/placeholder target node
+                    node_set.insert(
+                        target_key.clone(),
+                        GraphNode {
+                            id: target_raw.to_string(),
+                            label: target_raw.to_string(),
+                            file_path: None,
+                            exists: false,
+                            backlink_count: 0,
+                            task_count: 0,
+                        },
+                    );
+                }
+
+                let target_id = node_set.get(&target_key).map(|n| n.id.clone()).unwrap_or_else(|| target_raw.to_string());
+
+                edges.push(GraphEdge {
+                    source: source_base.clone(),
+                    target: target_id.clone(),
+                    label: display,
+                });
+
+                backlinks.entry(target_key).or_default().insert(source_base.clone());
+            }
+        }
+
+        // 3. Populate backlink count
+        for (key, sources) in backlinks {
+            if let Some(node) = node_set.get_mut(&key) {
+                node.backlink_count = sources.len();
+            }
+        }
+
+        let mut nodes: Vec<GraphNode> = node_set.into_values().collect();
+        nodes.sort_by(|a, b| a.label.cmp(&b.label));
+
+        Ok(KnowledgeGraph { nodes, edges })
+    }
+
+    /// Extract calendar events from tasks (@YYYY-MM-DD) and file dates
+    pub fn extract_calendar_events<P: AsRef<Path>>(project_dir: P) -> WebResult<Vec<CalendarEvent>> {
+        let root = project_dir.as_ref();
+        let files = Self::discover_markdown_files(root);
+        let mut events = Vec::new();
+
+        let date_prefix_regex = Regex::new(r"^(\d{4}-\d{2}-\d{2})[-_](.+)$")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+
+        // 1. Events from tasks with @YYYY-MM-DD
+        let tasks = Self::extract_all_tasks(root)?;
+        for task in tasks {
+            if let Some(due) = task.due_date {
+                events.push(CalendarEvent {
+                    id: format!("task:{}", task.id),
+                    date: due,
+                    title: task.title,
+                    source_file: task.file_path,
+                    line_number: Some(task.line_number),
+                    is_task: true,
+                    completed: task.completed,
+                });
+            }
+        }
+
+        // 2. Events from files named like 2026-09-15-meeting-notes.md
+        for file in files {
+            let file_stem = file.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            if let Some(caps) = date_prefix_regex.captures(&file_stem) {
+                let date = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let topic = caps.get(2).map(|m| m.as_str().replace('-', " ")).unwrap_or_default();
+
+                let rel_path = file
+                    .strip_prefix(root)
+                    .unwrap_or(&file)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+
+                events.push(CalendarEvent {
+                    id: format!("file:{}", rel_path),
+                    date,
+                    title: topic,
+                    source_file: rel_path,
+                    line_number: None,
+                    is_task: false,
+                    completed: false,
+                });
+            }
+        }
+
+        events.sort_by(|a, b| a.date.cmp(&b.date));
+        Ok(events)
+    }
+
+    /// Parse unified note format (.anote / .note.md) separating YAML frontmatter and markdown body
+    pub fn parse_unified_note(raw: &str) -> (UnifiedNoteMeta, String) {
+        let trimmed = raw.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("---") {
+            if let Some(end_idx) = rest.find("\n---") {
+                let frontmatter = &rest[..end_idx];
+                let body = rest[end_idx + 4..].trim_start_matches('\n').to_string();
+
+                let mut meta = UnifiedNoteMeta::default();
+                for line in frontmatter.lines() {
+                    let line = line.trim();
+                    if let Some((k, v)) = line.split_once(':') {
+                        let k = k.trim();
+                        let v = v.trim().trim_matches('"').trim_matches('\'');
+                        match k {
+                            "title" => meta.title = v.to_string(),
+                            "created_at" => meta.created_at = Some(v.to_string()),
+                            "updated_at" => meta.updated_at = Some(v.to_string()),
+                            "author" => meta.author = Some(v.to_string()),
+                            "tags" => {
+                                let clean = v.trim_matches('[').trim_matches(']');
+                                meta.tags = clean
+                                    .split(',')
+                                    .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                            }
+                            "whiteboard" => {
+                                // Base64-encoded JSON, so it survives this naive line-based
+                                // parser regardless of quotes/colons/brackets inside the JSON.
+                                if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, v) {
+                                    if let Ok(json_str) = String::from_utf8(bytes) {
+                                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                            meta.whiteboard = Some(val);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                return (meta, body);
+            }
+        }
+
+        // Fallback if no frontmatter
+        let first_line = raw.lines().next().unwrap_or("Untitled Note");
+        let title = first_line.trim_start_matches('#').trim().to_string();
+        (
+            UnifiedNoteMeta {
+                title: if title.is_empty() { "Untitled Note".to_string() } else { title },
+                created_at: None,
+                updated_at: None,
+                tags: Vec::new(),
+                author: None,
+                whiteboard: None,
+            },
+            raw.to_string(),
+        )
+    }
+
+    /// Serialize unified note format back to string with YAML frontmatter
+    pub fn serialize_unified_note(meta: &UnifiedNoteMeta, body: &str) -> String {
+        let tags_str = meta
+            .tags
+            .iter()
+            .map(|t| format!("\"{}\"", t))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut out = String::from("---\n");
+        out.push_str(&format!("title: \"{}\"\n", meta.title.replace('"', "\\\"")));
+        if let Some(ref c) = meta.created_at {
+            out.push_str(&format!("created_at: \"{}\"\n", c));
+        }
+        if let Some(ref u) = meta.updated_at {
+            out.push_str(&format!("updated_at: \"{}\"\n", u));
+        }
+        if let Some(ref a) = meta.author {
+            out.push_str(&format!("author: \"{}\"\n", a.replace('"', "\\\"")));
+        }
+        out.push_str(&format!("tags: [{}]\n", tags_str));
+        if let Some(ref wb) = meta.whiteboard {
+            let json = serde_json::to_string(wb).unwrap_or_default();
+            let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes());
+            out.push_str(&format!("whiteboard: \"{}\"\n", b64));
+        }
+        out.push_str("---\n\n");
+        out.push_str(body);
+        out
+    }
+
+    /// Extract headings for Document Outline
+    pub fn extract_headings(content: &str) -> Vec<NoteHeading> {
+        let mut headings = Vec::new();
+        for (i, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('#') {
+                let level = trimmed.chars().take_while(|&c| c == '#').count();
+                if level <= 4 {
+                    let text = trimmed[level..].trim().to_string();
+                    if !text.is_empty() {
+                        headings.push(NoteHeading {
+                            level,
+                            text,
+                            line: i + 1,
+                        });
+                    }
+                }
+            }
+        }
+        headings
+    }
+
+    /// Typst uses `=`/`==`/`===` for real headings (Markdown's own `#` is a *code invocation* in
+    /// Typst -- `#import`, `#show`, `#slide(...)`, etc. -- so running `extract_headings` against
+    /// a `.typ` file treated every one of those as a fake "heading"). For a cargo-slide deck
+    /// specifically, the more useful outline is one entry per slide, so this also picks up each
+    /// `#slide(title: "...")` / `#title-slide(title: "...")` call's title.
+    pub fn extract_headings_typst(content: &str) -> Vec<NoteHeading> {
+        let heading_re = Regex::new(r"^(=+)\s+(.+)$").unwrap();
+        let slide_title_re = Regex::new(r#"^#(?:title-slide|slide)\s*\([^)]*?title:\s*"([^"]+)""#).unwrap();
+
+        let mut headings = Vec::new();
+        for (i, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if let Some(caps) = heading_re.captures(trimmed) {
+                let level = caps.get(1).map(|m| m.as_str().len()).unwrap_or(1).min(4);
+                let text = caps.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                if !text.is_empty() {
+                    headings.push(NoteHeading { level, text, line: i + 1 });
+                }
+            } else if let Some(caps) = slide_title_re.captures(trimmed) {
+                let text = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                if !text.is_empty() {
+                    headings.push(NoteHeading { level: 1, text, line: i + 1 });
+                }
+            }
+        }
+        headings
+    }
+
+    /// LaTeX's real sectioning commands, mapped to outline levels the same way a document's own
+    /// table of contents would be (`\part`/`\chapter` are broader than `\section`, which is
+    /// broader than `\subsection`, etc.) -- `extract_headings`'s `#`-based logic finds nothing at
+    /// all in a `.tex` file, since LaTeX commands start with `\`, not `#`.
+    pub fn extract_headings_latex(content: &str) -> Vec<NoteHeading> {
+        let re = Regex::new(r"^\\(part|chapter|section|subsection|subsubsection)\*?\{([^}]*)\}").unwrap();
+        let mut headings = Vec::new();
+        for (i, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if let Some(caps) = re.captures(trimmed) {
+                let kind = caps.get(1).map(|m| m.as_str()).unwrap_or("section");
+                let level = match kind {
+                    "part" => 1,
+                    "chapter" => 1,
+                    "section" => 2,
+                    "subsection" => 3,
+                    _ => 4,
+                };
+                let text = caps.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                if !text.is_empty() {
+                    headings.push(NoteHeading { level, text, line: i + 1 });
+                }
+            }
+        }
+        headings
+    }
+
+    /// Scripts have no heading concept, but top-level function/class definitions serve the same
+    /// "jump to a named section" purpose an outline is for -- without this, `extract_headings`'s
+    /// `#`-based logic picked up every `#`-prefixed *comment* line in a Python/R/Bash script as a
+    /// fake heading, which is a real mess on any script with a normal amount of commenting.
+    pub fn extract_headings_script(content: &str, ext: &str) -> Vec<NoteHeading> {
+        let re = match ext {
+            "py" => Regex::new(r"^(def|class)\s+(\w+)").unwrap(),
+            "r" => Regex::new(r"^(\w+)\s*(?:<-|=)\s*function\s*\(").unwrap(),
+            "rs" => Regex::new(r"^(?:pub\s+)?(fn|struct|enum|trait|impl)\s+(\w+)").unwrap(),
+            "js" | "ts" => Regex::new(r"^(?:export\s+)?(?:async\s+)?(function|class)\s+(\w+)").unwrap(),
+            "sh" | "bash" => Regex::new(r"^(?:function\s+)?(\w+)\s*\(\)\s*\{?").unwrap(),
+            _ => return Vec::new(),
+        };
+
+        let mut headings = Vec::new();
+        for (i, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if let Some(caps) = re.captures(trimmed) {
+                // R and shell each only have one capture group of interest (the name); the
+                // others have the keyword in group 1 and the name in group 2.
+                let text = caps.get(2).or_else(|| caps.get(1)).map(|m| m.as_str().to_string()).unwrap_or_default();
+                if !text.is_empty() {
+                    headings.push(NoteHeading { level: 1, text, line: i + 1 });
+                }
+            }
+        }
+        headings
+    }
+
+    /// Dispatches to the right outline extractor for a file's actual language, based on its
+    /// extension -- the single call site every editor page should use instead of assuming every
+    /// file is Markdown.
+    pub fn extract_headings_for_file(content: &str, file_path: &str) -> Vec<NoteHeading> {
+        let ext = std::path::Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        match ext.as_str() {
+            "typ" => Self::extract_headings_typst(content),
+            "tex" | "latex" => Self::extract_headings_latex(content),
+            "py" | "r" | "rs" | "js" | "ts" | "sh" | "bash" => Self::extract_headings_script(content, &ext),
+            _ => Self::extract_headings(content),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_knowledge_sync_tasks_and_bidirectional_update() {
+        let dir = tempdir().unwrap();
+        let notes_dir = dir.path().join("notes");
+        std::fs::create_dir_all(&notes_dir).unwrap();
+
+        let doc1_path = notes_dir.join("quantum_algorithms.md");
+        let content1 = r#"# Quantum Algorithms
+
+Introductory notes on Shor's and Grover's algorithm.
+
+## Tasks
+- [ ] Implement quantum Fourier transform simulator #quantum #code @2026-10-01
+- [/] Benchmark circuit depth for N=64 #benchmark
+- [x] Review Nielsen & Chuang chapter 5 #study @2026-09-15
+
+Related to [[Error Correction]] and [[Hardware Specs|Cryo Fridge Specs]].
+"#;
+        std::fs::write(&doc1_path, content1).unwrap();
+
+        let doc2_path = notes_dir.join("Error Correction.md");
+        let content2 = r#"# Error Correction
+
+Discussion on surface codes.
+- [ ] Calculate threshold error rate #theory
+Backlink to [[Quantum Algorithms]].
+"#;
+        std::fs::write(&doc2_path, content2).unwrap();
+
+        // 1. Test Task Extraction
+        let tasks = KnowledgeSyncService::extract_all_tasks(dir.path()).unwrap();
+        assert_eq!(tasks.len(), 4);
+
+        let qft_task = tasks.iter().find(|t| t.title.contains("Implement quantum Fourier transform")).unwrap();
+        assert_eq!(qft_task.status, "todo");
+        assert_eq!(qft_task.tags, vec!["quantum", "code"]);
+        assert_eq!(qft_task.due_date, Some("2026-10-01".to_string()));
+
+        let nielsen_task = tasks.iter().find(|t| t.title.contains("Review Nielsen & Chuang")).unwrap();
+        assert!(nielsen_task.completed);
+        assert_eq!(nielsen_task.status, "done");
+
+        // 2. Test Kanban Board
+        let kanban = KnowledgeSyncService::build_kanban_board(dir.path()).unwrap();
+        assert_eq!(kanban.total_tasks, 4);
+        assert_eq!(kanban.completed_tasks, 1);
+        assert_eq!(kanban.columns[0].tasks.len(), 2); // todo
+        assert_eq!(kanban.columns[1].tasks.len(), 1); // in_progress
+        assert_eq!(kanban.columns[2].tasks.len(), 1); // done
+
+        // 3. Test Bidirectional Update: Complete QFT task
+        KnowledgeSyncService::update_task_status(
+            dir.path(),
+            "notes/quantum_algorithms.md",
+            qft_task.line_number,
+            "done",
+        )
+        .unwrap();
+
+        // Re-read file and verify
+        let updated_content = std::fs::read_to_string(&doc1_path).unwrap();
+        assert!(updated_content.contains("- [x] Implement quantum Fourier transform simulator"));
+
+        // 4. Test Knowledge Graph and Bidirectional Wiki Links
+        let graph = KnowledgeSyncService::build_knowledge_graph(dir.path()).unwrap();
+        assert_eq!(graph.edges.len(), 3); // doc1 -> Error Correction, doc1 -> Hardware Specs, doc2 -> Quantum Algorithms
+
+        let err_corr_node = graph.nodes.iter().find(|n| n.label.eq_ignore_ascii_case("Error Correction")).unwrap();
+        assert!(err_corr_node.exists);
+        assert_eq!(err_corr_node.backlink_count, 1);
+
+        let hw_node = graph.nodes.iter().find(|n| n.label.eq_ignore_ascii_case("Hardware Specs")).unwrap();
+        assert!(!hw_node.exists); // placeholder node created from [[Hardware Specs|...]]
+
+        // 5. Test Calendar Events
+        let cal_events = KnowledgeSyncService::extract_calendar_events(dir.path()).unwrap();
+        assert_eq!(cal_events.len(), 2); // 2026-09-15 and 2026-10-01
+        assert_eq!(cal_events[0].date, "2026-09-15");
+        assert_eq!(cal_events[1].date, "2026-10-01");
+    }
+
+    #[test]
+    fn test_unified_note_whiteboard_round_trip() {
+        // The whiteboard field previously round-tripped to nothing: serialize_unified_note
+        // never wrote it out, and parse_unified_note never read it back in, despite the
+        // struct field existing -- this locks in the real fix.
+        let mut meta = UnifiedNoteMeta {
+            title: "Sketch Notes".to_string(),
+            created_at: Some("2026-09-01T00:00:00Z".to_string()),
+            updated_at: None,
+            tags: vec!["diagram".to_string()],
+            author: Some("Dr. Test".to_string()),
+            whiteboard: Some(serde_json::json!({
+                "strokes": [{"color": "#ff0000", "width": 3, "points": [[10, 10], [20, 20]]}]
+            })),
+        };
+
+        let serialized = KnowledgeSyncService::serialize_unified_note(&meta, "# Body content");
+        let (parsed_meta, parsed_body) = KnowledgeSyncService::parse_unified_note(&serialized);
+
+        assert_eq!(parsed_body.trim(), "# Body content");
+        assert_eq!(parsed_meta.title, "Sketch Notes");
+        assert_eq!(parsed_meta.tags, vec!["diagram".to_string()]);
+        let strokes = parsed_meta.whiteboard.as_ref().unwrap().get("strokes").unwrap().as_array().unwrap();
+        assert_eq!(strokes.len(), 1);
+        assert_eq!(strokes[0]["color"], "#ff0000");
+        assert_eq!(strokes[0]["points"][1][0], 20);
+
+        // Also verify saving without a whiteboard change preserves it (read-modify-write shape).
+        meta.title = "Renamed".to_string();
+        let re_serialized = KnowledgeSyncService::serialize_unified_note(&meta, "# Body content");
+        let (re_parsed, _) = KnowledgeSyncService::parse_unified_note(&re_serialized);
+        assert_eq!(re_parsed.title, "Renamed");
+        assert!(re_parsed.whiteboard.is_some());
+    }
+
+    /// Regression test: `extract_headings` (Markdown's `#`-based logic) used to be called for
+    /// every file type, including Typst -- where `#` is a *code invocation*, not a heading, so
+    /// every `#import`/`#slide(...)` line was picked up as a fake heading. Real Typst headings
+    /// use `=`/`==`/`===`; cargo-slide's `#slide(title: "...")` calls should still show up in the
+    /// outline (one entry per slide), just correctly, not as a byproduct of misreading `#`.
+    #[test]
+    fn test_extract_headings_typst_ignores_code_invocations() {
+        let content = r#"#import "theme.typ": *
+#show: slide-theme.with(aspect-ratio: "16-9")
+
+#title-slide(title: "Opening Slide", subtitle: "A Talk")
+
+= Section One
+Some body text.
+
+#slide(title: "Architecture Overview", transition: "slide-left")[
+  content here
+]
+
+== Subsection
+"#;
+        let headings = KnowledgeSyncService::extract_headings_typst(content);
+        let texts: Vec<&str> = headings.iter().map(|h| h.text.as_str()).collect();
+        assert_eq!(texts, vec!["Opening Slide", "Section One", "Architecture Overview", "Subsection"]);
+        assert_eq!(headings[1].level, 1); // "= Section One"
+        assert_eq!(headings[3].level, 2); // "== Subsection"
+        // None of the plain `#`-invocation lines (#import, #show) leaked in as fake headings.
+        assert!(!texts.iter().any(|t| t.contains("import") || t.contains("slide-theme")));
+    }
+
+    /// LaTeX's real sectioning commands (`\part`/`\chapter`/`\section`/...) start with `\`, not
+    /// `#` -- the old Markdown-only extractor found nothing at all in a `.tex` file.
+    #[test]
+    fn test_extract_headings_latex() {
+        let content = r#"\documentclass{article}
+\title{A Paper}
+
+\section{Introduction}
+Some text.
+
+\subsection{Background}
+More text.
+
+\section{Conclusion}
+"#;
+        let headings = KnowledgeSyncService::extract_headings_latex(content);
+        let texts: Vec<&str> = headings.iter().map(|h| h.text.as_str()).collect();
+        assert_eq!(texts, vec!["Introduction", "Background", "Conclusion"]);
+        assert_eq!(headings[0].level, 2);
+        assert_eq!(headings[1].level, 3);
+    }
+
+    /// Scripts have no heading syntax, but the old extractor picked up every `#`-prefixed
+    /// *comment* line as a fake heading (Python/R/Bash all use `#` for comments) -- a real mess
+    /// on any normally-commented script. Top-level function/class definitions are what an
+    /// outline should show instead.
+    #[test]
+    fn test_extract_headings_script_python_ignores_comments() {
+        let content = r#"# This is just a comment, not a heading
+import csv
+
+def calculate_average_t1(csv_path):
+    # inline comment
+    pass
+
+class Analyzer:
+    pass
+"#;
+        let headings = KnowledgeSyncService::extract_headings_script(content, "py");
+        let texts: Vec<&str> = headings.iter().map(|h| h.text.as_str()).collect();
+        assert_eq!(texts, vec!["calculate_average_t1", "Analyzer"]);
+    }
+
+    #[test]
+    fn test_extract_headings_for_file_dispatches_by_extension() {
+        assert_eq!(KnowledgeSyncService::extract_headings_for_file("= Heading\n", "paper.typ")[0].text, "Heading");
+        assert_eq!(KnowledgeSyncService::extract_headings_for_file("\\section{Intro}\n", "report.tex")[0].text, "Intro");
+        assert_eq!(KnowledgeSyncService::extract_headings_for_file("def foo():\n    pass\n", "analysis.py")[0].text, "foo");
+        assert_eq!(KnowledgeSyncService::extract_headings_for_file("# A Note Heading\n", "notes.md")[0].text, "A Note Heading");
+    }
+}

@@ -47,15 +47,25 @@ pub struct Organization {
     pub slug: String,
     pub name: String,
     pub description: Option<String>,
+    pub chat_url: Option<String>,
+    pub meeting_url: Option<String>,
+    pub drive_url: Option<String>,
+    pub ai_agent_url: Option<String>,
+    pub allow_team_override: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateOrganizationDto {
     pub slug: String,
     pub name: String,
     pub description: Option<String>,
+    pub chat_url: Option<String>,
+    pub meeting_url: Option<String>,
+    pub drive_url: Option<String>,
+    pub ai_agent_url: Option<String>,
+    pub allow_team_override: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -63,7 +73,24 @@ pub struct UpdateOrganizationDto {
     pub name: Option<String>,
     pub slug: Option<String>,
     pub description: Option<String>,
+    pub chat_url: Option<String>,
+    pub meeting_url: Option<String>,
+    pub drive_url: Option<String>,
+    pub ai_agent_url: Option<String>,
+    pub allow_team_override: Option<bool>,
 }
+
+/// Resolved effective hub links combining organization defaults and team-specific overrides
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct EffectiveHubLinks {
+    pub chat_url: Option<String>,
+    pub meeting_url: Option<String>,
+    pub drive_url: Option<String>,
+    pub ai_agent_url: Option<String>,
+    pub is_team_override: bool,
+    pub allow_team_override: bool,
+}
+
 
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

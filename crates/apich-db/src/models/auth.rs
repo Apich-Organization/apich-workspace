@@ -127,3 +127,50 @@ pub struct CreateInvitationDto {
     pub inviter_id: Option<Uuid>,
     pub expires_at: DateTime<Utc>,
 }
+
+/// A personal access token record. The plaintext token is shown to the user exactly once, at
+/// creation time, and never stored -- only `token_hash` (SHA-256) is persisted, matching
+/// `user_sessions.token_hash`'s existing pattern.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct PersonalAccessToken {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub token_hash: String,
+    pub token_prefix: String,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+impl PersonalAccessToken {
+    pub fn is_active(&self) -> bool {
+        self.revoked_at.is_none() && self.expires_at.map(|e| e > Utc::now()).unwrap_or(true)
+    }
+}
+
+/// A user's uploaded SSH public key. Storage/identity only -- there is no SSH transport server
+/// yet, so this key is not currently usable to authenticate a `git+ssh://` or `ssh://` connection.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SshPublicKey {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub key_type: String,
+    pub public_key: String,
+    pub fingerprint: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// A user's registered GPG public key, used to verify the `gpg_signature` on apich-vcs snapshots
+/// they authored (see `apich_vcs::gpg::verify_signature`).
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct GpgPublicKey {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub public_key: String,
+    pub fingerprint: String,
+    pub created_at: DateTime<Utc>,
+}

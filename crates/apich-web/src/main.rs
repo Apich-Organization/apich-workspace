@@ -98,6 +98,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     name: "APICH Research Lab".to_string(),
                     slug: "apich-lab".to_string(),
                     description: Some("Core Research & Development Organization".to_string()),
+                    chat_url: Some("https://chat.zulip.org".to_string()),
+                    meeting_url: Some("https://meet.jit.si/apich-research".to_string()),
+                    drive_url: Some("https://nextcloud.apich.org".to_string()),
+                    ai_agent_url: Some("http://localhost:8000/agent".to_string()),
+                    allow_team_override: Some(true),
                 },
             )
             .await?;
@@ -111,6 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     name: "Systems Engineering".to_string(),
                     slug: "systems-eng".to_string(),
                     description: Some("Core infrastructure & technical systems".to_string()),
+                    ..Default::default()
                 },
             )
             .await?;
@@ -150,6 +156,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         base_url,
         jwt_secret,
     );
+
+    // Idle sandbox reaper: the other half of "containers are never something the user has to
+    // manage themselves" (see terminal_page.rs's comment on the auto-start half). Runs
+    // independently of any request, checking periodically for `running` sandboxes with no real
+    // activity in the last `APICH_SANDBOX_IDLE_TIMEOUT_MINUTES` (default 60) and stopping them.
+    {
+        let reaper_project_manager = state.project_manager.clone();
+        let idle_timeout_minutes: i64 = std::env::var("APICH_SANDBOX_IDLE_TIMEOUT_MINUTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60);
+        let idle_timeout = chrono::Duration::minutes(idle_timeout_minutes);
+        // Check on a cadence proportional to the timeout (never less than 1 minute, never more
+        // than 10) rather than a fixed interval, so a short dev-testing timeout isn't stuck
+        // waiting on a check cadence built for the 60-minute default.
+        let check_every = std::time::Duration::from_secs(((idle_timeout_minutes / 6).clamp(1, 10) * 60) as u64);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(check_every);
+            loop {
+                interval.tick().await;
+                match reaper_project_manager.reap_idle_sandboxes(idle_timeout).await {
+                    Ok(0) => {}
+                    Ok(n) => info!(count = n, "Idle sandbox reaper stopped {} sandbox(es)", n),
+                    Err(e) => tracing::warn!(error = %e, "Idle sandbox reaper failed"),
+                }
+            }
+        });
+    }
+
+    // Container removal reaper: the other half of "stopping is automatic" -- stopping alone still
+    // leaves the container sitting on the host forever, since nothing previously ever `podman rm`d
+    // one. Runs far less often than the idle-stop reaper (removal isn't time-sensitive the way
+    // freeing a running container's resources is) and only removes containers that have been
+    // *stopped* for a full separate grace period, so a user who stops a sandbox and comes back
+    // later still gets a fast restart via the existing container rather than a full re-create.
+    // Also sweeps for orphaned containers on the host with no tracking row at all, since those are
+    // otherwise invisible to every path that starts from a DB row.
+    {
+        let removal_project_manager = state.project_manager.clone();
+        let stopped_grace_hours: i64 = std::env::var("APICH_SANDBOX_REMOVAL_GRACE_HOURS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(24);
+        let stopped_grace = chrono::Duration::hours(stopped_grace_hours);
+        let check_every = std::time::Duration::from_secs(30 * 60);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(check_every);
+            loop {
+                interval.tick().await;
+                match removal_project_manager.reap_stopped_sandboxes(stopped_grace).await {
+                    Ok(0) => {}
+                    Ok(n) => info!(count = n, "Container removal reaper removed {} stale stopped sandbox(es)", n),
+                    Err(e) => tracing::warn!(error = %e, "Container removal reaper (stopped sandboxes) failed"),
+                }
+                match removal_project_manager.reap_orphaned_containers().await {
+                    Ok(0) => {}
+                    Ok(n) => info!(count = n, "Container removal reaper removed {} orphaned container(s)", n),
+                    Err(e) => tracing::warn!(error = %e, "Container removal reaper (orphans) failed"),
+                }
+            }
+        });
+    }
 
     let app = apich_web::create_app(state);
 

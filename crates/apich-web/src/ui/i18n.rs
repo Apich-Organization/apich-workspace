@@ -147,8 +147,8 @@ impl I18n {
 
     pub fn dashboard_subtitle(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Workspace repositories with FastCDC deduplication and Podman isolated containers",
-            Lang::Zh => "管理基于 FastCDC 增量去重版本控制与 Podman 独立容器隔离的计算环境",
+            Lang::En => "Your projects, with version history and an isolated environment for each",
+            Lang::Zh => "您的项目,每个项目都有独立的版本历史与运行环境",
         }
     }
 
@@ -156,62 +156,6 @@ impl I18n {
         match self.lang {
             Lang::En => "New Project",
             Lang::Zh => "新建项目",
-        }
-    }
-
-    pub fn stat_total_projects(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "Total Projects",
-            Lang::Zh => "我的项目总数",
-        }
-    }
-
-    pub fn stat_total_projects_sub(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "Owned or shared repositories",
-            Lang::Zh => "具备所有者或协作者权限",
-        }
-    }
-
-    pub fn stat_active_sandboxes(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "Active Sandboxes",
-            Lang::Zh => "运行中的沙箱",
-        }
-    }
-
-    pub fn stat_active_sandboxes_sub(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "Dedicated rootless container instances",
-            Lang::Zh => "独立 cgroup 资源隔离计算实例",
-        }
-    }
-
-    pub fn stat_vcs_storage(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "Storage Engine",
-            Lang::Zh => "存储引擎",
-        }
-    }
-
-    pub fn stat_vcs_storage_sub(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "FastCDC content-addressed deduplication",
-            Lang::Zh => "FastCDC 内容自适应分块去重",
-        }
-    }
-
-    pub fn stat_git_bridge(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "Git Compatibility",
-            Lang::Zh => "Git 兼容层",
-        }
-    }
-
-    pub fn stat_git_bridge_sub(&self) -> &'static str {
-        match self.lang {
-            Lang::En => "Dual-engine bidirectional sync ready",
-            Lang::Zh => "双向就绪，支持与远程 Git 仓库同步",
         }
     }
 
@@ -317,15 +261,15 @@ impl I18n {
     // --- Merge & Conflicts ---
     pub fn merge_title(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Weave-Free Branch & 3-Way Merge Engine",
-            Lang::Zh => "Weave-Free 分支与 3-Way 冲突合并引擎",
+            Lang::En => "Branches & Merging",
+            Lang::Zh => "分支与合并",
         }
     }
 
     pub fn merge_desc(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Based on the APICH VCS weave-free history model, branch merges produce a deterministic snapshot without criss-cross merge locks.",
-            Lang::Zh => "基于 APICH VCS 无指针交织模型（Weave-Free History），分支合并产生单一确定性快照，彻底消灭 Git 常见的交织历史死锁与重复冲突。",
+            Lang::En => "Merge one branch into another. Each merge produces a single, consistent snapshot of your files.",
+            Lang::Zh => "将一个分支合并到另一个分支。每次合并都会生成一份完整且一致的文件快照。",
         }
     }
 
@@ -352,15 +296,15 @@ impl I18n {
 
     pub fn run_merge(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Execute Weave-free 3-Way Reconcile",
-            Lang::Zh => "执行 Weave-free 3-Way Reconcile",
+            Lang::En => "Merge Branches",
+            Lang::Zh => "合并分支",
         }
     }
 
     pub fn single_branch_hint(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Project currently has only the main branch. Create a feature branch in your sandbox terminal to test 3-way merge reconciliation.",
-            Lang::Zh => "当前项目仅有单个分支 main。在沙箱终端中创建功能分支后即可在此进行无指针交织 3-Way 合并。",
+            Lang::En => "This project currently has only the main branch. Create another branch from the terminal to merge branches here.",
+            Lang::Zh => "当前项目仅有 main 一个分支。请先在终端中创建其他分支，才能在此进行合并。",
         }
     }
 
@@ -430,15 +374,15 @@ impl I18n {
     // --- Git Tab ---
     pub fn git_title(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Git Dual-Engine Compatibility Bridge",
-            Lang::Zh => "Git 双向兼容桥接系统",
+            Lang::En => "Git Compatibility",
+            Lang::Zh => "Git 兼容性",
         }
     }
 
     pub fn git_desc(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Every APICH project is both a native APICH-VCS workspace and a standard Git repository, seamlessly interoperating with GitHub, GitLab, or private Git remotes.",
-            Lang::Zh => "APICH 每一个项目既是原生的 APICH-VCS 高性能工作区，同时也作为纯正的 Git 仓库无缝与 GitHub、GitLab 或私有 Git 平台互联。",
+            Lang::En => "Every project can also be used as a standard Git repository, so it works with GitHub, GitLab, or your own Git remote.",
+            Lang::Zh => "每个项目也可作为标准 Git 仓库使用，可与 GitHub、GitLab 或您自己的 Git 远程仓库配合使用。",
         }
     }
 
@@ -486,15 +430,15 @@ impl I18n {
 
     pub fn git_lfs_val(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Automatic pointer synthesis via FastCDC CAS",
-            Lang::Zh => "智能自动合成（FastCDC 指针化）",
+            Lang::En => "Large files are stored efficiently and automatically",
+            Lang::Zh => "大文件自动高效存储",
         }
     }
 
     pub fn git_sync_btn(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Export & Sync to Local Git Commit",
-            Lang::Zh => "一键导出并同步至本地 Git 提交",
+            Lang::En => "Sync to Git",
+            Lang::Zh => "同步至 Git",
         }
     }
 
@@ -515,8 +459,8 @@ impl I18n {
 
     pub fn modal_snapshot_desc(&self) -> &'static str {
         match self.lang {
-            Lang::En => "FastCDC content-addressed incremental snapshot with zero pointer weaving",
-            Lang::Zh => "基于 FastCDC 变长分块引擎执行增量去重快照，零指针交织",
+            Lang::En => "Save the current state of your files as a point you can return to later",
+            Lang::Zh => "将当前文件状态保存为一个可以随时回退的版本",
         }
     }
 
@@ -611,6 +555,34 @@ impl I18n {
         match self.lang {
             Lang::En => "Manage institutional hierarchy, laboratory teams, and member access roles",
             Lang::Zh => "构建机构与实验室团队层级，统一权限管控",
+        }
+    }
+
+    pub fn new_organization(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "New Organization",
+            Lang::Zh => "新建机构",
+        }
+    }
+
+    pub fn teams_and_groups(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Teams & Groups",
+            Lang::Zh => "团队与小组",
+        }
+    }
+
+    pub fn no_subteams(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "No teams yet",
+            Lang::Zh => "暂无团队",
+        }
+    }
+
+    pub fn org_members_heading(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Organization Members",
+            Lang::Zh => "机构成员",
         }
     }
 
@@ -758,8 +730,8 @@ impl I18n {
 
     pub fn sign_in_subtitle(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Unified sandboxes, FastCDC versioning & Git collaboration",
-            Lang::Zh => "统一计算沙箱环境、FastCDC 版本控制与 Git 协同系统",
+            Lang::En => "Projects, version history, and collaboration in one place",
+            Lang::Zh => "项目、版本历史与协作，一站式管理",
         }
     }
 
@@ -847,6 +819,41 @@ impl I18n {
         }
     }
 
+    pub fn session_expired_notice(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Your session has expired. Please sign in again.",
+            Lang::Zh => "您的登录会话已过期，请重新登录。",
+        }
+    }
+
+    pub fn registration_mode_invite(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Invite Code Mode (Valid invitation code required)",
+            Lang::Zh => "邀请码注册模式（需要填写有效邀请码）",
+        }
+    }
+
+    pub fn registration_mode_open(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Open Registration Mode (Email Sign-up)",
+            Lang::Zh => "开放注册模式（支持邮箱注册）",
+        }
+    }
+
+    pub fn registration_mode_closed(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Self-registration is currently closed by the platform administrator.",
+            Lang::Zh => "当前自主注册已由平台管理员关闭。",
+        }
+    }
+
+    pub fn invite_code_optional(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "(Optional) Invitation Code",
+            Lang::Zh => "邀请码（选填）",
+        }
+    }
+
     // --- Profile & Password Management ---
     pub fn edit_profile(&self) -> &'static str {
         match self.lang {
@@ -905,6 +912,62 @@ impl I18n {
     }
 
     // --- Platform & SMTP Management ---
+    pub fn registration_policy_title(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Registration & Admission Policy",
+            Lang::Zh => "注册准入策略",
+        }
+    }
+
+    pub fn registration_policy_subtitle(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Controls how new researchers can sign up and join workspace projects",
+            Lang::Zh => "控制新用户如何注册并加入工作区项目",
+        }
+    }
+
+    pub fn registration_mode_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Registration Admission Mode",
+            Lang::Zh => "注册准入模式",
+        }
+    }
+
+    pub fn save_policy(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Save Policy",
+            Lang::Zh => "保存策略",
+        }
+    }
+
+    pub fn sso_clients_title(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Single Sign-On Clients",
+            Lang::Zh => "单点登录客户端",
+        }
+    }
+
+    pub fn sso_clients_subtitle(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "APICH acts as an OpenID Connect provider for these registered applications",
+            Lang::Zh => "APICH 作为这些已注册应用的 OpenID Connect 身份提供方",
+        }
+    }
+
+    pub fn no_sso_clients(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "No SSO clients registered yet",
+            Lang::Zh => "尚未注册任何 SSO 客户端",
+        }
+    }
+
+    pub fn view_openid_discovery(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "View OpenID Discovery Document",
+            Lang::Zh => "查看 OpenID 发现文档",
+        }
+    }
+
     pub fn smtp_config_title(&self) -> &'static str {
         match self.lang {
             Lang::En => "SMTP Outbound Mail Server",
@@ -1071,6 +1134,321 @@ impl I18n {
         match self.lang {
             Lang::En => "-- Top Level (Root of Org) --",
             Lang::Zh => "-- 顶级团队 (直属机构根节点) --",
+        }
+    }
+
+    pub fn tab_tables(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Tables (SQLite)",
+            Lang::Zh => "SQLite 数据库表格",
+        }
+    }
+
+    pub fn tab_knowledge(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Knowledge Hub",
+            Lang::Zh => "知识图谱与看板",
+        }
+    }
+
+    pub fn tab_terminal(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Terminal",
+            Lang::Zh => "交互终端",
+        }
+    }
+
+    pub fn view_kanban(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Kanban Board",
+            Lang::Zh => "任务看板",
+        }
+    }
+
+    pub fn view_wiki(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Wiki & Graph",
+            Lang::Zh => "双链图谱",
+        }
+    }
+
+    pub fn view_calendar(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Calendar",
+            Lang::Zh => "日程日历",
+        }
+    }
+
+    pub fn visual_grid(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Visual Grid",
+            Lang::Zh => "可视化表格",
+        }
+    }
+
+    pub fn sql_console(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "SQL Console",
+            Lang::Zh => "原生 SQL 控制台",
+        }
+    }
+
+    pub fn external_hub(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "External Hub",
+            Lang::Zh => "协同中心",
+        }
+    }
+
+    pub fn run_query(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Run Query",
+            Lang::Zh => "执行查询",
+        }
+    }
+
+    pub fn hub_links_settings(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Hub Integrations & External Links",
+            Lang::Zh => "协同中心与外部系统链接",
+        }
+    }
+
+    pub fn chat_url_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Instant Messaging (Chat) URL",
+            Lang::Zh => "即时通讯 / 群聊链接",
+        }
+    }
+
+    pub fn meeting_url_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Video Meeting URL",
+            Lang::Zh => "视频会议链接",
+        }
+    }
+
+    pub fn drive_url_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Cloud Drive URL",
+            Lang::Zh => "云盘 / 资料库链接",
+        }
+    }
+
+    pub fn ai_agent_url_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "AI Assistant URL",
+            Lang::Zh => "AI 助手 / 智能体链接",
+        }
+    }
+
+    pub fn allow_team_override_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Allow teams to override hub links",
+            Lang::Zh => "允许下属团队自定义覆盖链接",
+        }
+    }
+
+    pub fn tab_password(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Password",
+            Lang::Zh => "密码登录",
+        }
+    }
+
+    pub fn tab_passkey(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Passkey (FIDO2)",
+            Lang::Zh => "通行密钥 (FIDO2)",
+        }
+    }
+
+    pub fn create_org_prompt(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Create an Organization for my research lab / team",
+            Lang::Zh => "同时创建科研实验室/课题组机构 (Organization)",
+        }
+    }
+
+    pub fn load_demo_project(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Load Demo Project",
+            Lang::Zh => "加载全功能演示项目",
+        }
+    }
+
+    pub fn tab_files(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Files",
+            Lang::Zh => "文件列表",
+        }
+    }
+
+    pub fn tab_vcs(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "VCS & History",
+            Lang::Zh => "版本与快照",
+        }
+    }
+
+    pub fn tab_sharing(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Sharing & Access",
+            Lang::Zh => "共享与权限",
+        }
+    }
+
+    pub fn role_read_only(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Read Only",
+            Lang::Zh => "仅可阅读 (Read Only)",
+        }
+    }
+
+    pub fn role_read_and_review(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Read & Review",
+            Lang::Zh => "阅读与审阅 (Read & Review)",
+        }
+    }
+
+    pub fn role_read_write_and_review(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Read, Write & Review",
+            Lang::Zh => "读写与审阅合并 (Read, Write & Review)",
+        }
+    }
+
+    pub fn public_link_sharing(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Public Link Sharing",
+            Lang::Zh => "公开链接访问",
+        }
+    }
+
+    pub fn open_in_app(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Open",
+            Lang::Zh => "打开",
+        }
+    }
+
+    pub fn formula_bar(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Formula",
+            Lang::Zh => "公式",
+        }
+    }
+
+    pub fn add_row(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Add Row",
+            Lang::Zh => "添加行",
+        }
+    }
+
+    pub fn add_col(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Add Column",
+            Lang::Zh => "添加列",
+        }
+    }
+
+    pub fn delete_row(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Delete Row",
+            Lang::Zh => "删除行",
+        }
+    }
+
+    pub fn raw_sql_layer(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Advanced: Raw SQLite Database Layer",
+            Lang::Zh => "底层 SQLite 数据库控制台与 SQL",
+        }
+    }
+
+    pub fn doc_slide_studio(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Document & Slide Studio",
+            Lang::Zh => "学术文档与幻灯片工作台",
+        }
+    }
+
+    pub fn spreadsheet_studio(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Spreadsheet Studio",
+            Lang::Zh => "结构化表格工作台",
+        }
+    }
+
+    pub fn unified_note_studio(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Unified Note Studio",
+            Lang::Zh => "全能笔记与知识工作台",
+        }
+    }
+
+    pub fn present_mode(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Present (F11)",
+            Lang::Zh => "全屏演示 (F11)",
+        }
+    }
+
+    pub fn sidebar_platform_admin(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Platform Admin",
+            Lang::Zh => "平台系统管理",
+        }
+    }
+
+    pub fn sidebar_org_admin(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Org & Teams",
+            Lang::Zh => "机构与团队管理",
+        }
+    }
+
+    pub fn sidebar_my_org_admin(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "My Org & Teams",
+            Lang::Zh => "我管理的机构与团队",
+        }
+    }
+
+    pub fn sidebar_settings(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Personal Settings",
+            Lang::Zh => "个人设置",
+        }
+    }
+
+    pub fn project_name(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Project Name",
+            Lang::Zh => "项目名称",
+        }
+    }
+
+    pub fn project_slug(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Project Slug",
+            Lang::Zh => "项目标识 (Slug)",
+        }
+    }
+
+    pub fn description_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Description",
+            Lang::Zh => "描述",
+        }
+    }
+
+    pub fn copy_link(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Copy Share Link",
+            Lang::Zh => "复制分享链接",
         }
     }
 }

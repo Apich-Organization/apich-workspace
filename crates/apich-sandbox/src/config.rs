@@ -94,7 +94,7 @@ impl SandboxConfigBuilder {
         Self {
             user_id: uid,
             container_name: Some(default_name),
-            image: "apich-sandbox:latest".to_string(),
+            image: "localhost/apich-sandbox:latest".to_string(),
             host_workspace_dir: host_workspace_dir.as_ref().to_path_buf(),
             container_workspace_dir: PathBuf::from("/workspace"),
             resources: ResourceLimits::default(),

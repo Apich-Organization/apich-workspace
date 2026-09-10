@@ -24,13 +24,13 @@ pub use config::{MountSpec, ResourceLimits, SandboxConfig, SandboxConfigBuilder}
 pub use container::UserContainer;
 pub use driver::{ContainerInspectInfo, ContainerStatus, PodmanDriver};
 pub use error::{Result, SandboxError};
-pub use exec::{ExecOptions, ExecResult, ExecStream, OutputChunk};
+pub use exec::{ExecOptions, ExecResult, ExecStream, InteractiveExec, OutputChunk};
 pub use fs::{
     create_dir_all_safe, file_exists_safe, list_dir_safe, read_file_safe, remove_file_safe,
     resolve_safe_path, write_file_safe, FileEntry,
 };
 pub use manager::SandboxManager;
 pub use tools::{
-    GitToolchain, LatexEngine, LatexToolchain, PythonToolchain, RToolchain, RustToolchain,
-    TypstToolchain,
+    AgentKind, AgentToolchain, GitToolchain, LatexEngine, LatexToolchain, LoginSupport,
+    PythonToolchain, RToolchain, RustToolchain, TypstToolchain,
 };

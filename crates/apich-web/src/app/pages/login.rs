@@ -1,60 +1,67 @@
+use crate::app::components::PageShell;
+use crate::ui::i18n::I18n;
+use apich_islands::AuthTabsIsland;
 use leptos::prelude::*;
 
 #[component]
-pub fn LoginPage() -> impl IntoView {
+pub fn LoginPage(
+    error: Option<String>,
+    success: Option<String>,
+    notice: Option<String>,
+    return_to: String,
+    i18n: I18n,
+    current_path: String,
+) -> impl IntoView {
+    let notice_text = notice.map(|n| {
+        if n == "session_expired" {
+            i18n.session_expired_notice().to_string()
+        } else {
+            n
+        }
+    });
+
     view! {
-        <div class="auth-page">
-            <div class="auth-card">
-                <div class="auth-header">
-                    <div class="auth-logo">"APICH"</div>
-                    <h1 class="auth-title">"Sign in to your Research Workspace"</h1>
-                    <p class="auth-subtitle">"Unified computational workspace, version control, and multi-tenant sandboxes"</p>
-                </div>
-
-                <div class="passkey-section">
-                    <button type="button" id="btn-passkey-login" class="btn btn-primary btn-block btn-lg">
-                        <svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 5a3 3 0 1 1 6 0v3H9V7z"/>
-                        </svg>
-                        " Sign In with Passkey / Biometrics"
-                    </button>
-                    <p class="hint-text">"Hardware security keys, Touch ID, Windows Hello, and FIDO2 supported"</p>
-                </div>
-
-                <div class="divider">
-                    <span>"OR CONTINUE WITH PASSWORD"</span>
-                </div>
-
-                <form method="post" action="/api/auth/login" class="auth-form">
-                    <div class="form-group">
-                        <label for="username_or_email">"Email or Username"</label>
-                        <input
-                            type="text"
-                            id="username_or_email"
-                            name="username_or_email"
-                            required
-                            placeholder="researcher@institution.org"
-                            class="form-control"
-                        />
+        <PageShell title=i18n.submit_login().to_string() i18n=i18n>
+            <div class="auth-page">
+                <div class="auth-card">
+                    <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+                        <a
+                            href=format!("/set-lang?lang={}&return_to={}", i18n.lang.toggle_code(), urlencoding::encode(&current_path))
+                            class="lang-toggle"
+                        >
+                            "🌐 " {i18n.lang.toggle_label()}
+                        </a>
                     </div>
-                    <div class="form-group">
-                        <label for="password">"Password"</label>
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            required
-                            placeholder="••••••••••••"
-                            class="form-control"
-                        />
+                    <div class="auth-header">
+                        <div class="auth-logo">"APICH"</div>
+                        <h1 class="auth-title">{i18n.sign_in_title()}</h1>
+                        <p class="auth-subtitle">{i18n.sign_in_subtitle()}</p>
                     </div>
-                    <button type="submit" class="btn btn-secondary btn-block">"Sign In"</button>
-                </form>
 
-                <div class="auth-footer">
-                    <p>"Need an account? "<a href="/register">"Register with invitation code"</a></p>
+                    {notice_text.map(|n| view! {
+                        <div class="alert alert-info" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem;">
+                            <span>"⏳"</span><span>{n}</span>
+                        </div>
+                    })}
+                    {error.map(|e| view! { <div class="alert alert-danger">{e}</div> })}
+                    {success.map(|s| view! { <div class="alert alert-success">{s}</div> })}
+
+                    <AuthTabsIsland
+                        return_to=return_to
+                        password_tab_label=i18n.tab_password().to_string()
+                        passkey_tab_label=i18n.tab_passkey().to_string()
+                        login_label=i18n.login_label().to_string()
+                        password_label=i18n.password_label().to_string()
+                        submit_label=i18n.submit_login().to_string()
+                        passkey_login_button_label=i18n.passkey_login_btn().to_string()
+                        passkey_hint_text=i18n.passkey_hint().to_string()
+                    />
+
+                    <div class="auth-footer">
+                        <p><a href="/register">{i18n.no_account_prompt()}</a></p>
+                    </div>
                 </div>
             </div>
-        </div>
+        </PageShell>
     }
 }

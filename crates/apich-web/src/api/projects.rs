@@ -1,6 +1,7 @@
 use crate::{
     auth::AuthUser,
     error::{WebError, WebResult},
+    services::{KnowledgeSyncService, SqliteTableService},
     state::AppState,
 };
 use apich_db::{
@@ -9,7 +10,7 @@ use apich_db::{
 };
 use apich_vcs::Snapshot;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post, put},
     Json, Router,
 };
@@ -35,6 +36,19 @@ pub fn router() -> Router<AppState> {
             "/projects/:id/members/:user_id",
             put(update_project_member).delete(remove_project_member),
         )
+        // SQLite Tables & Database Files
+        .route("/projects/:id/databases", get(list_project_databases))
+        .route("/projects/:id/databases/schema", get(get_database_schema))
+        .route("/projects/:id/tables/data", get(get_table_data))
+        .route("/projects/:id/sql/execute", post(execute_project_sql))
+        // Knowledge Hub (Tasks, Kanban, Wiki, Calendar)
+        .route("/projects/:id/knowledge/tasks", get(get_knowledge_tasks))
+        .route("/projects/:id/knowledge/kanban", get(get_knowledge_kanban))
+        .route("/projects/:id/knowledge/tasks/update", post(update_knowledge_task))
+        .route("/projects/:id/knowledge/graph", get(get_knowledge_graph))
+        .route("/projects/:id/knowledge/calendar", get(get_knowledge_calendar))
+        // Effective Hub Links
+        .route("/projects/:id/hub-links", get(get_project_hub_links))
 }
 
 #[derive(Debug, Deserialize)]
@@ -289,4 +303,244 @@ async fn remove_project_member(
     let repo = state.db.repository();
     repo.remove_project_member(id, target_user_id).await?;
     Ok(Json(json!({ "status": "success", "message": "Collaborator removed from project" })))
+}
+
+async fn list_project_databases(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> WebResult<Json<Vec<crate::services::sqlite_table::DatabaseFileInfo>>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let dbs = SqliteTableService::discover_databases(&proj.storage_path)?;
+    Ok(Json(dbs))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DatabaseFileQuery {
+    pub file: String,
+}
+
+async fn get_database_schema(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<DatabaseFileQuery>,
+) -> WebResult<Json<crate::services::sqlite_table::DatabaseSchema>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let full_path = SqliteTableService::resolve_db_path(&proj.storage_path, &query.file)?;
+    let schema = SqliteTableService::get_database_schema(&full_path)?;
+    Ok(Json(schema))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TableDataQuery {
+    pub file: String,
+    pub table: String,
+    pub page: Option<usize>,
+    pub page_size: Option<usize>,
+    pub sort_by: Option<String>,
+    pub sort_order: Option<String>,
+    pub search: Option<String>,
+}
+
+async fn get_table_data(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<TableDataQuery>,
+) -> WebResult<Json<crate::services::sqlite_table::TableDataPage>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let full_path = SqliteTableService::resolve_db_path(&proj.storage_path, &query.file)?;
+    let data = SqliteTableService::get_table_data(
+        &full_path,
+        &query.table,
+        query.page.unwrap_or(1),
+        query.page_size.unwrap_or(50),
+        query.sort_by.as_deref(),
+        query.sort_order.as_deref(),
+        query.search.as_deref(),
+    )?;
+    Ok(Json(data))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecuteSqlRequest {
+    pub file: String,
+    pub sql: String,
+}
+
+async fn execute_project_sql(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<ExecuteSqlRequest>,
+) -> WebResult<Json<crate::services::sqlite_table::SqlExecutionResult>> {
+    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
+    if !can_manage {
+        return Err(WebError::Forbidden("Management privileges required to execute SQL".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let full_path = SqliteTableService::resolve_db_path(&proj.storage_path, &payload.file)?;
+    let result = SqliteTableService::execute_sql(&full_path, &payload.sql)?;
+    Ok(Json(result))
+}
+
+async fn get_knowledge_tasks(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> WebResult<Json<Vec<crate::services::knowledge_sync::MarkdownTask>>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let tasks = KnowledgeSyncService::extract_all_tasks(&proj.storage_path)?;
+    Ok(Json(tasks))
+}
+
+async fn get_knowledge_kanban(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> WebResult<Json<crate::services::knowledge_sync::KanbanBoard>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let board = KnowledgeSyncService::build_kanban_board(&proj.storage_path)?;
+    Ok(Json(board))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTaskRequest {
+    pub file: String,
+    pub line_number: usize,
+    pub status: String,
+}
+
+async fn update_knowledge_task(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateTaskRequest>,
+) -> WebResult<Json<serde_json::Value>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    KnowledgeSyncService::update_task_status(
+        &proj.storage_path,
+        &payload.file,
+        payload.line_number,
+        &payload.status,
+    )?;
+
+    Ok(Json(json!({ "status": "success", "message": "Task status updated in document" })))
+}
+
+async fn get_knowledge_graph(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> WebResult<Json<crate::services::knowledge_sync::KnowledgeGraph>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let graph = KnowledgeSyncService::build_knowledge_graph(&proj.storage_path)?;
+    Ok(Json(graph))
+}
+
+async fn get_knowledge_calendar(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> WebResult<Json<Vec<crate::services::knowledge_sync::CalendarEvent>>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let events = KnowledgeSyncService::extract_calendar_events(&proj.storage_path)?;
+    Ok(Json(events))
+}
+
+async fn get_project_hub_links(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> WebResult<Json<apich_db::EffectiveHubLinks>> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+    let repo = state.db.repository();
+    let proj = repo
+        .get_project_by_id(id)
+        .await?
+        .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+    let links = repo.resolve_hub_links(proj.org_id, proj.team_id).await?;
+    Ok(Json(links))
 }

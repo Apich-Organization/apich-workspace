@@ -1,7 +1,13 @@
 pub mod admin_platform;
 pub mod dashboard;
+pub mod document_editor_page;
+pub mod knowledge_page;
 pub mod login;
+pub mod note_page;
 pub mod org_teams;
 pub mod project_detail;
 pub mod register;
 pub mod settings;
+pub mod shared_project;
+pub mod table_page;
+pub mod terminal_page;

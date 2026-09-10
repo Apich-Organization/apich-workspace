@@ -1,6 +1,6 @@
 use apich_db::{
     CreateOAuthClientDto, CreateOrganizationDto, CreateTeamDto, CreateUserDto, Database,
-    PostgresConfig, PostgresContainer, UserRole,
+    PostgresConfig, PostgresContainer, UpdateOrganizationDto, UpdateTeamDto, UserRole,
 };
 use apich_sandbox::SandboxManager;
 use apich_web::{create_app, AppState};
@@ -442,6 +442,7 @@ async fn test_fullstack_web_e2e_lifecycle() {
             name: "Quantum Labs".to_string(),
             slug: "quantum-labs".to_string(),
             description: Some("Advanced Quantum Computing Lab".to_string()),
+            ..Default::default()
         })
         .send()
         .await
@@ -459,6 +460,7 @@ async fn test_fullstack_web_e2e_lifecycle() {
             name: "Hardware Engineering".to_string(),
             slug: "hw-eng".to_string(),
             description: Some("Quantum hardware research team".to_string()),
+            ..Default::default()
         })
         .send()
         .await
@@ -476,6 +478,7 @@ async fn test_fullstack_web_e2e_lifecycle() {
             name: "Cryogenics Subsystem".to_string(),
             slug: "cryo-sub".to_string(),
             description: Some("Ultra-low temperature dilution refrigerators".to_string()),
+            ..Default::default()
         })
         .send()
         .await
@@ -934,7 +937,8 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(home_res.status(), StatusCode::OK);
     let home_html = home_res.text().await.unwrap();
     assert!(home_html.contains("APICH"));
-    assert!(home_html.contains("Projects & Sandboxes"));
+    // Leptos SSR correctly HTML-escapes text nodes ("&" -> "&amp;"), unlike the old raw format! templates.
+    assert!(home_html.contains("Projects &amp; Sandboxes") || home_html.contains("Projects & Sandboxes"));
     assert!(home_html.contains("New Project"));
 
     // 7.2 Language Toggle: Switch to Chinese (zh)
@@ -964,7 +968,7 @@ async fn test_fullstack_web_e2e_lifecycle() {
     let settings_res = client.get(format!("{}/settings", base_url)).send().await.unwrap();
     assert_eq!(settings_res.status(), StatusCode::OK);
     let settings_html = settings_res.text().await.unwrap();
-    assert!(settings_html.contains("Account & Security Settings"));
+    assert!(settings_html.contains("Account &amp; Security Settings") || settings_html.contains("Account & Security Settings"));
     assert!(settings_html.contains("Platform Administrator"));
     assert!(settings_html.contains("Passkey"));
 
@@ -1046,7 +1050,7 @@ async fn test_fullstack_web_e2e_lifecycle() {
     let orgs_res = client.get(format!("{}/admin/orgs", base_url)).send().await.unwrap();
     assert_eq!(orgs_res.status(), StatusCode::OK);
     let orgs_html = orgs_res.text().await.unwrap();
-    assert!(orgs_html.contains("Organizations & Teams"));
+    assert!(orgs_html.contains("Organizations &amp; Teams") || orgs_html.contains("Organizations & Teams"));
     assert!(orgs_html.contains("Quantum Labs"));
     assert!(orgs_html.contains("Hardware Engineering"));
 
@@ -1226,27 +1230,28 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert!(sent_emails.iter().any(|m| m.to == "researcher-verify@apich.edu" && m.subject.contains("SMTP Delivery Test")));
 
     // 7.4 Project Detail Page Tabs & Collaborator Management
-    let proj_overview_res = client.get(format!("{}/projects/{}", base_url, proj_id)).send().await.unwrap();
-    assert_eq!(proj_overview_res.status(), StatusCode::OK);
-    let proj_overview_html = proj_overview_res.text().await.unwrap();
-    assert!(proj_overview_html.contains("Overview & Sandbox"));
-    assert!(proj_overview_html.contains("Branches & Merge Conflicts"));
+    // Bare /projects/:id now defaults to the Files tab (the old "Overview" tab was dropped:
+    // its content was redundant with the page header, and plan.md's spec is Files/VCS/Sharing).
+    let proj_files_res = client.get(format!("{}/projects/{}", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(proj_files_res.status(), StatusCode::OK);
+    let proj_files_html = proj_files_res.text().await.unwrap();
+    assert!(proj_files_html.contains("Project Files"));
+    assert!(proj_files_html.contains("Files"));
 
+    // merge/timeline/git are now unified into a single VCS tab (plan.md: "VCS history & management").
+    let proj_vcs_res = client.get(format!("{}/projects/{}?tab=vcs", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(proj_vcs_res.status(), StatusCode::OK);
+    let proj_vcs_html = proj_vcs_res.text().await.unwrap();
+    assert!(proj_vcs_html.contains("Branches &amp; Merging") || proj_vcs_html.contains("Branches & Merging"));
+    assert!(proj_vcs_html.contains("Timeline Snapshots"));
+    assert!(proj_vcs_html.contains("Initial calibration equations for transmon simulator"));
+    assert!(proj_vcs_html.contains("Git Compatibility"));
+
+    // Legacy tab query values still resolve to the same VCS tab.
     let proj_merge_res = client.get(format!("{}/projects/{}?tab=merge", base_url, proj_id)).send().await.unwrap();
     assert_eq!(proj_merge_res.status(), StatusCode::OK);
     let proj_merge_html = proj_merge_res.text().await.unwrap();
-    assert!(proj_merge_html.contains("Weave-Free Branch & 3-Way Merge Engine"));
-
-    let proj_timeline_res = client.get(format!("{}/projects/{}?tab=timeline", base_url, proj_id)).send().await.unwrap();
-    assert_eq!(proj_timeline_res.status(), StatusCode::OK);
-    let proj_timeline_html = proj_timeline_res.text().await.unwrap();
-    assert!(proj_timeline_html.contains("Timeline Snapshots"));
-    assert!(proj_timeline_html.contains("Initial calibration equations for transmon simulator"));
-
-    let proj_git_res = client.get(format!("{}/projects/{}?tab=git", base_url, proj_id)).send().await.unwrap();
-    assert_eq!(proj_git_res.status(), StatusCode::OK);
-    let proj_git_html = proj_git_res.text().await.unwrap();
-    assert!(proj_git_html.contains("Git Dual-Engine Compatibility Bridge"));
+    assert!(proj_merge_html.contains("Branches &amp; Merging") || proj_merge_html.contains("Branches & Merging"));
 
     // Owner adds collaborator via web form
     let add_collab_res = client
@@ -1273,7 +1278,255 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(rm_collab_res.status(), StatusCode::SEE_OTHER);
     assert!(rm_collab_res.headers().get("location").unwrap().to_str().unwrap().contains("collaborator_removed"));
 
-    // 7.5 Anonymous / Unauthenticated Client Flows
+    // ========================================================================
+    // TEST 7.5: Scientific Workspace Extensions: Hub Links, SQLite Tables, Knowledge Hub, Terminal
+    // ========================================================================
+    println!("--- Running Test 7.5: Hub Links, SQLite Tables, Knowledge Hub & Terminal ---");
+
+    // A. External Hub Links Resolution, Team-level Overrides and Org Lockout
+    let _ = repo.update_organization(org_id, UpdateOrganizationDto {
+        name: None,
+        slug: None,
+        description: None,
+        chat_url: Some("https://matrix.quantum-labs.org".to_string()),
+        meeting_url: Some("https://meet.quantum-labs.org".to_string()),
+        drive_url: Some("https://drive.quantum-labs.org".to_string()),
+        ai_agent_url: Some("https://ai.quantum-labs.org".to_string()),
+        allow_team_override: Some(true),
+    }).await.unwrap();
+
+    let _ = repo.update_team(root_team_id, UpdateTeamDto {
+        name: None,
+        slug: None,
+        description: None,
+        parent_team_id: None,
+        chat_url: Some("https://discord.gg/quantum-hw".to_string()),
+        meeting_url: None, // Inherits org
+        drive_url: None,   // Inherits org
+        ai_agent_url: None, // Inherits org
+    }).await.unwrap();
+
+    // Query effective hub links: team override on chat, inherited org on meeting/drive/ai
+    let hl_res = client.get(format!("{}/api/projects/{}/hub-links", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(hl_res.status(), StatusCode::OK);
+    let hl: Value = hl_res.json().await.unwrap();
+    assert_eq!(hl["chat_url"], "https://discord.gg/quantum-hw");
+    assert_eq!(hl["meeting_url"], "https://meet.quantum-labs.org");
+    assert_eq!(hl["drive_url"], "https://drive.quantum-labs.org");
+    assert_eq!(hl["ai_agent_url"], "https://ai.quantum-labs.org");
+
+    // Master Lockout: Org admin disables allow_team_override
+    let _ = repo.update_organization(org_id, UpdateOrganizationDto {
+        name: None,
+        slug: None,
+        description: None,
+        chat_url: None,
+        meeting_url: None,
+        drive_url: None,
+        ai_agent_url: None,
+        allow_team_override: Some(false),
+    }).await.unwrap();
+
+    let hl_lockout_res = client.get(format!("{}/api/projects/{}/hub-links", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(hl_lockout_res.status(), StatusCode::OK);
+    let hl_lockout: Value = hl_lockout_res.json().await.unwrap();
+    assert_eq!(hl_lockout["chat_url"], "https://matrix.quantum-labs.org");
+
+    // B. SQLite Tables Engine: Database creation, SQL DDL/DML, Grid and Console views
+    let create_db_res = client
+        .post(format!("{}/projects/{}/table/create-db", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_db_res.status(), StatusCode::SEE_OTHER);
+    assert!(storage_path.join("data.db").exists());
+
+    // Execute DDL and DML via API
+    let sql_exec_res = client
+        .post(format!("{}/api/projects/{}/sql/execute", base_url, proj_id))
+        .json(&json!({
+            "file": "data.db",
+            "sql": "CREATE TABLE qubit_telemetry (id INTEGER PRIMARY KEY, qid TEXT, t1_us REAL, t2_us REAL); INSERT INTO qubit_telemetry VALUES (1, 'Transmon_Q0', 88.4, 65.1), (2, 'Transmon_Q1', 94.7, 72.3);"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(sql_exec_res.status(), StatusCode::OK);
+    let sql_body: Value = sql_exec_res.json().await.unwrap();
+    assert!(sql_body["message"].as_str().unwrap().contains("executed successfully"));
+    assert_eq!(sql_body["is_query"], false);
+
+    // Also test a SELECT query via API
+    let select_exec_res = client
+        .post(format!("{}/api/projects/{}/sql/execute", base_url, proj_id))
+        .json(&json!({
+            "file": "data.db",
+            "sql": "SELECT qid, t1_us FROM qubit_telemetry WHERE t1_us > 90.0;"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(select_exec_res.status(), StatusCode::OK);
+    let select_body: Value = select_exec_res.json().await.unwrap();
+    assert_eq!(select_body["is_query"], true);
+    assert!(select_body["message"].as_str().unwrap().contains("Query executed successfully"));
+    assert_eq!(select_body["rows"].as_array().unwrap().len(), 1);
+
+    // Fetch Table Data via API
+    let table_data_res = client
+        .get(format!("{}/api/projects/{}/tables/data?file=data.db&table=qubit_telemetry", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(table_data_res.status(), StatusCode::OK);
+    let td_body: Value = table_data_res.json().await.unwrap();
+    assert_eq!(td_body["total_rows"], 2);
+    assert_eq!(td_body["columns"][1], "qid");
+    assert_eq!(td_body["rows"][0][1], "Transmon_Q0");
+
+    // Web UI: Visual Grid View
+    let grid_page_res = client
+        .get(format!("{}/projects/{}/table?file=data.db&table=qubit_telemetry&mode=grid", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(grid_page_res.status(), StatusCode::OK);
+    let grid_html = grid_page_res.text().await.unwrap();
+    assert!(grid_html.contains("qubit_telemetry"));
+    assert!(grid_html.contains("Transmon_Q0"));
+    assert!(grid_html.contains("spreadsheet-grid") || grid_html.contains("Visual Grid"));
+
+    // Web UI: Execute SQL in Console Form
+    let console_sql_res = client
+        .post(format!("{}/projects/{}/table/sql", base_url, proj_id))
+        .form(&[
+            ("file", "data.db"),
+            ("sql", "SELECT AVG(t1_us) as avg_t1 FROM qubit_telemetry;"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(console_sql_res.status(), StatusCode::OK);
+    let console_html = console_sql_res.text().await.unwrap();
+    assert!(console_html.contains("avg_t1"));
+    assert!(console_html.contains("91.55"));
+
+    // C. Knowledge Hub: Markdown Tasks, Kanban, Wiki Graph, Calendar, and Bidirectional Sync
+    let lab_notes_content = "# Lab Notebook: Quantum Transmon Benchmarking\nSee [[Dilution Fridge Guide]] and [[Pulse Calibration]] for operations.\n\n## Action Items\n- [ ] Characterize resonator frequency response #hardware @2026-09-25\n- [/] Calibrate single-qubit Clifford gates #control @2026-09-28\n- [x] Room-temperature microwave line testing #rf @2026-09-12\n";
+    tokio::fs::write(storage_path.join("lab_notebook.md"), lab_notes_content).await.unwrap();
+
+    // Query Knowledge Tasks API
+    let tasks_res = client
+        .get(format!("{}/api/projects/{}/knowledge/tasks", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(tasks_res.status(), StatusCode::OK);
+    let tasks_body: Value = tasks_res.json().await.unwrap();
+    assert_eq!(tasks_body.as_array().unwrap().len(), 3);
+
+    // Query Knowledge Kanban API
+    let kanban_res = client
+        .get(format!("{}/api/projects/{}/knowledge/kanban", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(kanban_res.status(), StatusCode::OK);
+    let kanban_body: Value = kanban_res.json().await.unwrap();
+    assert_eq!(kanban_body["total_tasks"], 3);
+    assert_eq!(kanban_body["completed_tasks"], 1);
+
+    // Query Knowledge Wiki Graph API
+    let graph_res = client
+        .get(format!("{}/api/projects/{}/knowledge/graph", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(graph_res.status(), StatusCode::OK);
+    let graph_body: Value = graph_res.json().await.unwrap();
+    let nodes = graph_body["nodes"].as_array().unwrap();
+    assert!(nodes.iter().any(|n| n["label"] == "Dilution Fridge Guide"));
+    assert!(nodes.iter().any(|n| n["label"] == "Pulse Calibration"));
+
+    // Query Calendar API
+    let cal_res = client
+        .get(format!("{}/api/projects/{}/knowledge/calendar", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cal_res.status(), StatusCode::OK);
+    let cal_body: Value = cal_res.json().await.unwrap();
+    assert_eq!(cal_body.as_array().unwrap().len(), 3);
+
+    // Bidirectional Task Toggle: Toggle line 5 from todo to done
+    let toggle_res = client
+        .post(format!("{}/projects/{}/knowledge/toggle-task", base_url, proj_id))
+        .form(&[
+            ("file", "lab_notebook.md"),
+            ("line_number", "5"),
+            ("status", "done"),
+            ("view", "kanban"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(toggle_res.status(), StatusCode::SEE_OTHER);
+
+    // Verify physical Markdown file was updated!
+    let updated_notes = tokio::fs::read_to_string(storage_path.join("lab_notebook.md")).await.unwrap();
+    assert!(updated_notes.contains("- [x] Characterize resonator frequency response"));
+
+    // Verify Kanban/Wiki/Calendar Views -- these used to be a standalone `/knowledge` page that
+    // nothing in the UI actually linked to (a real orphaned-page bug). plan.md calls for one
+    // integrated space ("一体化空间") aggregating notes, wiki, whiteboard, calendar, and kanban,
+    // so they're tabs on the unified note page now.
+    let kb_page_res = client.get(format!("{}/projects/{}/note?view=kanban", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(kb_page_res.status(), StatusCode::OK);
+    let kb_page_html = kb_page_res.text().await.unwrap();
+    assert!(kb_page_html.contains("kanban-grid"));
+    assert!(kb_page_html.contains("📋 Kanban"));
+
+    let wiki_page_res = client.get(format!("{}/projects/{}/note?view=wiki", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(wiki_page_res.status(), StatusCode::OK);
+    let wiki_page_html = wiki_page_res.text().await.unwrap();
+    assert!(wiki_page_html.contains("Notes &amp; Concepts") || wiki_page_html.contains("Notes & Concepts"));
+
+    let cal_page_res = client.get(format!("{}/projects/{}/note?view=calendar", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(cal_page_res.status(), StatusCode::OK);
+
+    // The old `/knowledge` page route survives only to redirect bookmarked links to the right
+    // place on the unified note page (this test client has redirect-following disabled, like
+    // every other request in this test, so check the Location header directly).
+    let legacy_kb_res = client.get(format!("{}/projects/{}/knowledge?view=kanban", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(legacy_kb_res.status(), StatusCode::SEE_OTHER);
+    assert!(legacy_kb_res.headers().get("location").unwrap().to_str().unwrap().contains("/note?view=kanban"));
+
+    // D. Interactive Container Terminal Page & Execution
+    let term_page_res = client.get(format!("{}/projects/{}/terminal", base_url, proj_id)).send().await.unwrap();
+    assert_eq!(term_page_res.status(), StatusCode::OK);
+    let term_html = term_page_res.text().await.unwrap();
+    assert!(term_html.contains("Terminal"));
+    // The old page claimed specific AI agent tools (aider/goose/antigravity) were
+    // pre-installed in the sandbox image with no evidence anywhere that they actually are --
+    // dropped as an unverifiable claim plan.md explicitly asks not to make.
+    // The terminal itself is now a real Leptos island (apich_islands::TerminalIsland), not a
+    // hand-written JS `<input id="term-input">` -- verify the real island marker instead.
+    assert!(term_html.contains("leptos-island"));
+    assert!(term_html.contains("data-component=\"TerminalIsland_"));
+
+    let term_exec_res = client
+        .post(format!("{}/projects/{}/terminal/exec", base_url, proj_id))
+        .form(&[
+            ("command", "echo 'APICH Sandbox Terminal Live Test'"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(term_exec_res.status(), StatusCode::OK);
+    let exec_res_body: Value = term_exec_res.json().await.unwrap();
+    assert!(exec_res_body["output"].as_str().unwrap().contains("APICH Sandbox Terminal Live Test"));
+
+    // 7.6 Anonymous / Unauthenticated Client Flows
     let anon_client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -1297,6 +1550,146 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(register_res.status(), StatusCode::OK);
     let register_html = register_res.text().await.unwrap();
     assert!(register_html.contains("Create Research Account"));
+    assert!(register_html.contains("create_org"));
+
+    // ========================================================================
+    // TEST 7.7: Redesigned Showcase Demo, 3-Tier Settings, File Browser, Studios, and Spreadsheets
+    // ========================================================================
+    println!("--- Running Test 7.7: Redesigned Showcase Demo, 3-Tier Settings, File Browser, Studios & Spreadsheets ---");
+
+    // 1. Verify 3-Tier Admin Settings on Sidebar Shell for Alice (Platform Admin)
+    let dash_res = client.get(format!("{}/", base_url)).send().await.unwrap();
+    assert_eq!(dash_res.status(), StatusCode::OK);
+    let dash_html = dash_res.text().await.unwrap();
+    assert!(dash_html.contains("/admin/platform"));
+    assert!(dash_html.contains("/admin/orgs"));
+    assert!(dash_html.contains("/settings"));
+
+    // 2. Create Showcase Demo Project via POST /projects/demo/create
+    let create_demo_res = client.post(format!("{}/projects/demo/create", base_url)).send().await.unwrap();
+    assert_eq!(create_demo_res.status(), StatusCode::SEE_OTHER);
+    let demo_proj_loc = create_demo_res.headers().get("location").unwrap().to_str().unwrap();
+    assert!(demo_proj_loc.contains("/projects/"));
+    let demo_proj_id = demo_proj_loc.split('/').nth(2).unwrap().split('?').next().unwrap();
+
+    // 3. Verify Files Tab is Default View on Project Page
+    let proj_files_res = client.get(format!("{}/projects/{}", base_url, demo_proj_id)).send().await.unwrap();
+    assert_eq!(proj_files_res.status(), StatusCode::OK);
+    let files_html = proj_files_res.text().await.unwrap();
+    assert!(files_html.contains("slides.typ"));
+    assert!(files_html.contains("paper.typ"));
+    assert!(files_html.contains("quantum_measurements.table"));
+    assert!(files_html.contains("lab_notebook.anote"));
+
+    // 4. Verify Sharing & Permissions Tab with the 3 Strict Collaboration Roles
+    let sharing_res = client.get(format!("{}/projects/{}?tab=members", base_url, demo_proj_id)).send().await.unwrap();
+    assert_eq!(sharing_res.status(), StatusCode::OK);
+    let sharing_html = sharing_res.text().await.unwrap();
+    assert!(sharing_html.contains("read_only"));
+    assert!(sharing_html.contains("read_and_review"));
+    assert!(sharing_html.contains("read_write_and_review"));
+    assert!(sharing_html.contains("Copy Share Link"));
+
+    // 5. Test Dedicated Document & Slide Editor Studio
+    let editor_res = client.get(format!("{}/projects/{}/editor?file=slides.typ", base_url, demo_proj_id)).send().await.unwrap();
+    assert_eq!(editor_res.status(), StatusCode::OK);
+    let editor_html = editor_res.text().await.unwrap();
+    assert!(editor_html.contains("slides.typ"));
+    assert!(editor_html.contains("slide-stage") || editor_html.contains("slide-theme"));
+
+    // Save document edit
+    let save_doc_res = client
+        .post(format!("{}/projects/{}/editor/save", base_url, demo_proj_id))
+        .form(&[
+            ("file", "slides.typ"),
+            ("content", "// Updated slides with quantum coherence\n#import \"theme.typ\": *\n"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(save_doc_res.status(), StatusCode::SEE_OTHER);
+
+    // 6. Test Spreadsheet Table: Cell Edit, Row Add, Row Delete, CSV Export & Import
+    let cell_edit_res = client
+        .post(format!("{}/projects/{}/table/cell-edit", base_url, demo_proj_id))
+        .form(&[
+            ("file", "quantum_measurements.table"),
+            ("table", "qubit_characterization"),
+            ("row_id_col", "id"),
+            ("row_id_val", "1"),
+            ("col", "qubit_label"),
+            ("val", "Q0_Transmon_Calibrated_v2"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cell_edit_res.status(), StatusCode::OK);
+
+    // Export CSV
+    let export_csv_res = client
+        .get(format!("{}/projects/{}/table/export?file=quantum_measurements.table&table=qubit_characterization", base_url, demo_proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(export_csv_res.status(), StatusCode::OK);
+    let exported_csv = export_csv_res.text().await.unwrap();
+    assert!(exported_csv.contains("Q0_Transmon_Calibrated_v2"));
+
+    // Import CSV
+    let import_csv_res = client
+        .post(format!("{}/projects/{}/table/import", base_url, demo_proj_id))
+        .form(&[
+            ("file", "quantum_measurements.table"),
+            ("table", "qubit_characterization"),
+            ("csv_data", "id,qubit_label,frequency_ghz,t1_us,t2_echo_us,readout_fidelity,status\n10,Q9_Coupled,5.42,99.1,80.2,0.994,Online\n"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(import_csv_res.status(), StatusCode::SEE_OTHER);
+
+    // 7. Test Dedicated Unified Note Studio (.anote)
+    let note_studio_res = client
+        .get(format!("{}/projects/{}/note?file=lab_notebook.anote&view=editor", base_url, demo_proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(note_studio_res.status(), StatusCode::OK);
+    let note_html = note_studio_res.text().await.unwrap();
+    assert!(note_html.contains("Document Outline"));
+    assert!(note_html.contains("Save Note"));
+
+    // Whiteboard Canvas View in Unified Note Studio
+    let wb_res = client
+        .get(format!("{}/projects/{}/note?file=lab_notebook.anote&view=whiteboard", base_url, demo_proj_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(wb_res.status(), StatusCode::OK);
+    let wb_html = wb_res.text().await.unwrap();
+    // The whiteboard is a real Leptos island (apich-islands::WhiteboardIsland) hydrated with
+    // real Rust/WASM in the browser, not a hand-written JS canvas script -- verify the server
+    // actually emitted the island marker with a real <canvas> inside, not a hardcoded element id.
+    assert!(wb_html.contains("leptos-island"));
+    assert!(wb_html.contains("data-component=\"WhiteboardIsland_"));
+    assert!(wb_html.contains("<canvas"));
+    assert!(wb_html.contains("Export PNG"));
+
+    // Save Note Form
+    let save_note_res = client
+        .post(format!("{}/projects/{}/note/save", base_url, demo_proj_id))
+        .form(&[
+            ("file", "lab_notebook.anote"),
+            ("view", "editor"),
+            ("meta_title", "Cryogenic Qubit Characterization Notebook"),
+            ("meta_author", "Alice & Bob"),
+            ("meta_tags", "quantum, dilution-fridge, transmon"),
+            ("body", "# Lab Notebook\n\n## Next Steps\n- [ ] Calibrate pulse envelope\n"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(save_note_res.status(), StatusCode::SEE_OTHER);
 
     // 7.6 Logout Flow: POST /logout redirects to /login and clears session cookie
     let logout_res = client.post(format!("{}/logout", base_url)).send().await.unwrap();

@@ -81,6 +81,9 @@ pub struct Project {
     pub status: String,
     pub vcs_initialized: bool,
     pub settings: serde_json::Value,
+    /// When true, the VCS timeline flags unsigned snapshots as unverified rather than showing
+    /// them the same as signed ones ("vigilant mode" -- bugs.md's own term).
+    pub vigilant_mode: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -106,6 +109,7 @@ pub struct ProjectSandbox {
     pub status: String,
     pub last_started_at: Option<DateTime<Utc>>,
     pub last_stopped_at: Option<DateTime<Utc>>,
+    pub last_activity_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

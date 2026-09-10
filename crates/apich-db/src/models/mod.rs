@@ -12,8 +12,8 @@ pub mod workspace;
 
 pub use audit::{AuditLog, CreateAuditLogDto};
 pub use auth::{
-    CreateInvitationDto, Fido2Credential, Invitation, RegistrationMode, SystemSettings,
-    UpdateSystemSettingsDto, UserSession,
+    CreateInvitationDto, Fido2Credential, GpgPublicKey, Invitation, PersonalAccessToken,
+    RegistrationMode, SshPublicKey, SystemSettings, UpdateSystemSettingsDto, UserSession,
 };
 pub use document::{CreateDocumentDto, DocType, Document, DocumentSearchResult};
 pub use knowledge::{
@@ -21,7 +21,7 @@ pub use knowledge::{
 };
 pub use metadata::ExtensibleMetadata;
 pub use organization::{
-    CreateOrganizationDto, OrgMember, OrgMemberWithUser, OrgRole, Organization,
+    CreateOrganizationDto, EffectiveHubLinks, OrgMember, OrgMemberWithUser, OrgRole, Organization,
     UpdateOrganizationDto,
 };
 pub use project::{

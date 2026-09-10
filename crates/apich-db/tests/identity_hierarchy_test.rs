@@ -108,6 +108,7 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
                 slug: "quantum-labs".to_string(),
                 name: "Quantum Labs Enterprise".to_string(),
                 description: Some("Quantum computing research institute".to_string()),
+                ..Default::default()
             },
         )
         .await
@@ -132,6 +133,7 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
                 name: "Quantum Theory".to_string(),
                 slug: "theory".to_string(),
                 description: Some("Theoretical physics & error correction".to_string()),
+                ..Default::default()
             },
         )
         .await
@@ -147,6 +149,7 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
                 name: "Error Correction Group".to_string(),
                 slug: "qec".to_string(),
                 description: Some("Fault-tolerant architecture".to_string()),
+                ..Default::default()
             },
         )
         .await
@@ -162,6 +165,7 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
                 name: "Surface Code Protocols".to_string(),
                 slug: "surface-codes".to_string(),
                 description: Some("Planar & toric surface codes".to_string()),
+                ..Default::default()
             },
         )
         .await
@@ -181,6 +185,7 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
                 name: "Public Outreach".to_string(),
                 slug: "outreach".to_string(),
                 description: Some("Community & open science".to_string()),
+                ..Default::default()
             },
         )
         .await

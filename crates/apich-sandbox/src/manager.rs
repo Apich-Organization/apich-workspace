@@ -173,10 +173,16 @@ impl SandboxManager {
         self.driver.remove(&container_name, true).await
     }
 
-    /// List all managed sandbox containers
+    /// List all managed *sandbox* containers -- i.e. per-user/per-project containers
+    /// (`SandboxConfig::builder()` stamps every one of these with `apich.user_id`), NOT every
+    /// container this app manages. `apich.managed=true` alone is too broad: the platform's own
+    /// Postgres container (`apich-db`'s `PostgresContainer::spawn_container`) carries that same
+    /// label (plus `apich.role=postgres`, no `apich.user_id`) since it's also podman-managed by
+    /// this app -- filtering on `apich.managed=true` here previously made this function, and the
+    /// orphan reaper built on it, treat that infra container as an abandoned sandbox and delete
+    /// it (confirmed live: it took down the running database mid-session). `apich.user_id`
+    /// existence is what actually distinguishes a sandbox from infra.
     pub async fn list_managed_sandboxes(&self) -> Result<Vec<String>> {
-        self.driver
-            .list_containers(Some("apich.managed=true"))
-            .await
+        self.driver.list_containers(Some("apich.user_id")).await
     }
 }

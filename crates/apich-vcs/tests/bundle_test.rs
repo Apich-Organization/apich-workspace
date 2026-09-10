@@ -3,6 +3,89 @@ use apich_vcs::{BundleOptions, ProjectVcs};
 use common::test_temp_dir;
 use std::fs;
 
+/// Real "clone" + "push" + "pull" over apich-vcs's own bundle-based remote protocol, using two
+/// independent on-disk repositories to stand in for a server and a client (the HTTP layer in
+/// apich-web is a thin wrapper around exactly this same `export_bundle`/`accept_push_bundle`
+/// pair, so this exercises the actual merge logic end to end without needing a live server).
+#[test]
+fn test_push_pull_clone_over_bundle_protocol() {
+    let server_temp = test_temp_dir();
+    let server_root = server_temp.path().join("server_repo");
+    fs::create_dir_all(&server_root).unwrap();
+    let server_vcs = ProjectVcs::open_or_init(&server_root).unwrap();
+    fs::write(server_root.join("a.txt"), "v1\n").unwrap();
+    let s1 = server_vcs.snapshot("first commit").unwrap();
+
+    // "Clone": download the server's bundle and import it fresh.
+    let client_temp = test_temp_dir();
+    let client_root = client_temp.path().join("client_repo");
+    let mut bundle_bytes = Vec::new();
+    server_vcs.export_bundle(&mut bundle_bytes, BundleOptions::default()).unwrap();
+    let client_vcs = ProjectVcs::import_bundle(&bundle_bytes[..], &client_root).unwrap();
+    assert_eq!(
+        fs::read_to_string(client_root.join("a.txt")).unwrap(),
+        "v1\n"
+    );
+
+    // Client makes local progress and "pushes": server accepts it (fast-forward, new to server
+    // only in the sense that the client is ahead -- same branch, server's HEAD is an ancestor).
+    fs::write(client_root.join("a.txt"), "v2\n").unwrap();
+    let s2 = client_vcs.snapshot("second commit").unwrap();
+    let mut push_bytes = Vec::new();
+    client_vcs.export_bundle(&mut push_bytes, BundleOptions::default()).unwrap();
+    let outcome = server_vcs.accept_push_bundle(&push_bytes[..]).unwrap();
+    assert_eq!(outcome.accepted_branches, vec!["main".to_string()]);
+    assert!(outcome.rejected_branches.is_empty());
+    assert_eq!(
+        server_vcs.get_branch("main").unwrap().unwrap().head_snapshot_id,
+        s2.id
+    );
+    // The pushed snapshot's tree must be a real, independently-readable object on the server now.
+    let s2_from_server = server_vcs.cas().get_snapshot(s2.id).unwrap();
+    assert_eq!(s2_from_server.parent_snapshot_id, Some(s1.id));
+
+    // A third, independent repo (never touched by the push above) diverges from the same base,
+    // then tries to push: the server must reject it rather than silently discarding history.
+    let rogue_temp = test_temp_dir();
+    let rogue_root = rogue_temp.path().join("rogue_repo");
+    let mut base_bytes = Vec::new();
+    // Re-export from a bundle taken before the client's second commit, to simulate a clone that
+    // is now behind the server.
+    let stale_client_temp = test_temp_dir();
+    let stale_root = stale_client_temp.path().join("stale_repo");
+    let _stale_vcs = ProjectVcs::import_bundle(&bundle_bytes[..], &stale_root).unwrap();
+    let stale_vcs = ProjectVcs::open_or_init(&stale_root).unwrap();
+    fs::write(stale_root.join("a.txt"), "conflicting-v2\n").unwrap();
+    let _s2_rogue = stale_vcs.snapshot("conflicting second commit").unwrap();
+    stale_vcs.export_bundle(&mut base_bytes, BundleOptions::default()).unwrap();
+    let _ = fs::create_dir_all(&rogue_root);
+
+    let rejected_outcome = server_vcs.accept_push_bundle(&base_bytes[..]).unwrap();
+    assert!(rejected_outcome.accepted_branches.is_empty(), "diverged push must not silently win: {:?}", rejected_outcome);
+    assert_eq!(rejected_outcome.rejected_branches.len(), 1);
+    assert_eq!(rejected_outcome.rejected_branches[0].0, "main");
+    // Server's branch ref must be unchanged -- still pointing at the legitimately-pushed s2.
+    assert_eq!(
+        server_vcs.get_branch("main").unwrap().unwrap().head_snapshot_id,
+        s2.id
+    );
+
+    // "Pull": a fresh clone of the server now sees the client's pushed second commit.
+    let puller_temp = test_temp_dir();
+    let puller_root = puller_temp.path().join("puller_repo");
+    let mut server_bytes_now = Vec::new();
+    server_vcs.export_bundle(&mut server_bytes_now, BundleOptions::default()).unwrap();
+    let puller_vcs = ProjectVcs::import_bundle(&server_bytes_now[..], &puller_root).unwrap();
+    assert_eq!(
+        fs::read_to_string(puller_root.join("a.txt")).unwrap(),
+        "v2\n"
+    );
+    assert_eq!(
+        puller_vcs.head_snapshot().unwrap().unwrap().id,
+        s2.id
+    );
+}
+
 #[test]
 fn test_project_bundle_export_and_import_roundtrip() {
     let source_temp = test_temp_dir();

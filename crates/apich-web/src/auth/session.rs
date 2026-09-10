@@ -78,6 +78,29 @@ where
                     if let Ok(Some(user)) = repo.get_user_by_session_token_hash(&token_hash).await {
                         return Ok(AuthUser(user));
                     }
+                    // Personal access tokens are hashed with the same scheme as session tokens
+                    // (see `handlers::generate_pat`), so a PAT presented as a Bearer token works too.
+                    if let Ok(Some(user)) = repo.get_user_by_active_pat_hash(&token_hash).await {
+                        return Ok(AuthUser(user));
+                    }
+                }
+
+                // 1b. Try Authorization: Basic <base64(username:password)> -- the form real Git
+                // clients (and `curl -u`) send. The username is accepted but not checked; the
+                // password is treated as a personal access token, matching how GitHub/GitLab's
+                // own HTTPS git auth works.
+                if let Some(raw_basic) = auth_str.strip_prefix("Basic ") {
+                    if let Ok(decoded) = BASE64_STANDARD.decode(raw_basic.trim()) {
+                        if let Ok(decoded_str) = String::from_utf8(decoded) {
+                            if let Some((_username, password)) = decoded_str.split_once(':') {
+                                let token_hash = hash_session_token(password);
+                                let repo = app_state.db.repository();
+                                if let Ok(Some(user)) = repo.get_user_by_active_pat_hash(&token_hash).await {
+                                    return Ok(AuthUser(user));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

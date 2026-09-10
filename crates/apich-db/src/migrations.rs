@@ -56,6 +56,21 @@ impl MigrationManager {
             name: "003_identity_projects_sso",
             sql: IDENTITY_PROJECTS_SSO_SQL,
         });
+        manager.register(Migration {
+            version: 4,
+            name: "004_hub_integrations_and_tables",
+            sql: HUB_INTEGRATIONS_AND_TABLES_SQL,
+        });
+        manager.register(Migration {
+            version: 5,
+            name: "005_sandbox_idle_tracking",
+            sql: SANDBOX_IDLE_TRACKING_SQL,
+        });
+        manager.register(Migration {
+            version: 6,
+            name: "006_pat_ssh_gpg_keys",
+            sql: PAT_SSH_GPG_KEYS_SQL,
+        });
         manager
     }
 
@@ -675,4 +690,76 @@ CREATE INDEX IF NOT EXISTS idx_project_members_proj ON project_members(project_i
 DROP TRIGGER IF EXISTS trg_project_members_updated_at ON project_members;
 CREATE TRIGGER trg_project_members_updated_at BEFORE UPDATE ON project_members FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 "#;
+
+pub const HUB_INTEGRATIONS_AND_TABLES_SQL: &str = r#"
+-- 004: External Hub Integrations and Team Override Rules
+ALTER TABLE organizations
+    ADD COLUMN IF NOT EXISTS chat_url TEXT,
+    ADD COLUMN IF NOT EXISTS meeting_url TEXT,
+    ADD COLUMN IF NOT EXISTS drive_url TEXT,
+    ADD COLUMN IF NOT EXISTS ai_agent_url TEXT,
+    ADD COLUMN IF NOT EXISTS allow_team_override BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE teams
+    ADD COLUMN IF NOT EXISTS chat_url TEXT,
+    ADD COLUMN IF NOT EXISTS meeting_url TEXT,
+    ADD COLUMN IF NOT EXISTS drive_url TEXT,
+    ADD COLUMN IF NOT EXISTS ai_agent_url TEXT;
+"#;
+
+pub const SANDBOX_IDLE_TRACKING_SQL: &str = r#"
+-- 005: Sandbox idle-tracking, for automatic stop after a period of inactivity. plan.md is
+-- explicit that container lifecycle should be invisible to the user: start on first use (already
+-- true -- see ProjectManagerService::exec_in_sandbox), stop automatically after they've stepped
+-- away, rather than a manual Start/Stop toggle or an indefinitely-running container.
+ALTER TABLE project_sandboxes
+    ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ;
+"#;
+
+pub const PAT_SSH_GPG_KEYS_SQL: &str = r#"
+-- 006: Personal Access Tokens (auth for the self-hosted git/apich-vcs remote servers and the
+-- `apich` CLI's own network operations), SSH public key storage (compatibility/identity only --
+-- no SSH transport server exists yet, tracked separately), GPG public key registry (signature
+-- verification for apich-vcs snapshots), and a per-project "vigilant mode" flag that, when on,
+-- flags unsigned snapshots as unverified in the timeline UI rather than showing them as if they
+-- were equivalent to signed ones.
+
+CREATE TABLE IF NOT EXISTS personal_access_tokens (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(128) NOT NULL,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    token_prefix VARCHAR(16) NOT NULL, -- first few chars shown in the UI so a user can tell tokens apart without re-revealing them
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pat_user ON personal_access_tokens(user_id);
+
+CREATE TABLE IF NOT EXISTS ssh_public_keys (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(128) NOT NULL,
+    key_type VARCHAR(32) NOT NULL,
+    public_key TEXT NOT NULL,
+    fingerprint VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_ssh_key_fingerprint UNIQUE (user_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS gpg_public_keys (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(128) NOT NULL,
+    public_key TEXT NOT NULL, -- ASCII-armored
+    fingerprint VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_gpg_key_fingerprint UNIQUE (user_id, fingerprint)
+);
+
+ALTER TABLE projects
+    ADD COLUMN IF NOT EXISTS vigilant_mode BOOLEAN NOT NULL DEFAULT false;
+"#;
+
 

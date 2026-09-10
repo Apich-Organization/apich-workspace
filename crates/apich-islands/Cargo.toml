@@ -1,0 +1,68 @@
+[package]
+name = "apich-islands"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive Leptos islands (real Rust, compiled to WASM) shared between the apich-web SSR server and its browser client bundle. Zero dependency on server-only crates (apich-db/apich-sandbox/apich-vcs/sqlx/tokio) so it can compile for wasm32-unknown-unknown."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.7.7", default-features = false, features = ["islands"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "MouseEvent",
+    "TouchEvent",
+    "TouchList",
+    "Touch",
+    "DomRect",
+    "HtmlAnchorElement",
+    "HtmlInputElement",
+    "Navigator",
+    "CredentialsContainer",
+    "Credential",
+    "CredentialCreationOptions",
+    "CredentialRequestOptions",
+    "PublicKeyCredential",
+    "PublicKeyCredentialCreationOptions",
+    "PublicKeyCredentialRequestOptions",
+    "PublicKeyCredentialRpEntity",
+    "PublicKeyCredentialUserEntity",
+    "PublicKeyCredentialParameters",
+    "PublicKeyCredentialType",
+    "AuthenticatorResponse",
+    "AuthenticatorAttestationResponse",
+    "AuthenticatorAssertionResponse",
+    "Location",
+    "Storage",
+    "CustomEvent",
+    "CustomEventInit",
+    "Clipboard",
+    "HtmlTextAreaElement",
+    "TextMetrics",
+] }
+urlencoding = "2.1"
+js-sys = { version = "0.3", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+gloo-net = { version = "0.6", optional = true }
+gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
+base64 = { version = "0.22", optional = true }
+
+[features]
+ssr = ["leptos/ssr"]
+hydrate = [
+    "leptos/hydrate",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:web-sys",
+    "dep:js-sys",
+    "dep:console_error_panic_hook",
+    "dep:gloo-net",
+    "dep:gloo-timers",
+    "dep:base64",
+]

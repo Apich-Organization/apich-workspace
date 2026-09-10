@@ -265,6 +265,38 @@ impl ProjectVcs {
         Ok(snapshot)
     }
 
+    /// Commit the working copy exactly like `snapshot()`, then detach-sign the resulting
+    /// snapshot's canonical payload with the caller's local GPG keyring and store the signature
+    /// on the snapshot record. `key_id` selects which local secret key to sign with (fingerprint,
+    /// key ID, or email `gpg` can resolve); `None` uses `gpg`'s own configured default key.
+    ///
+    /// Signing is always local: the private key never leaves the caller's machine or this
+    /// process's `gpg` invocation -- only the resulting signature is persisted.
+    pub fn snapshot_signed(&self, message: impl Into<String>, key_id: Option<&str>) -> Result<Snapshot> {
+        let mut snapshot = self.snapshot(message)?;
+        let signature = crate::gpg::sign_payload(&snapshot.signing_payload(), key_id)?;
+        snapshot.gpg_signature = Some(signature);
+        snapshot.gpg_key_id = key_id.map(|s| s.to_string());
+        self.cas.put_snapshot(&snapshot)?;
+        Ok(snapshot)
+    }
+
+    /// Verify a snapshot's GPG signature against a specific registered public key. Returns
+    /// `Ok(None)` if the snapshot carries no signature at all (distinct from a present-but-invalid
+    /// signature, which is `Ok(Some(SignatureStatus::Invalid(..)))`).
+    pub fn verify_snapshot_signature(
+        &self,
+        snapshot_id: Uuid,
+        public_key_armored: &str,
+    ) -> Result<Option<crate::gpg::SignatureStatus>> {
+        let snapshot = self.cas.get_snapshot(snapshot_id)?;
+        let Some(ref sig) = snapshot.gpg_signature else {
+            return Ok(None);
+        };
+        let status = crate::gpg::verify_signature(&snapshot.signing_payload(), sig, public_key_armored)?;
+        Ok(Some(status))
+    }
+
     /// Check whether there are uncommitted changes in the working directory compared to HEAD
     pub fn has_changes(&self) -> Result<bool> {
         let tree = self.scan_working_tree()?;
@@ -672,6 +704,25 @@ impl ProjectVcs {
         self.git_bridge.remote_list()
     }
 
+    pub fn git_fetch(&self, remote: &str) -> Result<()> {
+        self.git_bridge.fetch(remote)
+    }
+
+    pub fn git_rebase(&self, upstream: &str) -> Result<()> {
+        self.git_bridge.rebase(upstream)
+    }
+
+    /// Clone a remote Git repository into `dest`, then initialize apich-vcs tracking on the
+    /// result and take an initial snapshot -- so a cloned project is immediately usable both as a
+    /// Git working copy and as an apich-vcs history, not just a bare checkout.
+    pub fn git_clone(url: &str, dest: impl AsRef<Path>) -> Result<Self> {
+        let dest = dest.as_ref();
+        GitBridge::clone_repo(url, dest)?;
+        let vcs = Self::open_or_init(dest)?;
+        let _ = vcs.snapshot("Initial import from git clone");
+        Ok(vcs)
+    }
+
     pub fn clone_material(&self, url: &str, rel_dir: &str) -> Result<MaterialRecord> {
         self.material_mgr.clone_material(url, rel_dir)
     }
@@ -768,6 +819,13 @@ impl ProjectVcs {
         target_dir: impl AsRef<Path>,
     ) -> Result<Self> {
         crate::bundle::ProjectBundle::import_from_file(bundle_path, target_dir)
+    }
+
+    /// Accept a bundle (uploaded as a push, or downloaded as a pull -- the merge is safe either
+    /// direction) into this *already-initialized* project. See
+    /// `crate::bundle::ProjectBundle::accept_push` for the fast-forward safety rules.
+    pub fn accept_push_bundle<R: std::io::Read>(&self, reader: R) -> Result<crate::bundle::PushOutcome> {
+        crate::bundle::ProjectBundle::accept_push(self, reader)
     }
 
     /// Export a clean archive (e.g. tar.gz) of a specific snapshot without .apich metadata (ideal for arXiv / IEEE / zip download)

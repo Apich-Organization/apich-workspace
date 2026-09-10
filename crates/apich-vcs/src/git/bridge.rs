@@ -195,7 +195,63 @@ impl GitBridge {
         Ok(list)
     }
 
-    // --- Push / Pull via Git Subprocess (Robust and Secure) ---
+    // --- Clone / Fetch / Rebase / Push / Pull via Git Subprocess (Robust and Secure) ---
+    //
+    // All of these shell out to the real `git` binary rather than using git2, matching `push`/
+    // `pull` below: credential handling (SSH agent, stored HTTPS credentials, credential helpers)
+    // is delegated entirely to the user's own real git installation, instead of reimplementing
+    // auth flows here.
+
+    /// Clone a remote Git repository directly into `dest` (which must not already exist).
+    pub fn clone_repo(url: &str, dest: &Path) -> Result<()> {
+        if dest.exists() {
+            return Err(VcsError::Internal(format!(
+                "Clone destination already exists: {}",
+                dest.display()
+            )));
+        }
+        let output = Command::new("git")
+            .arg("clone")
+            .arg(url)
+            .arg(dest)
+            .output()
+            .map_err(VcsError::Io)?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(VcsError::Internal(format!("git clone failed: {}", stderr)));
+        }
+        Ok(())
+    }
+
+    pub fn fetch(&self, remote: &str) -> Result<()> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.project_root)
+            .arg("fetch")
+            .arg(remote)
+            .output()
+            .map_err(VcsError::Io)?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(VcsError::Internal(format!("git fetch failed: {}", stderr)));
+        }
+        Ok(())
+    }
+
+    pub fn rebase(&self, upstream: &str) -> Result<()> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.project_root)
+            .arg("rebase")
+            .arg(upstream)
+            .output()
+            .map_err(VcsError::Io)?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(VcsError::Internal(format!("git rebase failed: {}", stderr)));
+        }
+        Ok(())
+    }
 
     pub fn push(&self, remote: &str, branch: &str) -> Result<()> {
         let mut cmd = Command::new("git");

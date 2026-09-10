@@ -1,6 +1,14 @@
 # ==============================================================================
 # APICH Next-Gen Technical & Academic Workspace Sandbox Image
-# Includes: Rust toolchain, Python3 scientific stack, Git, R, LaTeX (XeTeX/latexmk), Typst
+# Includes: Rust toolchain, Python3 scientific stack, Git, R, LaTeX (XeTeX/latexmk), Typst,
+# and CLI coding-agent tools (opencode, aider, goose, claude-code, codex) so a user can point
+# an agent directly at their real project files inside the container, per plan.md -- this is
+# not a chat-only assistant, the agent gets a real shell in the real workspace.
+#
+# NOTE on "google antigravity": plan.md also names this alongside the other agent CLIs, but
+# as of this image's authorship there is no publicly documented, installable CLI package under
+# that name that could be verified here -- so it is deliberately left out rather than guessed
+# at with a fabricated install command. Add it once a real package/binary exists to point to.
 # ==============================================================================
 
 FROM debian:bookworm-slim
@@ -26,6 +34,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libssl-dev \
+    libasound2-dev \
+    libx11-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    libwayland-dev \
     python3 \
     python3-pip \
     python3-venv \
@@ -36,6 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     texlive-latex-recommended \
     texlive-latex-extra \
     texlive-xetex \
+    texlive-luatex \
     texlive-fonts-recommended \
     latexmk \
     lmodern \
@@ -44,6 +58,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
     procps \
     sudo \
+    nodejs \
+    npm \
+    pipx \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Install Rust toolchain (system-wide accessible)
@@ -71,9 +88,57 @@ RUN set -eux; \
     rm -rf /tmp/typst* \
     && typst --version
 
-# 4. Create non-root developer user (apich, UID 1000)
+# 4. Install cargo-slide (presentation build tool -- `cargo slide build` packages a Typst-authored
+# deck into a standalone native binary). Built from source since it's not on crates.io; only
+# produces binaries for this container's own platform, there is no cross-compile toolchain here.
+RUN git clone --depth 1 https://github.com/Apich-Organization/cargo-slide /tmp/cargo-slide \
+    && cargo install --path /tmp/cargo-slide/crates/cargo-slide --locked \
+    && rm -rf /tmp/cargo-slide \
+    && cargo slide --version
+
+# 5. Install CLI coding agents. Each is wrapped so one broken install doesn't fail the whole
+#    image build; `/usr/local/bin/apich-agent-status` (written below) reports what actually made
+#    it in, so apich-sandbox's Rust side can check real availability instead of assuming.
+RUN npm install -g @anthropic-ai/claude-code || echo "apich-agent-install-failed: claude-code"
+RUN npm install -g @openai/codex || echo "apich-agent-install-failed: codex"
+RUN npm install -g opencode-ai || echo "apich-agent-install-failed: opencode"
+RUN pipx install --global aider-chat || pip install --break-system-packages aider-chat || echo "apich-agent-install-failed: aider"
+RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash \
+    && mv /root/.local/bin/goose /usr/local/bin/goose \
+    || echo "apich-agent-install-failed: goose"
+# Google Antigravity CLI (agy), the successor to Gemini CLI -- real installer, confirmed live on
+# the dev qube (`agy --version` -> 1.1.27) before adding it here; previously left out of this
+# image entirely because no verifiable install method could be found for it.
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
+    && (command -v agy || mv "$HOME/.local/bin/agy" /usr/local/bin/agy) \
+    || echo "apich-agent-install-failed: agy"
+
+# agy's OAuth login step tries to auto-launch a browser via `xdg-open` (real Debian package,
+# pulled in as a dependency of something else) -- live-verified via `ps aux` inside a running
+# container: with no display/browser to actually open, `xdg-open` zombies and agy then stalls
+# for well over 90 seconds instead of promptly printing the manual-paste-the-URL fallback it
+# already supports. This container never has a real browser to launch regardless of who calls
+# xdg-open, so replace it with an instant no-op -- standard practice for headless server images,
+# not specific to agy.
+RUN printf '#!/bin/sh\nexit 0\n' > /usr/bin/xdg-open && chmod +x /usr/bin/xdg-open
+
+RUN { \
+    echo '#!/bin/sh'; \
+    echo 'for bin in claude codex opencode aider goose agy; do'; \
+    echo '  if command -v "$bin" >/dev/null 2>&1; then echo "$bin: available"; else echo "$bin: missing"; fi'; \
+    echo 'done'; \
+    } > /usr/local/bin/apich-agent-status && chmod +x /usr/local/bin/apich-agent-status
+
+# 6. Create non-root developer user (apich, UID 1000)
 RUN useradd -m -u 1000 -s /bin/bash apich \
     && echo "apich ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    # `cargo install cargo-slide` (step 4) ran as root and populated
+    # /usr/local/cargo/registry with new root-owned cache/index files *after* the one-time
+    # `chmod -R a+w` in step 2 -- so without this, `cargo slide build`'s own dependency downloads
+    # fail at runtime with a real "Permission denied" once the container drops to the apich user
+    # below. Re-applying world-write here (not just to apich) matches step 2's own approach and
+    # covers any other user a container might run as.
+    && chmod -R a+w /usr/local/cargo /usr/local/rustup \
     && mkdir -p /workspace \
     && chown -R apich:apich /workspace
 

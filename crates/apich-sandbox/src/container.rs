@@ -1,11 +1,11 @@
 use crate::config::SandboxConfig;
 use crate::driver::{ContainerInspectInfo, ContainerStatus, PodmanDriver};
 use crate::error::{Result, SandboxError};
-use crate::exec::{ExecOptions, ExecResult, ExecStream};
+use crate::exec::{ExecOptions, ExecResult, ExecStream, InteractiveExec};
 use crate::fs::{self, FileEntry};
 use crate::tools::{
-    git::GitToolchain, latex::LatexToolchain, python::PythonToolchain, r::RToolchain,
-    rust::RustToolchain, typst::TypstToolchain,
+    agent::AgentToolchain, git::GitToolchain, latex::LatexToolchain, python::PythonToolchain,
+    r::RToolchain, rust::RustToolchain, typst::TypstToolchain,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -141,6 +141,17 @@ impl UserContainer {
             .await
     }
 
+    /// Execute command in container with streaming output AND a writable stdin, for commands
+    /// that need real interactive input mid-run (e.g. an agent CLI's account-login flow).
+    pub async fn exec_interactive(&self, mut opts: ExecOptions) -> Result<InteractiveExec> {
+        if opts.working_dir.is_none() {
+            opts.working_dir = Some(self.config.container_workspace_dir.clone());
+        }
+        self.driver
+            .exec_interactive(&self.config.container_name, &opts)
+            .await
+    }
+
     // --- File Operations ---
 
     /// Write binary file to user's workspace
@@ -217,5 +228,9 @@ impl UserContainer {
 
     pub fn typst(&self) -> TypstToolchain<'_> {
         TypstToolchain::new(self)
+    }
+
+    pub fn agents(&self) -> AgentToolchain<'_> {
+        AgentToolchain::new(self)
     }
 }

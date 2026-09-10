@@ -83,3 +83,69 @@ async fn test_exec_stream_and_options() {
         .await
         .expect("Failed to destroy container");
 }
+
+/// Proves the interactive-exec stdin plumbing actually reaches the container process, not just
+/// that the API compiles -- this is the mechanism the real agent-CLI account-login flow
+/// (`claude auth login`, which waits for a pasted-back code) depends on.
+#[tokio::test]
+async fn test_exec_interactive_stdin_round_trip() {
+    let temp = tempdir().unwrap();
+    let manager =
+        SandboxManager::new(temp.path(), "docker.io/library/alpine:latest").with_selinux(true);
+
+    let container = manager
+        .ensure_running("test_user_exec_interactive")
+        .await
+        .expect("Failed to ensure running");
+
+    // A script that prompts, reads one line from stdin, and echoes it back -- mirrors the real
+    // shape of `claude auth login`'s "print a prompt, wait for pasted input" behavior closely
+    // enough to prove the plumbing without depending on a real OAuth flow in a test.
+    let opts = ExecOptions::new([
+        "sh",
+        "-c",
+        "echo READY; read -r line; echo GOT:$line",
+    ]);
+    let mut session = container.exec_interactive(opts).await.unwrap();
+
+    // Wait for the "READY" prompt before writing, same as a real UI would wait for the login
+    // URL to appear before showing the user a code-input box.
+    let mut buf = Vec::new();
+    loop {
+        match session.stream.next_chunk().await {
+            Some(OutputChunk::Stdout(bytes)) => {
+                buf.extend_from_slice(&bytes);
+                if String::from_utf8_lossy(&buf).contains("READY") {
+                    break;
+                }
+            }
+            Some(OutputChunk::Exit(_)) | None => panic!("process exited before printing READY"),
+            _ => {}
+        }
+    }
+
+    session
+        .stdin_tx
+        .send(b"pasted-code-123\n".to_vec())
+        .await
+        .expect("stdin channel should still be open");
+
+    let mut exit_code = None;
+    loop {
+        match session.stream.next_chunk().await {
+            Some(OutputChunk::Stdout(bytes)) => buf.extend_from_slice(&bytes),
+            Some(OutputChunk::Exit(code)) => {
+                exit_code = Some(code);
+                break;
+            }
+            Some(OutputChunk::Stderr(_)) => {}
+            None => break,
+        }
+    }
+
+    let all = String::from_utf8_lossy(&buf);
+    assert!(all.contains("GOT:pasted-code-123"), "stdin write should have reached the process: {all}");
+    assert_eq!(exit_code, Some(0));
+
+    container.destroy().await.expect("Failed to destroy container");
+}
