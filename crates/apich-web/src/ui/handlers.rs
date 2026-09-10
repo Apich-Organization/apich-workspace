@@ -3802,6 +3802,19 @@ async fn render_doc_preview_action(
         })).into_response();
     }
 
+    // The outline panel (`document_editor.rs`/`note_editor.rs`'s `outline_items`) used to be
+    // computed once from the page's initial server-rendered `headings` prop and never touched
+    // again -- every other part of this same hot-reload response (pages/HTML/PDF) already
+    // recomputes live as the user types, but headings silently didn't, so adding or renaming a
+    // section left the outline showing stale text (or none at all for a document created empty)
+    // until the next full page load. Recomputed here on every debounced call, from the same
+    // extension-dispatching extractor the initial page load already uses, so both islands can
+    // just swap this into their outline signal alongside the rest of the live preview.
+    let headings: Vec<serde_json::Value> = KnowledgeSyncService::extract_headings_for_file(&payload.content, &payload.file)
+        .into_iter()
+        .map(|h| json!({ "level": h.level, "text": h.text, "line": h.line }))
+        .collect();
+
     if payload.file.ends_with(".typ") || payload.file.ends_with(".slide.typ") {
         let ws = &project.storage_path;
         let _ = state.project_manager.write_file(project.id, user.id, &payload.file, &payload.content).await;
@@ -3811,7 +3824,8 @@ async fn render_doc_preview_action(
             "success": res.success,
             "pages": res.pages_svg,
             "total_pages": res.total_pages,
-            "error": res.error_message
+            "error": res.error_message,
+            "headings": headings
         })).into_response()
     } else if payload.file.ends_with(".tex") || payload.file.ends_with(".latex") {
         // Real hot reload for LaTeX: save what's currently in the editor (the same autosave
@@ -3823,16 +3837,17 @@ async fn render_doc_preview_action(
         let _ = state.project_manager.write_file(project.id, user.id, &payload.file, &payload.content).await;
         let engine = sanitize_latex_engine(payload.engine.as_deref());
         match state.project_manager.compile_latex_in_sandbox(project.id, user.id, &payload.file, engine).await {
-            Ok(Ok(_pdf_bytes)) => Json(json!({ "is_latex": true, "success": true, "error": null })).into_response(),
-            Ok(Err(compile_log)) => Json(json!({ "is_latex": true, "success": false, "error": compile_log })).into_response(),
-            Err(e) => Json(json!({ "is_latex": true, "success": false, "error": e.to_string() })).into_response(),
+            Ok(Ok(_pdf_bytes)) => Json(json!({ "is_latex": true, "success": true, "error": null, "headings": headings })).into_response(),
+            Ok(Err(compile_log)) => Json(json!({ "is_latex": true, "success": false, "error": compile_log, "headings": headings })).into_response(),
+            Err(e) => Json(json!({ "is_latex": true, "success": false, "error": e.to_string(), "headings": headings })).into_response(),
         }
     } else {
         let res = crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(&payload.content, &payload.file, project.id);
         Json(json!({
             "is_markdown": true,
             "success": true,
-            "html": res.html
+            "html": res.html,
+            "headings": headings
         })).into_response()
     }
 }

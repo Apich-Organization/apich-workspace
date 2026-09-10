@@ -72,6 +72,18 @@ summary, not a substitute.
   above. `--token` can also come from the `APICH_TOKEN` environment variable. `push`/`pull` are
   fast-forward only: a diverged push is rejected and reported, never silently discarded.
 
+## Ignore rules
+
+Yes: a `.apichignore` file in the repository root is loaded automatically, same `.gitignore`
+glob syntax, alongside `.gitignore` itself (both are read if present -- you don't need to choose
+one). There's a second, separate mechanism too: `apich config ignore-add <pattern>`/`ignore-remove
+<pattern>` writes patterns into the repository's own `.apich/config.toml` instead of a plain-text
+ignore file -- useful for a rule you want versioned with the rest of the repo's apich-vcs config
+(`apich config show` to see the current merged set) rather than living in its own file. Both feed
+the same underlying filter, along with built-in profiles (Academic/Python/R/Development, e.g.
+`__pycache__/`, `.Rhistory`, LaTeX build artifacts) enabled by default -- see `IgnoreProfile` in
+`src/ignore/profile.rs` for the exact built-in list.
+
 ## GPG-signed snapshots
 
 ```bash

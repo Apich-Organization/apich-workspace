@@ -43,12 +43,24 @@ pub fn DocumentEditorIsland(
     // `compile_error_sig` now update live via a debounced call to the already-existing
     // `/projects/:id/render/preview` endpoint (same one wired up for the markdown/note editor).
     let compile_error_sig = RwSignal::new(compile_error);
+    // The outline panel used to be built once from this prop and never touched again -- every
+    // other part of the hot-reload response (pages/PDF) already updates live as the user types,
+    // but the outline silently didn't, leaving it showing stale (or missing) headings until the
+    // next full page reload. Wrapped in a signal so `render_doc_preview_action`'s response
+    // (now including recomputed headings, see its own comment) can refresh it the same way.
+    let headings_sig = RwSignal::new(headings);
     let debounce_gen = StoredValue::new(0u32);
     // Bumped after each successful debounced LaTeX recompile, appended to the PDF iframe's `src`
     // as a cache-busting query param -- browsers cache an `<iframe>` by URL, so just re-fetching
     // the same URL after a save wouldn't show the new content without this.
     let latex_reload_gen = RwSignal::new(0u32);
     let latex_error = RwSignal::new(None::<String>);
+    // Same "never had hot reload at all" gap as the outline, for the same reason: plain markdown
+    // files opened through this island (not `.anote` notes, which go through `NoteEditorIsland`
+    // instead) had no debounced call wired to `on_code_input` at all -- the preview only ever
+    // showed the last Save. Wrapped in a signal for the same debounced-`/render/preview` pattern
+    // Typst/LaTeX/notes already use.
+    let markdown_html_sig = RwSignal::new(rendered_markdown_html.unwrap_or_default());
     // Which TeX engine to compile with. Only engines actually installed in the sandbox image are
     // offered (`texlive-xetex` + `texlive-luatex`, see `docker/Containerfile.sandbox`), rather
     // than offering an option that would just fail.
@@ -71,54 +83,57 @@ pub fn DocumentEditorIsland(
     // rather than a hardcoded `1` keeps both cases grouping correctly); everything after it up to
     // the next same-or-shallower heading is nested as its child, open (expanded) by default so
     // this doesn't change what's visible on first load, only what's possible to fold shut.
-    let outline_items = if headings.is_empty() {
-        let hint = if is_script {
-            "Script Runner console active. Click \"Run Script\" to execute."
-        } else {
-            "No section headings detected"
-        };
-        view! { <div style="font-size:0.8rem; color:var(--text-sub); font-style:italic;">{hint}</div> }.into_any()
-    } else {
-        let min_level = headings.iter().map(|h| h.level).min().unwrap_or(1);
-        let mut groups: Vec<(HeadingItem, Vec<HeadingItem>)> = Vec::new();
-        for h in headings {
-            if h.level <= min_level || groups.is_empty() {
-                groups.push((h, Vec::new()));
+    let outline_items = move || {
+        let headings = headings_sig.get();
+        if headings.is_empty() {
+            let hint = if is_script {
+                "Script Runner console active. Click \"Run Script\" to execute."
             } else {
-                groups.last_mut().unwrap().1.push(h);
-            }
-        }
-        groups
-            .into_iter()
-            .map(|(parent, children)| {
-                let parent_text = parent.text.clone();
-                let jth = jump_to_heading;
-                if children.is_empty() {
-                    view! {
-                        <a class="outline-heading-item outline-heading-h1" on:click=move |_| jth(parent_text.clone())>{parent.text}</a>
-                    }.into_any()
+                "No section headings detected"
+            };
+            view! { <div style="font-size:0.8rem; color:var(--text-sub); font-style:italic;">{hint}</div> }.into_any()
+        } else {
+            let min_level = headings.iter().map(|h| h.level).min().unwrap_or(1);
+            let mut groups: Vec<(HeadingItem, Vec<HeadingItem>)> = Vec::new();
+            for h in headings {
+                if h.level <= min_level || groups.is_empty() {
+                    groups.push((h, Vec::new()));
                 } else {
-                    let child_items: Vec<_> = children
-                        .into_iter()
-                        .map(|c| {
-                            let class = if c.level <= min_level + 1 { "outline-heading-item outline-heading-h2" } else { "outline-heading-item outline-heading-h3" };
-                            let text = c.text.clone();
-                            let jth = jump_to_heading;
-                            view! {
-                                <a class=class on:click=move |_| jth(text.clone())>{c.text}</a>
-                            }
-                        })
-                        .collect();
-                    view! {
-                        <details open=true class="outline-group">
-                            <summary class="outline-heading-item outline-heading-h1" on:click=move |_| jth(parent_text.clone())>{parent.text}</summary>
-                            <div class="outline-children">{child_items}</div>
-                        </details>
-                    }.into_any()
+                    groups.last_mut().unwrap().1.push(h);
                 }
-            })
-            .collect::<Vec<_>>()
-            .into_any()
+            }
+            groups
+                .into_iter()
+                .map(|(parent, children)| {
+                    let parent_text = parent.text.clone();
+                    let jth = jump_to_heading;
+                    if children.is_empty() {
+                        view! {
+                            <a class="outline-heading-item outline-heading-h1" on:click=move |_| jth(parent_text.clone())>{parent.text}</a>
+                        }.into_any()
+                    } else {
+                        let child_items: Vec<_> = children
+                            .into_iter()
+                            .map(|c| {
+                                let class = if c.level <= min_level + 1 { "outline-heading-item outline-heading-h2" } else { "outline-heading-item outline-heading-h3" };
+                                let text = c.text.clone();
+                                let jth = jump_to_heading;
+                                view! {
+                                    <a class=class on:click=move |_| jth(text.clone())>{c.text}</a>
+                                }
+                            })
+                            .collect();
+                        view! {
+                            <details open=true class="outline-group">
+                                <summary class="outline-heading-item outline-heading-h1" on:click=move |_| jth(parent_text.clone())>{parent.text}</summary>
+                                <div class="outline-children">{child_items}</div>
+                            </details>
+                        }.into_any()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into_any()
+        }
     };
 
     wire_keyboard_shortcuts(form_ref, current_slide, presenting, pages, is_slide, is_script);
@@ -135,9 +150,11 @@ pub fn DocumentEditorIsland(
         let file_path = file_path.clone();
         move |_| {
             if is_typst_preview {
-                debounced_typst_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, pages, compile_error_sig, current_slide);
+                debounced_typst_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, pages, compile_error_sig, current_slide, headings_sig);
             } else if is_latex_preview {
-                debounced_latex_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, latex_reload_gen, latex_error, latex_engine);
+                debounced_latex_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, latex_reload_gen, latex_error, latex_engine, headings_sig);
+            } else if !is_script {
+                debounced_markdown_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, markdown_html_sig, headings_sig);
             }
         }
     };
@@ -181,7 +198,7 @@ pub fn DocumentEditorIsland(
                                 let code_ref = code_ref;
                                 let project_id = project_id_for_engine.clone();
                                 let file_path = file_path_for_engine.clone();
-                                debounced_latex_preview(code_ref, project_id, file_path, debounce_gen, latex_reload_gen, latex_error, latex_engine);
+                                debounced_latex_preview(code_ref, project_id, file_path, debounce_gen, latex_reload_gen, latex_error, latex_engine, headings_sig);
                             }
                         >
                             <option value="pdflatex">"pdflatex"</option>
@@ -225,7 +242,7 @@ pub fn DocumentEditorIsland(
         view! {
             <div
                 style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; padding:2rem; max-width:760px; margin:0 auto; line-height:1.7; height:100%; overflow-y:auto;"
-                inner_html=rendered_markdown_html.unwrap_or_default()
+                inner_html=move || markdown_html_sig.get()
                 on:click=move |ev: leptos::ev::MouseEvent| handle_data_line_click(ev)
             ></div>
         }.into_any()
@@ -797,6 +814,27 @@ fn run_script(
     busy.set(false);
 }
 
+/// The outline panel's headings, recomputed by `render_doc_preview_action` on every debounced
+/// call alongside whatever else that response carries (see that handler's own comment for why).
+/// Shared by all three debounce functions below so the "parse a `headings` JSON array into
+/// `Vec<HeadingItem>`" logic isn't triplicated.
+#[cfg(feature = "hydrate")]
+fn parse_headings(data: &serde_json::Value) -> Vec<HeadingItem> {
+    data.get("headings")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|h| {
+                    Some(HeadingItem {
+                        level: h.get("level")?.as_u64()? as u8,
+                        text: h.get("text")?.as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Debounced "hot loading" for Typst/slide documents: 500ms after the last keystroke, if nothing
 /// newer arrived (generation-counter debounce, same pattern as the note editor's live preview),
 /// POST the current unsaved content to the existing `/projects/:id/render/preview` endpoint and
@@ -810,6 +848,7 @@ fn debounced_typst_preview(
     pages: RwSignal<Vec<String>>,
     compile_error: RwSignal<Option<String>>,
     current_slide: RwSignal<usize>,
+    headings: RwSignal<Vec<HeadingItem>>,
 ) {
     let my_gen = debounce_gen.get_value().wrapping_add(1);
     debounce_gen.set_value(my_gen);
@@ -836,6 +875,7 @@ fn debounced_typst_preview(
             return;
         }
         compile_error.set(None);
+        headings.set(parse_headings(&data));
         let new_pages: Vec<String> = data
             .get("pages")
             .and_then(|v| v.as_array())
@@ -860,6 +900,7 @@ fn debounced_typst_preview(
     _pages: RwSignal<Vec<String>>,
     _compile_error: RwSignal<Option<String>>,
     _current_slide: RwSignal<usize>,
+    _headings: RwSignal<Vec<HeadingItem>>,
 ) {
 }
 
@@ -877,6 +918,7 @@ fn debounced_latex_preview(
     latex_reload_gen: RwSignal<u32>,
     latex_error: RwSignal<Option<String>>,
     latex_engine: RwSignal<String>,
+    headings: RwSignal<Vec<HeadingItem>>,
 ) {
     let my_gen = debounce_gen.get_value().wrapping_add(1);
     debounce_gen.set_value(my_gen);
@@ -896,6 +938,7 @@ fn debounced_latex_preview(
             .await;
         let Ok(resp) = result else { return };
         let Ok(data) = resp.json::<serde_json::Value>().await else { return };
+        headings.set(parse_headings(&data));
         let success = data.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
         if success {
             latex_error.set(None);
@@ -915,5 +958,53 @@ fn debounced_latex_preview(
     _latex_reload_gen: RwSignal<u32>,
     _latex_error: RwSignal<Option<String>>,
     _latex_engine: RwSignal<String>,
+    _headings: RwSignal<Vec<HeadingItem>>,
+) {
+}
+
+/// Debounced "hot loading" for plain markdown documents opened through this island (not `.anote`
+/// notes, which go through `NoteEditorIsland`'s own `debounced_preview` instead) -- previously
+/// `on_code_input` had no branch for this file type at all, so neither the preview body nor the
+/// outline ever updated until an explicit Save + full page reload.
+#[cfg(feature = "hydrate")]
+fn debounced_markdown_preview(
+    code_ref: NodeRef<leptos::html::Textarea>,
+    project_id: String,
+    file_path: String,
+    debounce_gen: StoredValue<u32>,
+    markdown_html: RwSignal<String>,
+    headings: RwSignal<Vec<HeadingItem>>,
+) {
+    let my_gen = debounce_gen.get_value().wrapping_add(1);
+    debounce_gen.set_value(my_gen);
+    wasm_bindgen_futures::spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(500).await;
+        if debounce_gen.get_value() != my_gen {
+            return;
+        }
+        let Some(ta) = code_ref.get_untracked() else { return };
+        let content = ta.value();
+        let body = serde_json::json!({ "file": file_path, "content": content });
+        let result = gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
+            .json(&body)
+            .expect("valid json body")
+            .send()
+            .await;
+        let Ok(resp) = result else { return };
+        let Ok(data) = resp.json::<serde_json::Value>().await else { return };
+        headings.set(parse_headings(&data));
+        if let Some(html) = data.get("html").and_then(|v| v.as_str()) {
+            markdown_html.set(html.to_string());
+        }
+    });
+}
+#[cfg(not(feature = "hydrate"))]
+fn debounced_markdown_preview(
+    _code_ref: NodeRef<leptos::html::Textarea>,
+    _project_id: String,
+    _file_path: String,
+    _debounce_gen: StoredValue<u32>,
+    _markdown_html: RwSignal<String>,
+    _headings: RwSignal<Vec<HeadingItem>>,
 ) {
 }

@@ -191,6 +191,15 @@ fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[U
                 let users_csv = f.share_info.as_ref().map(|s| s.allowed_users.join(",")).unwrap_or_default();
                 let path = f.path.clone();
                 let open_url = f.open_url.clone();
+                // "asset"/"other" files (PDFs, images, audio -- anything routed to the raw-bytes
+                // endpoint rather than an in-app editor route, see `ProjectFileItem::open_url`'s
+                // doc comment) used to open with a plain same-tab link: for a PDF specifically,
+                // the browser's native inline viewer then *replaces* this whole app page --
+                // there's no "back to the file list" without an actual browser Back navigation,
+                // and any in-progress state (open editors, unsaved form fields) on this page is
+                // gone. The in-app editor routes (slide/typst/latex/script/table/note) stay
+                // same-tab on purpose -- those aren't raw content, they're this SPA's own pages.
+                let open_target = if matches!(f.category.as_str(), "slide" | "typst" | "latex" | "script" | "table" | "note") { "_self" } else { "_blank" };
                 let share_detail = serde_json::json!({ "path": path, "mode": mode, "role": role, "users": users_csv }).to_string();
                 let onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))", share_detail);
 
@@ -199,7 +208,7 @@ fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[U
                         <td>
                             <div class="file-name-cell">
                                 <span style="font-size:1.1rem;">{icon}</span>
-                                <a href=open_url.clone()>{path.clone()}</a>
+                                <a href=open_url.clone() target=open_target>{path.clone()}</a>
                             </div>
                         </td>
                         <td><span class=format!("file-type-pill {}", pill_class)>{f.category.to_uppercase()}</span></td>
@@ -208,7 +217,7 @@ fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[U
                         <td style="font-size:0.775rem; color:var(--text-sub);">{mod_time}</td>
                         <td>
                             <div style="display:flex; gap:0.4rem; justify-content:flex-end;">
-                                <a href=open_url class="btn btn-secondary btn-sm">"Open Studio"</a>
+                                <a href=open_url class="btn btn-secondary btn-sm" target=open_target>"Open Studio"</a>
                                 <a href=format!("/projects/{}/files/raw?file={}&download=1", project_id, urlencoding::encode(&path)) class="btn btn-secondary btn-sm" title="Download">"⬇"</a>
                                 <button type="button" class="btn btn-secondary btn-sm" onclick=onclick>"🔗 Share"</button>
                                 <form method="post" action=format!("/projects/{}/files/delete", project_id) class="inline-form">

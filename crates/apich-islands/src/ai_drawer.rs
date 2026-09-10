@@ -472,6 +472,56 @@ fn first_url(text: &str) -> Option<String> {
     None
 }
 
+/// Extracts a URL from an OSC-8 terminal hyperlink (`ESC ] 8 ; params ; URI (BEL | ESC \)`) in
+/// the RAW, pre-`strip_ansi` output -- preferred over `first_url`'s plain-text scan whenever one
+/// is present. Confirmed live as the fix for a real, confusing bug: agy prints its Google OAuth
+/// URL as an OSC-8 hyperlink, but its real TUI redraws that whole screen region on a timer using
+/// cursor-repositioning escapes (not literal newlines) -- `strip_ansi`/`sanitize_term_output`
+/// correctly strips those (needed for readable plain text) but in doing so can glue one redraw
+/// frame's tail directly onto the next frame's head with zero separator between them, since there
+/// was never a real newline there to begin with. For a URL long enough to still be on screen
+/// across two redraws (a Google OAuth URL with several encoded scopes easily qualifies), the
+/// whitespace-delimited scan then returns a corrupted string spliced from two overlapping copies
+/// -- reproduced live via a real agy login: the accumulated buffer contained the same URL
+/// (verified complete and correct via `apich-agent-status`'s own raw log, `response_type=code`
+/// included) multiple times with overlapping fragments glued together with no boundary. An OSC-8
+/// URI is different: it has its own explicit terminator (BEL or ST) that isn't stripped away, so
+/// reading directly from the FIRST such sequence in the raw bytes is immune to this regardless of
+/// how many times the surrounding screen gets redrawn.
+#[cfg(feature = "hydrate")]
+fn extract_osc8_url(raw: &str) -> Option<String> {
+    let bytes: Vec<char> = raw.chars().collect();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == '\u{1b}' && i + 2 < bytes.len() && bytes[i + 1] == ']' && bytes[i + 2] == '8' {
+            // ESC ] 8 ; params ; URI (BEL | ESC \)
+            let mut j = i + 3;
+            if j < bytes.len() && bytes[j] == ';' {
+                j += 1;
+                // Skip the (usually empty) params field up to the next ';'.
+                while j < bytes.len() && bytes[j] != ';' {
+                    j += 1;
+                }
+                if j < bytes.len() && bytes[j] == ';' {
+                    j += 1;
+                    let uri_start = j;
+                    while j < bytes.len() && bytes[j] != '\u{7}' && !(bytes[j] == '\u{1b}' && j + 1 < bytes.len() && bytes[j + 1] == '\\') {
+                        j += 1;
+                    }
+                    let uri: String = bytes[uri_start..j].iter().collect();
+                    if uri.starts_with("https://") || uri.starts_with("http://") {
+                        return Some(uri);
+                    }
+                }
+            }
+            i = j + 1;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
 #[cfg(feature = "hydrate")]
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
@@ -638,7 +688,7 @@ fn start_agent_login_request(project_id: String, agent: String, session: RwSigna
                         code_visible.set(true);
                     }
                     session.set(Some(session_id.clone()));
-                    poll_login_status(project_id.clone(), session_id, output, code_visible);
+                    poll_login_status(project_id.clone(), session_id, session, output, code_visible);
                 }
                 Err(e) => output.set(format!("Request failed: {e}")),
             },
@@ -649,10 +699,31 @@ fn start_agent_login_request(project_id: String, agent: String, session: RwSigna
 #[cfg(not(feature = "hydrate"))]
 fn start_agent_login_request(_project_id: String, _agent: String, _session: RwSignal<Option<String>>, _output: RwSignal<String>, _code_visible: RwSignal<bool>) {}
 
+/// Polls one login session's output on a timer until it finishes -- but a user is free to abandon
+/// a login attempt partway (switch the agent dropdown, click "Login" again for a different agent,
+/// or even the same one) before this one ever reaches a terminal `succeeded`/`failed` status, and
+/// nothing ever told the OLD poll loop to stop: it kept recursively rescheduling itself via
+/// `schedule_poll` forever, still writing into the same shared `output` signal the new session
+/// also writes into. Confirmed live as the exact cause of a real, confusing bug: start agy's login
+/// (prints a Google OAuth URL), abandon it without finishing, then start Claude's or Codex's login
+/// -- the abandoned agy poll loop's next tick clobbers the freshly-started session's own output
+/// with agy's stale Google URL, racing unpredictably against the real session's updates, so the
+/// "Login" button for Claude/Codex intermittently appeared to open Google instead. Fixed by
+/// checking, at the top of every tick, whether this session is still the component's *current*
+/// one (`current_session`) -- if the user has since moved on, this stops polling immediately
+/// without touching `output` at all, leaving the new session's own polling as the only writer.
 #[cfg(feature = "hydrate")]
-fn poll_login_status(project_id: String, session_id: String, output: RwSignal<String>, code_visible: RwSignal<bool>) {
+fn poll_login_status(project_id: String, session_id: String, current_session: RwSignal<Option<String>>, output: RwSignal<String>, code_visible: RwSignal<bool>) {
     wasm_bindgen_futures::spawn_local(async move {
+        if current_session.get_untracked().as_deref() != Some(session_id.as_str()) {
+            return;
+        }
         let result = gloo_net::http::Request::get(&format!("/projects/{}/agent/login/{}/status", project_id, session_id)).send().await;
+        // Re-check after the await: the user may have switched sessions while this request was
+        // in flight, and this response is now stale.
+        if current_session.get_untracked().as_deref() != Some(session_id.as_str()) {
+            return;
+        }
         let mut keep_polling = true;
         match result {
             Ok(resp) => match resp.json::<serde_json::Value>().await {
@@ -668,7 +739,16 @@ fn poll_login_status(project_id: String, session_id: String, output: RwSignal<St
                         if html.is_empty() {
                             html = "(waiting for output...)".to_string();
                         }
-                        if let Some(url) = first_url(&sanitized) {
+                        // Prefer an OSC-8 hyperlink URI (`extract_osc8_url`, scanning the RAW,
+                        // pre-strip bytes) over `first_url`'s whitespace-delimited scan of the
+                        // flattened text -- see that function's own doc comment for why: a real
+                        // TUI (confirmed live with agy) redraws its screen using cursor-
+                        // repositioning escape sequences, not literal newlines, so stripping those
+                        // sequences for plain-text display can glue two separate redraw frames'
+                        // text together with no separator, corrupting a long OAuth URL that
+                        // happens to span a redraw boundary. An OSC-8 URI has its own explicit,
+                        // unambiguous terminator (BEL or ST) that survives this regardless.
+                        if let Some(url) = extract_osc8_url(raw).or_else(|| first_url(&sanitized)) {
                             html = format!(
                                 "<div style=\"margin-bottom:0.6rem; padding:0.5rem 0.7rem; background:var(--primary-light); border:1px solid var(--primary-border); border-radius:8px;\">\
                                 <div style=\"font-size:0.7rem; color:var(--text-sub); margin-bottom:0.35rem;\">This runs inside a sandbox container with no browser of its own -- open this link in <strong>your own browser</strong> to finish signing in:</div>\
@@ -700,19 +780,19 @@ fn poll_login_status(project_id: String, session_id: String, output: RwSignal<St
             }
         }
         if keep_polling {
-            schedule_poll(project_id, session_id, output, code_visible);
+            schedule_poll(project_id, session_id, current_session, output, code_visible);
         }
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn poll_login_status(_project_id: String, _session_id: String, _output: RwSignal<String>, _code_visible: RwSignal<bool>) {}
+fn poll_login_status(_project_id: String, _session_id: String, _current_session: RwSignal<Option<String>>, _output: RwSignal<String>, _code_visible: RwSignal<bool>) {}
 
 #[cfg(feature = "hydrate")]
-fn schedule_poll(project_id: String, session_id: String, output: RwSignal<String>, code_visible: RwSignal<bool>) {
+fn schedule_poll(project_id: String, session_id: String, current_session: RwSignal<Option<String>>, output: RwSignal<String>, code_visible: RwSignal<bool>) {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
     let closure = Closure::once(move || {
-        poll_login_status(project_id, session_id, output, code_visible);
+        poll_login_status(project_id, session_id, current_session, output, code_visible);
     });
     if let Some(win) = web_sys::window() {
         let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(closure.as_ref().unchecked_ref(), 1500);
@@ -753,4 +833,50 @@ fn urlencode(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(all(test, feature = "hydrate"))]
+mod osc8_url_tests {
+    use super::extract_osc8_url;
+
+    #[test]
+    fn test_extract_osc8_url_finds_simple_hyperlink() {
+        let raw = "some text \u{1b}]8;;https://example.com/callback?a=1\u{7}click here\u{1b}]8;;\u{7} more text";
+        assert_eq!(extract_osc8_url(raw), Some("https://example.com/callback?a=1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_osc8_url_finds_hyperlink_with_id_param() {
+        let raw = "\u{1b}]8;id=jk754e961;https://accounts.google.com/o/oauth2/auth?response_type=code&state=abc\u{7}";
+        assert_eq!(
+            extract_osc8_url(raw),
+            Some("https://accounts.google.com/o/oauth2/auth?response_type=code&state=abc".to_string())
+        );
+    }
+
+    /// Reproduces the real bug: agy's TUI redraws the screen region containing its OAuth link
+    /// using cursor-repositioning CSI escapes (not literal newlines) between frames. Once those
+    /// are stripped for plain-text display, two consecutive redraws of the same long URL can end
+    /// up glued together with zero separator -- `first_url`'s whitespace-delimited scan of that
+    /// flattened text then returns a corrupted, spliced string. Confirmed live against a real
+    /// `agy` login: the correct URL (`response_type=code` included) was present in the raw
+    /// output, but the *displayed* one was a garbled overlap of two redraw frames. This test
+    /// simulates that exact shape -- two OSC-8-wrapped copies of the URL back to back with a CSI
+    /// cursor-move escape (no whitespace) between them -- and asserts `extract_osc8_url` still
+    /// returns one clean, complete, correct URL, because it reads directly from the first
+    /// properly BEL-terminated OSC-8 sequence rather than scanning flattened text.
+    #[test]
+    fn test_extract_osc8_url_survives_glued_redraw_frames() {
+        let url = "https://accounts.google.com/o/oauth2/auth?client_id=abc&response_type=code&scope=email&state=xyz";
+        let raw = format!(
+            "\u{1b}[2K\u{1b}]8;id=1;{url}\u{7}link text\u{1b}]8;;\u{7}\u{1b}[1;1H\u{1b}]8;id=2;{url}\u{7}link text\u{1b}]8;;\u{7}",
+        );
+        assert_eq!(extract_osc8_url(&raw), Some(url.to_string()));
+    }
+
+    #[test]
+    fn test_extract_osc8_url_none_when_absent() {
+        let raw = "plain text with no hyperlinks, just https-looking text without OSC-8 markup";
+        assert_eq!(extract_osc8_url(raw), None);
+    }
 }

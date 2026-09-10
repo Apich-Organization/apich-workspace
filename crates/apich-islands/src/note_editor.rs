@@ -37,11 +37,17 @@ pub fn NoteEditorIsland(
     // the already-existing `/projects/:id/render/preview` endpoint (built for exactly this, just
     // never wired up to a live editor before now).
     let preview_html = RwSignal::new(rendered_html);
+    // Same "never refreshed after the initial load" gap `document_editor.rs`'s outline had, for
+    // the same reason: `headings` used to be a plain prop, read once to build `outline_items`
+    // below and never touched again, even though the preview right next to it already hot-
+    // reloads live. Wrapped in a signal so the debounced `/render/preview` response (now
+    // including recomputed headings) can refresh it the same way.
+    let headings_sig = RwSignal::new(headings);
     let debounce_gen = StoredValue::new(0u32);
     let on_body_input = {
         let project_id = project_id.clone();
         let file_path = file_path.clone();
-        move |_| debounced_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, preview_html)
+        move |_| debounced_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, preview_html, headings_sig)
     };
     // KaTeX's own auto-render only ever scans the DOM once, on its CDN script's `onload` (see
     // `KatexHead` in apich-web) -- fine for the initial server-rendered content, but math typed
@@ -55,45 +61,48 @@ pub fn NoteEditorIsland(
     // Grouped into a foldable tree the same way `document_editor.rs`'s outline is -- see that
     // file's comment for why (subsections were always technically visible, just with no way to
     // collapse them, which looked indistinguishable from them not existing at all).
-    let outline_items = if headings.is_empty() {
-        view! { <p class="text-muted" style="font-size:0.8rem;">"No headings yet"</p> }.into_any()
-    } else {
-        let min_level = headings.iter().map(|h| h.level).min().unwrap_or(1);
-        let mut groups: Vec<(NoteHeadingItem, Vec<NoteHeadingItem>)> = Vec::new();
-        for h in headings {
-            if h.level <= min_level || groups.is_empty() {
-                groups.push((h, Vec::new()));
-            } else {
-                groups.last_mut().unwrap().1.push(h);
-            }
-        }
-        groups
-            .into_iter()
-            .map(|(parent, children)| {
-                if children.is_empty() {
-                    view! {
-                        <a href="javascript:void(0)" class="outline-heading-item" data-line=parent.line.to_string()>{parent.text}</a>
-                    }.into_any()
+    let outline_items = move || {
+        let headings = headings_sig.get();
+        if headings.is_empty() {
+            view! { <p class="text-muted" style="font-size:0.8rem;">"No headings yet"</p> }.into_any()
+        } else {
+            let min_level = headings.iter().map(|h| h.level).min().unwrap_or(1);
+            let mut groups: Vec<(NoteHeadingItem, Vec<NoteHeadingItem>)> = Vec::new();
+            for h in headings {
+                if h.level <= min_level || groups.is_empty() {
+                    groups.push((h, Vec::new()));
                 } else {
-                    let child_items: Vec<_> = children
-                        .into_iter()
-                        .map(|c| {
-                            let indent = format!("{}rem", 0.75 * (c.level.saturating_sub(min_level + 1)) as f64);
-                            view! {
-                                <a href="javascript:void(0)" class="outline-heading-item outline-heading-h2" style=format!("margin-left:{indent};") data-line=c.line.to_string()>{c.text}</a>
-                            }
-                        })
-                        .collect();
-                    view! {
-                        <details open=true class="outline-group">
-                            <summary class="outline-heading-item" data-line=parent.line.to_string()>{parent.text}</summary>
-                            <div class="outline-children">{child_items}</div>
-                        </details>
-                    }.into_any()
+                    groups.last_mut().unwrap().1.push(h);
                 }
-            })
-            .collect::<Vec<_>>()
-            .into_any()
+            }
+            groups
+                .into_iter()
+                .map(|(parent, children)| {
+                    if children.is_empty() {
+                        view! {
+                            <a href="javascript:void(0)" class="outline-heading-item" data-line=parent.line.to_string()>{parent.text}</a>
+                        }.into_any()
+                    } else {
+                        let child_items: Vec<_> = children
+                            .into_iter()
+                            .map(|c| {
+                                let indent = format!("{}rem", 0.75 * (c.level.saturating_sub(min_level + 1)) as f64);
+                                view! {
+                                    <a href="javascript:void(0)" class="outline-heading-item outline-heading-h2" style=format!("margin-left:{indent};") data-line=c.line.to_string()>{c.text}</a>
+                                }
+                            })
+                            .collect();
+                        view! {
+                            <details open=true class="outline-group">
+                                <summary class="outline-heading-item" data-line=parent.line.to_string()>{parent.text}</summary>
+                                <div class="outline-children">{child_items}</div>
+                            </details>
+                        }.into_any()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into_any()
+        }
     };
 
     let on_outline_or_preview_click = {
@@ -249,6 +258,7 @@ fn debounced_preview(
     file_path: String,
     debounce_gen: StoredValue<u32>,
     preview_html: RwSignal<String>,
+    headings: RwSignal<Vec<NoteHeadingItem>>,
 ) {
     let my_gen = debounce_gen.get_value().wrapping_add(1);
     debounce_gen.set_value(my_gen);
@@ -270,6 +280,22 @@ fn debounced_preview(
                 if let Some(html) = data.get("html").and_then(|v| v.as_str()) {
                     preview_html.set(html.to_string());
                 }
+                // Outline used to be a plain prop, read once and never refreshed -- see
+                // `NoteEditorIsland`'s own `headings_sig` comment. Recomputed here on every
+                // debounced call, alongside the preview HTML it already refreshes.
+                if let Some(arr) = data.get("headings").and_then(|v| v.as_array()) {
+                    let new_headings: Vec<NoteHeadingItem> = arr
+                        .iter()
+                        .filter_map(|h| {
+                            Some(NoteHeadingItem {
+                                level: h.get("level")?.as_u64()? as u8,
+                                text: h.get("text")?.as_str()?.to_string(),
+                                line: h.get("line")?.as_u64()? as u32,
+                            })
+                        })
+                        .collect();
+                    headings.set(new_headings);
+                }
             }
         }
     });
@@ -281,6 +307,7 @@ fn debounced_preview(
     _file_path: String,
     _debounce_gen: StoredValue<u32>,
     _preview_html: RwSignal<String>,
+    _headings: RwSignal<Vec<NoteHeadingItem>>,
 ) {
 }
 
