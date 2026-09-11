@@ -102,6 +102,274 @@ impl I18n {
         }
     }
 
+    pub fn nav_templates(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Templates",
+            Lang::Zh => "模板库",
+        }
+    }
+
+    // --- Template Library ---
+
+    pub fn template_gallery_title(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Template Library",
+            Lang::Zh => "模板库",
+        }
+    }
+
+    pub fn template_kind_label(&self, kind: &str) -> &'static str {
+        match (self.lang, kind) {
+            (Lang::En, "note") => "Note",
+            (Lang::Zh, "note") => "笔记",
+            (Lang::En, "latex") => "LaTeX",
+            (Lang::Zh, "latex") => "LaTeX",
+            (Lang::En, "typst") => "Typst",
+            (Lang::Zh, "typst") => "Typst",
+            (Lang::En, "slides") => "Slides",
+            (Lang::Zh, "slides") => "幻灯片",
+            (Lang::En, "kanban") => "Kanban",
+            (Lang::Zh, "kanban") => "看板",
+            (Lang::En, _) => "All",
+            (Lang::Zh, _) => "全部",
+        }
+    }
+
+    pub fn template_owner(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Owner",
+            Lang::Zh => "所有者",
+        }
+    }
+
+    pub fn template_visibility_label(&self, visibility: &str) -> &'static str {
+        match (self.lang, visibility) {
+            (Lang::En, "public") => "Public",
+            (Lang::Zh, "public") => "公开",
+            (Lang::En, "shared") => "Shared",
+            (Lang::Zh, "shared") => "共享",
+            (Lang::En, _) => "Private",
+            (Lang::Zh, _) => "私有",
+        }
+    }
+
+    pub fn template_latest_version(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Latest version",
+            Lang::Zh => "最新版本",
+        }
+    }
+
+    pub fn template_view(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "View",
+            Lang::Zh => "查看",
+        }
+    }
+
+    pub fn template_no_templates(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "No templates here yet.",
+            Lang::Zh => "此处暂无模板。",
+        }
+    }
+
+    pub fn template_versions_heading(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Versions",
+            Lang::Zh => "版本记录",
+        }
+    }
+
+    pub fn template_version_label_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Version label (e.g. 1.0.0)",
+            Lang::Zh => "版本号（如 1.0.0）",
+        }
+    }
+
+    pub fn template_changelog_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Changelog (optional)",
+            Lang::Zh => "更新说明（可选）",
+        }
+    }
+
+    pub fn template_publish(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Publish",
+            Lang::Zh => "发布",
+        }
+    }
+
+    pub fn template_sharing_heading(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Sharing",
+            Lang::Zh => "共享管理",
+        }
+    }
+
+    pub fn template_share_with_org_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Share with org (slug)",
+            Lang::Zh => "共享给组织（slug）",
+        }
+    }
+
+    pub fn template_share_with_team_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Team within that org (slug, optional)",
+            Lang::Zh => "该组织内的团队（slug，可选）",
+        }
+    }
+
+    pub fn template_add_share(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Add share",
+            Lang::Zh => "添加共享",
+        }
+    }
+
+    pub fn template_remove(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Remove",
+            Lang::Zh => "移除",
+        }
+    }
+
+    pub fn template_change_visibility(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Change visibility",
+            Lang::Zh => "更改可见范围",
+        }
+    }
+
+    pub fn template_delete(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Delete template",
+            Lang::Zh => "删除模板",
+        }
+    }
+
+    pub fn template_description_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Description (optional)",
+            Lang::Zh => "描述（可选）",
+        }
+    }
+
+    pub fn template_create_new(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Create new template",
+            Lang::Zh => "新建模板",
+        }
+    }
+
+    pub fn template_name_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Name",
+            Lang::Zh => "名称",
+        }
+    }
+
+    pub fn template_slug_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Slug (short id, e.g. sprint-board)",
+            Lang::Zh => "标识 slug（如 sprint-board）",
+        }
+    }
+
+    pub fn template_publish_new_version_to(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Publish new version to an existing template of mine:",
+            Lang::Zh => "发布新版本到我已有的模板：",
+        }
+    }
+
+    pub fn template_apply(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Apply",
+            Lang::Zh => "应用",
+        }
+    }
+
+    pub fn template_apply_to_project(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Apply to project",
+            Lang::Zh => "应用到项目",
+        }
+    }
+
+    pub fn template_select_project(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Select a project...",
+            Lang::Zh => "选择项目…",
+        }
+    }
+
+    pub fn template_select_version(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Select a template...",
+            Lang::Zh => "选择模板…",
+        }
+    }
+
+    pub fn template_publish_as_template(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "📚 Publish as Template",
+            Lang::Zh => "📚 发布为模板",
+        }
+    }
+
+    pub fn template_apply_template(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "📚 Apply a Template",
+            Lang::Zh => "📚 应用模板",
+        }
+    }
+
+    pub fn template_preview_heading(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Preview",
+            Lang::Zh => "预览",
+        }
+    }
+
+    pub fn template_source_only_preview_note(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Full compiled preview isn't available for this template kind yet -- showing source. Applying it still writes the real files into your project, where the project's own preview works normally.",
+            Lang::Zh => "该模板类型暂不支持完整编译预览——以下为源码显示。应用后会将真实文件写入你的项目，届时可使用项目自身的预览功能正常查看。",
+        }
+    }
+
+    pub fn template_new_file_name_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "New file name",
+            Lang::Zh => "新文件名",
+        }
+    }
+
+    pub fn template_published_by(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Published by",
+            Lang::Zh => "发布者",
+        }
+    }
+
+    pub fn template_dest_folder_field(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "destination folder (optional)",
+            Lang::Zh => "目标文件夹（可选）",
+        }
+    }
+
+    pub fn template_no_versions(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "No versions published yet.",
+            Lang::Zh => "尚未发布任何版本。",
+        }
+    }
+
     pub fn nav_teams_orgs(&self) -> &'static str {
         match self.lang {
             Lang::En => "Teams & Orgs",
@@ -1167,10 +1435,145 @@ impl I18n {
         }
     }
 
+    pub fn terminal_idle_status(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Starts automatically on first command",
+            Lang::Zh => "首次运行命令时自动启动",
+        }
+    }
+
+    pub fn terminal_subtitle(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "A real shell for this project -- run any command, build tool, or script directly against your files",
+            Lang::Zh => "这是本项目的真实终端——可直接对你的项目文件运行任意命令、构建工具或脚本",
+        }
+    }
+
+    /// The rest of `TerminalPage`'s `initial_screen` (username/slug line) stays built in
+    /// `terminal_page.rs` itself -- no other `I18n` method takes formatting arguments, so this
+    /// keeps that convention rather than being the one exception.
+    pub fn terminal_hint(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "cargo, git, python3, and R are all available here -- e.g. `cargo new my_crate && cd my_crate && cargo run` for a real multi-file Rust project.\n\nType a command below and press Enter or click 'Run'.",
+            Lang::Zh => "这里已提供 cargo、git、python3 和 R——例如执行 `cargo new my_crate && cd my_crate && cargo run` 即可创建并运行一个真正的多文件 Rust 项目。\n\n在下方输入命令，按回车或点击“运行”。",
+        }
+    }
+
     pub fn view_kanban(&self) -> &'static str {
         match self.lang {
             Lang::En => "Kanban Board",
             Lang::Zh => "任务看板",
+        }
+    }
+
+    /// Default titles a Kanban board's 3 columns start out with, before anyone customizes them
+    /// (see `KnowledgeSyncService::default_kanban_columns`) -- distinct from `view_kanban` (the
+    /// tab label), these are the individual column names.
+    pub fn kanban_col_todo(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "To Do",
+            Lang::Zh => "待办",
+        }
+    }
+
+    pub fn kanban_col_in_progress(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "In Progress",
+            Lang::Zh => "进行中",
+        }
+    }
+
+    pub fn kanban_col_done(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Completed",
+            Lang::Zh => "已完成",
+        }
+    }
+
+    /// The catch-all column for a task whose resolved status matches none of the board's
+    /// currently configured columns (e.g. its column was deleted or renamed after the task was
+    /// tagged for it) -- see `KANBAN_UNSORTED_COLUMN_ID`.
+    pub fn kanban_col_unsorted(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Unsorted",
+            Lang::Zh => "未分类",
+        }
+    }
+
+    pub fn kanban_customize_columns(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Customize columns",
+            Lang::Zh => "自定义列",
+        }
+    }
+
+    pub fn kanban_add_column(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Add column",
+            Lang::Zh => "添加列",
+        }
+    }
+
+    pub fn kanban_column_name_placeholder(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "New column name",
+            Lang::Zh => "新列名称",
+        }
+    }
+
+    pub fn kanban_mark_as_done_column(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Counts as \"done\"",
+            Lang::Zh => "计为“已完成”",
+        }
+    }
+
+    pub fn kanban_rename(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Rename",
+            Lang::Zh => "重命名",
+        }
+    }
+
+    pub fn kanban_delete_column(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Delete column",
+            Lang::Zh => "删除列",
+        }
+    }
+
+    pub fn kanban_move_left(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Move left",
+            Lang::Zh => "左移",
+        }
+    }
+
+    pub fn kanban_move_right(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Move right",
+            Lang::Zh => "右移",
+        }
+    }
+
+    pub fn kanban_no_tasks(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "No tasks",
+            Lang::Zh => "暂无任务",
+        }
+    }
+
+    pub fn kanban_toggle_task(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Toggle task",
+            Lang::Zh => "切换任务状态",
+        }
+    }
+
+    pub fn kanban_completion_rate(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Tasks Completion Rate:",
+            Lang::Zh => "任务完成率：",
         }
     }
 

@@ -18,10 +18,9 @@ impl IgnoreFilter {
     /// Create a new filter with academic, data science, and development defaults
     pub fn new_with_defaults(project_root: impl AsRef<Path>) -> Result<Self> {
         let mut filter = Self::empty();
-        filter.enabled_profiles.insert(IgnoreProfile::Academic);
-        filter.enabled_profiles.insert(IgnoreProfile::Python);
-        filter.enabled_profiles.insert(IgnoreProfile::R);
-        filter.enabled_profiles.insert(IgnoreProfile::Development);
+        for profile in IgnoreProfile::all() {
+            filter.enabled_profiles.insert(*profile);
+        }
 
         // Load project-specific ignore files if present
         let gitignore = project_root.as_ref().join(".gitignore");

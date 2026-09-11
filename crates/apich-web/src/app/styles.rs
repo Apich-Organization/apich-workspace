@@ -851,6 +851,25 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     display: flex;
     flex-direction: column;
 }
+/* Note editor formatting toolbar (note_editor.rs's ToolbarAction buttons) -- gives the note
+   editor a "somehow more WYSIWYG a bit" way to format text (click Bold instead of typing `**`)
+   without turning it into a hidden-document-model rich text editor; the underlying textarea
+   stays plain markdown. */
+.note-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(248, 250, 252, 0.7);
+}
+.note-toolbar-sep {
+    width: 1px;
+    height: 1.1rem;
+    background: var(--border-subtle);
+    margin: 0 0.15rem;
+}
 .code-textarea {
     flex: 1;
     width: 100%;
@@ -1564,6 +1583,48 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     border-top: 1px solid #334155;
     padding: 1rem;
     text-align: center;
+}
+
+/* Project Terminal (apich-islands TerminalIsland) -- this dark-on-dark pairing (near-black
+   text on a near-black `.section-card` background in terminal_page.rs) is exactly what made the
+   output unreadable before these rules existed: `--text-main` is #0f172a and the wrapping card is
+   also #0f172a, so with no color of its own `.terminal-screen`/`.terminal-input` rendered text
+   the same color as the background. Mirrors `.terminal-output`'s cyan-on-navy scheme above. */
+.terminal-screen {
+    background: #090d16;
+    color: #38bdf8;
+    font-family: var(--font-mono);
+    font-size: 0.825rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    padding: 1rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid #1e293b;
+    min-height: 320px;
+    max-height: 480px;
+    overflow-y: auto;
+    margin-bottom: 0.75rem;
+}
+.terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.75rem;
+}
+.terminal-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #e2e8f0;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+}
+.terminal-input::placeholder {
+    color: #64748b;
 }
 .script-plot-card img {
     max-width: 100%;

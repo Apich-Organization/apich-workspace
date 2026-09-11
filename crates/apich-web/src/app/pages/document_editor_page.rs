@@ -21,6 +21,9 @@ pub fn DocumentEditorPage(
     compile_error: Option<String>,
     file_share: Option<FileShareInfo>,
     all_users: Vec<User>,
+    template_kind: Option<String>,
+    own_file_templates: Vec<apich_db::Template>,
+    visible_file_templates: Vec<apich_db::TemplateWithLatestVersion>,
     notice: Option<String>,
     error: Option<String>,
     i18n: I18n,
@@ -74,6 +77,7 @@ pub fn DocumentEditorPage(
         crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(&content, &file_path, project_id).html
     });
     let editor_headings: Vec<HeadingItem> = headings.iter().map(|h| HeadingItem { level: h.level as u8, text: h.text.clone() }).collect();
+    let template_panel = template_kind.map(|kind| render_file_template_panel(project_id, &file_path, &kind, &own_file_templates, &visible_file_templates, i18n));
 
     view! {
         <AppShell
@@ -116,6 +120,8 @@ pub fn DocumentEditorPage(
                 is_latex_preview=is_latex_preview
             />
 
+            {template_panel}
+
             <FileShareModal
                 project_id=project_id
                 redirect_to=format!("/projects/{}/editor?file={}", project_id, urlencoding::encode(&file_path))
@@ -125,5 +131,88 @@ pub fn DocumentEditorPage(
             />
             <AiDrawer project_id=project_id file_path=file_path />
         </AppShell>
+    }
+}
+
+/// "Publish as Template" / "Apply a Template" for LaTeX/Typst/slides files. Simpler than the
+/// Kanban/note panels in one respect (publishing always captures exactly this one file, no
+/// multi-file picker -- see `template_handlers::create_template_from_file_action`'s own comment)
+/// and adds one thing they don't need: a destination subfolder for applying, since a files-kind
+/// template's "apply" always creates new file(s) that must land somewhere in the project tree.
+fn render_file_template_panel(
+    project_id: uuid::Uuid,
+    file_path: &str,
+    kind: &str,
+    own_templates: &[apich_db::Template],
+    visible_templates: &[apich_db::TemplateWithLatestVersion],
+    i18n: I18n,
+) -> impl IntoView {
+    let publish_existing = (!own_templates.is_empty()).then(|| {
+        let rows: Vec<_> = own_templates
+            .iter()
+            .map(|t| {
+                view! {
+                    <form method="post" action=format!("/templates/{}/publish-version-file", t.id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.3rem; align-items:center;">
+                        <input type="hidden" name="project_id" value=project_id.to_string() />
+                        <input type="hidden" name="file" value=file_path.to_string() />
+                        <span style="font-size:0.8rem; min-width:120px;">{t.name.clone()}</span>
+                        <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:140px;" required=true />
+                        <input type="text" name="changelog" placeholder=i18n.template_changelog_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:220px;" />
+                        <button type="submit" class="btn btn-secondary btn-sm">{i18n.template_publish()}</button>
+                    </form>
+                }
+            })
+            .collect();
+        view! {
+            <div style="margin-top:0.5rem;">
+                <span style="font-size:0.8rem; color:var(--text-sub);">{i18n.template_publish_new_version_to()}</span>
+                {rows}
+            </div>
+        }
+    });
+
+    let apply_options: Vec<_> = visible_templates
+        .iter()
+        .filter_map(|t| t.latest_version_id.map(|vid| (t, vid)))
+        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name.clone()}" ("{t.latest_version_label.clone().unwrap_or_default()}")"</option> })
+        .collect();
+    let apply_panel = (!apply_options.is_empty()).then(|| {
+        view! {
+            <form method="post" action=format!("/projects/{}/apply-file-template", project_id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.5rem; align-items:center; flex-wrap:wrap;">
+                <select name="template_version_id" class="form-control" style="height:32px; font-size:0.82rem; max-width:260px;" required=true>
+                    <option value="" disabled=true selected=true>{i18n.template_select_version()}</option>
+                    {apply_options}
+                </select>
+                <input type="text" name="dest_subdir" placeholder=i18n.template_dest_folder_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:180px;" />
+                <button type="submit" class="btn btn-primary btn-sm">{i18n.template_apply()}</button>
+            </form>
+        }
+    });
+
+    view! {
+        <details style="margin-top:1rem; background:var(--bg-muted); border-radius:10px; padding:0.85rem 1rem;">
+            <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">{i18n.template_publish_as_template()}" / "{i18n.template_apply_template()}</summary>
+            <div style="margin-top:0.6rem;">
+                <form method="post" action="/templates/create-from-file" class="inline-form" style="display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center;">
+                    <input type="hidden" name="project_id" value=project_id.to_string() />
+                    <input type="hidden" name="file" value=file_path.to_string() />
+                    <input type="hidden" name="kind" value=kind.to_string() />
+                    <input type="text" name="name" placeholder=i18n.template_name_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:160px;" required=true />
+                    <input type="text" name="slug" placeholder=i18n.template_slug_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:160px;" required=true />
+                    <input type="text" name="description" placeholder=i18n.template_description_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:200px;" />
+                    <select name="visibility" class="form-control" style="height:32px; font-size:0.82rem;">
+                        <option value="private">{i18n.template_visibility_label("private")}</option>
+                        <option value="shared">{i18n.template_visibility_label("shared")}</option>
+                        <option value="public">{i18n.template_visibility_label("public")}</option>
+                    </select>
+                    <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:140px;" required=true value="1.0.0" />
+                    <button type="submit" class="btn btn-primary btn-sm">{i18n.template_create_new()}</button>
+                </form>
+                {publish_existing}
+                {apply_panel.is_none().then(|| view! { <p class="text-muted" style="font-size:0.78rem; margin-top:0.5rem;">{i18n.template_no_templates()}</p> })}
+                {apply_panel}
+                <div style="margin-top:0.4rem;"><a href=format!("/templates?kind={kind}") style="font-size:0.78rem;">{i18n.template_gallery_title()}" →"</a></div>
+            </div>
+        </details>
     }
 }

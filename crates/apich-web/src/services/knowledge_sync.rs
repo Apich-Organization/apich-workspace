@@ -22,6 +22,11 @@ pub struct KanbanColumn {
     pub id: String,
     pub title: String,
     pub tasks: Vec<MarkdownTask>,
+    /// Mirrors `KanbanColumnDef::is_done` -- carried through onto the built board so a renderer
+    /// (or the click-to-cycle-status handler) doesn't need to separately re-parse
+    /// `project.settings` just to know which column(s) count as "done". Always `false` for the
+    /// synthetic Unsorted catch-all column.
+    pub is_done: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +35,29 @@ pub struct KanbanBoard {
     pub total_tasks: usize,
     pub completed_tasks: usize,
 }
+
+/// A team's own configurable Kanban column layout -- persisted as
+/// `project.settings["kanban_columns"]` (a plain JSON array), read/written via
+/// `parse_kanban_columns`/`serialize_kanban_columns`. Different teams reasonably want different
+/// workflows (a simple Todo/Doing/Done vs. an explicit Backlog/Todo/In Review/Blocked/Done), so
+/// this is per-project data, not a hardcoded shape, with the original 3-column layout kept only as
+/// the *default* a project starts from until customized.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KanbanColumnDef {
+    pub id: String,
+    pub title: String,
+    /// Whether landing a task in this column means "done" for the checkbox/progress-bar
+    /// semantics that predate custom columns (`MarkdownTask::completed`, the note view's plain
+    /// checkbox, the board's completion percentage). Exactly one built-in column ("done") had
+    /// this meaning implicitly before; a custom board names its own equivalent explicitly.
+    pub is_done: bool,
+}
+
+/// The id reserved for tasks whose resolved status doesn't match any of the project's currently
+/// configured columns -- e.g. a column was deleted after tasks were already placed in it via a
+/// `#status:<id>` tag. Kept visible (rather than silently hidden) so nothing is lost; the user can
+/// re-tag or re-add a matching column.
+pub const KANBAN_UNSORTED_COLUMN_ID: &str = "_unsorted";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WikiLink {
@@ -102,6 +130,64 @@ pub struct NoteHeading {
 pub struct KnowledgeSyncService;
 
 impl KnowledgeSyncService {
+    /// The original hardcoded 3-column layout, now just the *seed* a project starts from --
+    /// `todo_title`/`in_progress_title`/`done_title` let a caller localize these (the board has
+    /// no stored columns yet, so there's nothing else to translate) without baking a fixed
+    /// language into the data itself the way a stored custom title inevitably does once a team
+    /// renames or adds columns.
+    pub fn default_kanban_columns(todo_title: &str, in_progress_title: &str, done_title: &str) -> Vec<KanbanColumnDef> {
+        vec![
+            KanbanColumnDef { id: "todo".to_string(), title: todo_title.to_string(), is_done: false },
+            KanbanColumnDef { id: "in_progress".to_string(), title: in_progress_title.to_string(), is_done: false },
+            KanbanColumnDef { id: "done".to_string(), title: done_title.to_string(), is_done: true },
+        ]
+    }
+
+    /// Reads `project.settings["kanban_columns"]`, falling back to `defaults` the first time a
+    /// project's board is ever viewed (before anyone has customized it, there's nothing to read).
+    /// A malformed/foreign-shaped value (hand-edited settings JSON, a future schema change) falls
+    /// back the same way rather than erroring the whole board out.
+    pub fn parse_kanban_columns(settings: &serde_json::Value, defaults: Vec<KanbanColumnDef>) -> Vec<KanbanColumnDef> {
+        settings
+            .get("kanban_columns")
+            .and_then(|v| serde_json::from_value::<Vec<KanbanColumnDef>>(v.clone()).ok())
+            .filter(|cols| !cols.is_empty())
+            .unwrap_or(defaults)
+    }
+
+    pub fn serialize_kanban_columns(columns: &[KanbanColumnDef]) -> serde_json::Value {
+        serde_json::to_value(columns).unwrap_or_else(|_| serde_json::json!([]))
+    }
+
+    /// Turns a user-typed column title into a stable id (`"In Review"` -> `"in-review"`),
+    /// disambiguated against `existing` ids by appending `-2`, `-3`, ... on collision -- the same
+    /// approach file/slug generation already uses elsewhere in this app.
+    pub fn slugify_kanban_column_id(title: &str, existing: &[KanbanColumnDef]) -> String {
+        let mut slug: String = title
+            .trim()
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        if slug.is_empty() {
+            slug = "column".to_string();
+        }
+        if slug == KANBAN_UNSORTED_COLUMN_ID {
+            slug.push_str("-col");
+        }
+        let base = slug.clone();
+        let mut n = 2;
+        while existing.iter().any(|c| c.id == slug) {
+            slug = format!("{base}-{n}");
+            n += 1;
+        }
+        slug
+    }
+
     /// Discover all Markdown and Unified Note (.anote, .note, .md) files in a workspace directory
     pub fn discover_markdown_files<P: AsRef<Path>>(project_dir: P) -> Vec<PathBuf> {
         let mut md_files = Vec::new();
@@ -159,6 +245,13 @@ impl KnowledgeSyncService {
             .map_err(|e| WebError::Internal(e.to_string()))?;
         let date_regex = Regex::new(r"@(\d{4}-\d{2}-\d{2})")
             .map_err(|e| WebError::Internal(e.to_string()))?;
+        // Overrides the checkbox-derived 3-state status for custom Kanban columns (a
+        // `[ ]`/`[/]`/`[x]` checkbox alone can't distinguish more than 3 board positions) --
+        // written/removed by `update_task_status`, see its own comment. Matched and stripped
+        // before the generic `tag_regex` pass so it never also shows up as a literal
+        // "status:<id>" tag pill.
+        let status_tag_regex = Regex::new(r"#status:([a-zA-Z0-9_\-]+)")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
 
         for file in files {
             let rel_path = file
@@ -179,27 +272,37 @@ impl KnowledgeSyncService {
                     let raw_body = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
 
                     let completed = mark == "x" || mark == "X";
-                    let status = if completed {
+                    let checkbox_status = if completed {
                         "done"
                     } else if mark == "/" {
                         "in_progress"
                     } else {
                         "todo"
                     };
+                    // A `#status:<id>` tag (written when a task is placed in a custom Kanban
+                    // column that isn't one of the 3 built-in ones) overrides the checkbox-derived
+                    // status for board placement; `completed`/the plain checkbox state above are
+                    // untouched by it, so progress tracking and the note view's inline checkbox
+                    // keep meaning exactly what they always did regardless of custom columns.
+                    let status_override = status_tag_regex
+                        .captures(raw_body)
+                        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
+                    let status = status_override.clone().unwrap_or_else(|| checkbox_status.to_string());
+                    let without_status_tag = status_tag_regex.replace_all(raw_body, "").to_string();
 
                     // Extract tags
                     let tags: Vec<String> = tag_regex
-                        .find_iter(raw_body)
+                        .find_iter(&without_status_tag)
                         .map(|m| m.as_str().trim_start_matches('#').to_string())
                         .collect();
 
                     // Extract due date
                     let due_date = date_regex
-                        .captures(raw_body)
+                        .captures(&without_status_tag)
                         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
 
-                    // Clean title: strip #tags and @date for display
-                    let mut clean_title = tag_regex.replace_all(raw_body, "").to_string();
+                    // Clean title: strip #tags, #status:, and @date for display
+                    let mut clean_title = tag_regex.replace_all(&without_status_tag, "").to_string();
                     clean_title = date_regex.replace_all(&clean_title, "").to_string();
                     let title = clean_title.trim().to_string();
 
@@ -212,7 +315,7 @@ impl KnowledgeSyncService {
                         raw_line: line.to_string(),
                         title: if title.is_empty() { raw_body.to_string() } else { title },
                         completed,
-                        status: status.to_string(),
+                        status,
                         tags,
                         due_date,
                     });
@@ -223,41 +326,45 @@ impl KnowledgeSyncService {
         Ok(tasks)
     }
 
-    /// Build Kanban Board representation directly from Markdown tasks
-    pub fn build_kanban_board<P: AsRef<Path>>(project_dir: P) -> WebResult<KanbanBoard> {
+    /// Build Kanban Board representation directly from Markdown tasks, grouped by the project's
+    /// own configured column layout (`column_defs` -- see `parse_kanban_columns`) rather than a
+    /// fixed todo/in_progress/done shape. `unsorted_title` names the catch-all column shown for
+    /// any task whose resolved status doesn't match a configured column (e.g. it was tagged for a
+    /// column that has since been deleted or renamed).
+    pub fn build_kanban_board<P: AsRef<Path>>(
+        project_dir: P,
+        column_defs: &[KanbanColumnDef],
+        unsorted_title: &str,
+    ) -> WebResult<KanbanBoard> {
         let tasks = Self::extract_all_tasks(project_dir)?;
         let total_tasks = tasks.len();
         let completed_tasks = tasks.iter().filter(|t| t.completed).count();
 
-        let mut todo_tasks = Vec::new();
-        let mut in_progress_tasks = Vec::new();
-        let mut done_tasks = Vec::new();
-
+        let mut buckets: HashMap<String, Vec<MarkdownTask>> = HashMap::new();
         for task in tasks {
-            match task.status.as_str() {
-                "done" => done_tasks.push(task),
-                "in_progress" => in_progress_tasks.push(task),
-                _ => todo_tasks.push(task),
-            }
+            buckets.entry(task.status.clone()).or_default().push(task);
         }
 
-        let columns = vec![
-            KanbanColumn {
-                id: "todo".to_string(),
-                title: "To Do".to_string(),
-                tasks: todo_tasks,
-            },
-            KanbanColumn {
-                id: "in_progress".to_string(),
-                title: "In Progress".to_string(),
-                tasks: in_progress_tasks,
-            },
-            KanbanColumn {
-                id: "done".to_string(),
-                title: "Completed".to_string(),
-                tasks: done_tasks,
-            },
-        ];
+        let mut columns: Vec<KanbanColumn> = column_defs
+            .iter()
+            .map(|def| KanbanColumn {
+                id: def.id.clone(),
+                title: def.title.clone(),
+                tasks: buckets.remove(&def.id).unwrap_or_default(),
+                is_done: def.is_done,
+            })
+            .collect();
+
+        // Whatever's left in `buckets` belongs to no configured column -- surface it instead of
+        // silently dropping those tasks off the board.
+        let mut unsorted: Vec<MarkdownTask> = buckets.into_values().flatten().collect();
+        unsorted.sort_by(|a, b| (a.file_path.as_str(), a.line_number).cmp(&(b.file_path.as_str(), b.line_number)));
+        columns.push(KanbanColumn {
+            id: KANBAN_UNSORTED_COLUMN_ID.to_string(),
+            title: unsorted_title.to_string(),
+            tasks: unsorted,
+            is_done: false,
+        });
 
         Ok(KanbanBoard {
             columns,
@@ -266,12 +373,16 @@ impl KnowledgeSyncService {
         })
     }
 
-    /// Toggle or update a task status in the physical Markdown document
+    /// Toggle or update a task status in the physical Markdown document. `is_done_column` tells
+    /// this whether `new_status`'s column counts as "done" for the checkbox mark (see
+    /// `KanbanColumnDef::is_done`) -- for the 3 built-in status ids callers may simply pass
+    /// `new_status == "done"`, matching this function's own pre-custom-columns behavior exactly.
     pub fn update_task_status<P: AsRef<Path>>(
         project_dir: P,
         rel_path: &str,
         line_number: usize,
         new_status: &str,
+        is_done_column: bool,
     ) -> WebResult<()> {
         let clean = rel_path.trim().trim_start_matches('/');
         if clean.contains("..") || clean.is_empty() {
@@ -346,16 +457,31 @@ impl KnowledgeSyncService {
 
         let line = &lines[idx];
         if let Some(caps) = task_regex.captures(line) {
-            let prefix = caps.get(1).map(|m| m.as_str()).unwrap_or("- ");
+            let prefix = caps.get(1).map(|m| m.as_str()).unwrap_or("- ").to_string();
             let suffix = caps.get(3).map(|m| m.as_str()).unwrap_or("");
 
-            let mark = match new_status {
-                "done" => "x",
-                "in_progress" => "/",
-                _ => " ",
+            let mark = if is_done_column {
+                "x"
+            } else if new_status == "todo" {
+                " "
+            } else {
+                "/"
             };
 
-            lines[idx] = format!("{}[{}]{}", prefix, mark, suffix);
+            // Built-in status ids stay bracket-only (no `#status:` tag) for a clean, unmodified
+            // representation on boards that were never customized; any other id needs the tag so
+            // `extract_all_tasks` can tell which custom column this task belongs to, since the
+            // 3-state checkbox alone can't encode more than 3 positions.
+            let status_tag_regex = Regex::new(r"\s*#status:[a-zA-Z0-9_\-]+")
+                .map_err(|e| WebError::Internal(e.to_string()))?;
+            let stripped_suffix = status_tag_regex.replace_all(suffix, "").to_string();
+            let new_suffix = if matches!(new_status, "todo" | "in_progress" | "done") {
+                stripped_suffix
+            } else {
+                format!("{stripped_suffix} #status:{new_status}")
+            };
+
+            lines[idx] = format!("{prefix}[{mark}]{new_suffix}");
         }
 
         let new_content = lines.join("\n") + if content.ends_with('\n') { "\n" } else { "" };
@@ -787,13 +913,16 @@ Backlink to [[Quantum Algorithms]].
         assert!(nielsen_task.completed);
         assert_eq!(nielsen_task.status, "done");
 
-        // 2. Test Kanban Board
-        let kanban = KnowledgeSyncService::build_kanban_board(dir.path()).unwrap();
+        // 2. Test Kanban Board (default 3-column layout)
+        let default_columns = KnowledgeSyncService::default_kanban_columns("To Do", "In Progress", "Completed");
+        let kanban = KnowledgeSyncService::build_kanban_board(dir.path(), &default_columns, "Unsorted").unwrap();
         assert_eq!(kanban.total_tasks, 4);
         assert_eq!(kanban.completed_tasks, 1);
         assert_eq!(kanban.columns[0].tasks.len(), 2); // todo
         assert_eq!(kanban.columns[1].tasks.len(), 1); // in_progress
         assert_eq!(kanban.columns[2].tasks.len(), 1); // done
+        assert_eq!(kanban.columns[3].id, KANBAN_UNSORTED_COLUMN_ID);
+        assert!(kanban.columns[3].tasks.is_empty()); // nothing tagged with a status this layout doesn't have
 
         // 3. Test Bidirectional Update: Complete QFT task
         KnowledgeSyncService::update_task_status(
@@ -801,6 +930,7 @@ Backlink to [[Quantum Algorithms]].
             "notes/quantum_algorithms.md",
             qft_task.line_number,
             "done",
+            true,
         )
         .unwrap();
 
@@ -824,6 +954,63 @@ Backlink to [[Quantum Algorithms]].
         assert_eq!(cal_events.len(), 2); // 2026-09-15 and 2026-10-01
         assert_eq!(cal_events[0].date, "2026-09-15");
         assert_eq!(cal_events[1].date, "2026-10-01");
+    }
+
+    #[test]
+    fn test_custom_kanban_columns_status_tag_round_trip_and_unsorted_catchall() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("notes")).unwrap();
+        let doc_path = dir.path().join("notes/backlog.md");
+        std::fs::write(
+            &doc_path,
+            "# Backlog\n\n- [ ] Triage new bug reports\n- [ ] Write onboarding doc\n",
+        )
+        .unwrap();
+
+        // A team-defined 4-column workflow beyond the default 3 -- "review" has no matching
+        // checkbox state, so it can only exist via the `#status:` tag.
+        let columns = vec![
+            KanbanColumnDef { id: "backlog".to_string(), title: "Backlog".to_string(), is_done: false },
+            KanbanColumnDef { id: "review".to_string(), title: "In Review".to_string(), is_done: false },
+            KanbanColumnDef { id: "shipped".to_string(), title: "Shipped".to_string(), is_done: true },
+        ];
+
+        let tasks = KnowledgeSyncService::extract_all_tasks(dir.path()).unwrap();
+        let triage_task = tasks.iter().find(|t| t.title.contains("Triage")).unwrap();
+        // Neither task has been tagged for any of this custom layout's columns yet -- both must
+        // land in the Unsorted catch-all rather than vanish or force themselves into "backlog".
+        let board = KnowledgeSyncService::build_kanban_board(dir.path(), &columns, "Unsorted").unwrap();
+        assert_eq!(board.columns.iter().find(|c| c.id == "backlog").unwrap().tasks.len(), 0);
+        assert_eq!(board.columns.iter().find(|c| c.id == KANBAN_UNSORTED_COLUMN_ID).unwrap().tasks.len(), 2);
+
+        // Move the triage task into "review" (not done) -- must write a #status: tag since the
+        // checkbox alone can't represent it, and must NOT mark the box done.
+        KnowledgeSyncService::update_task_status(dir.path(), "notes/backlog.md", triage_task.line_number, "review", false).unwrap();
+        let after_review = std::fs::read_to_string(&doc_path).unwrap();
+        assert!(after_review.contains("- [/] Triage new bug reports #status:review"), "expected in-progress bracket + status tag: {after_review}");
+
+        let tasks2 = KnowledgeSyncService::extract_all_tasks(dir.path()).unwrap();
+        let triage2 = tasks2.iter().find(|t| t.title.contains("Triage")).unwrap();
+        assert_eq!(triage2.status, "review");
+        assert!(!triage2.completed);
+        assert!(triage2.tags.is_empty(), "the status tag must not also appear as a plain tag: {:?}", triage2.tags);
+
+        let board2 = KnowledgeSyncService::build_kanban_board(dir.path(), &columns, "Unsorted").unwrap();
+        assert_eq!(board2.columns.iter().find(|c| c.id == "review").unwrap().tasks.len(), 1);
+        assert_eq!(board2.columns.iter().find(|c| c.id == KANBAN_UNSORTED_COLUMN_ID).unwrap().tasks.len(), 1);
+
+        // Move it on to "shipped" (a done column) -- checkbox must flip to [x], and the old
+        // #status:review tag must be replaced, not left stacked alongside the new one.
+        KnowledgeSyncService::update_task_status(dir.path(), "notes/backlog.md", triage_task.line_number, "shipped", true).unwrap();
+        let after_shipped = std::fs::read_to_string(&doc_path).unwrap();
+        assert!(after_shipped.contains("- [x] Triage new bug reports #status:shipped"));
+        assert!(!after_shipped.contains("status:review"));
+
+        // Finally, back to the built-in "todo" id -- the tag must be fully removed, restoring the
+        // plain, untagged representation every pre-custom-columns board already relied on.
+        KnowledgeSyncService::update_task_status(dir.path(), "notes/backlog.md", triage_task.line_number, "todo", false).unwrap();
+        let after_todo = std::fs::read_to_string(&doc_path).unwrap();
+        assert!(after_todo.contains("- [ ] Triage new bug reports\n"), "expected a clean, untagged line: {after_todo}");
     }
 
     #[test]

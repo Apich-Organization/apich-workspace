@@ -82,6 +82,7 @@ const ISLAND_BOOTSTRAP_JS: &str = include_str!("island_script.js");
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveNav {
     Projects,
+    Templates,
     Settings,
     OrgAdmin,
     PlatformAdmin,
@@ -178,6 +179,10 @@ pub fn AppShell(
                                     <a href="/" class="sidebar-link" class:active=active_nav.is(ActiveNav::Projects)>
                                         <span class="sidebar-icon">"📁"</span>
                                         <span>{i18n.nav_projects()}</span>
+                                    </a>
+                                    <a href="/templates" class="sidebar-link" class:active=active_nav.is(ActiveNav::Templates)>
+                                        <span class="sidebar-icon">"📚"</span>
+                                        <span>{i18n.nav_templates()}</span>
                                     </a>
                                 </div>
                                 {admin_section}

@@ -9,6 +9,8 @@ use crate::models::{
     TeamMemberWithUser, TeamTreeNode,
     UpdateOrganizationDto, UpdateSystemSettingsDto, UpdateTeamDto, UpdateUserProfileDto, User,
     UserRole, UserSession, Workspace, WorkspaceMember, EffectiveHubLinks,
+    CreateTemplateDto, PublishTemplateVersionDto, Template, TemplateShare, TemplateVersion,
+    TemplateWithLatestVersion,
 };
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -1715,5 +1717,191 @@ impl<'a> Repository<'a> {
         .await?;
 
         Ok(auth_code)
+    }
+
+    // --- Template Library Operations ---
+
+    pub async fn create_template(&self, dto: CreateTemplateDto) -> Result<Template> {
+        let id = Uuid::now_v7();
+        let template = sqlx::query_as::<_, Template>(
+            r#"
+            INSERT INTO templates (id, kind, name, slug, description, owner_user_id, visibility)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(&dto.kind)
+        .bind(&dto.name)
+        .bind(&dto.slug)
+        .bind(&dto.description)
+        .bind(dto.owner_user_id)
+        .bind(&dto.visibility)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(template)
+    }
+
+    pub async fn get_template_by_id(&self, id: Uuid) -> Result<Option<Template>> {
+        let template = sqlx::query_as::<_, Template>("SELECT * FROM templates WHERE id = $1")
+            .bind(id)
+            .fetch_optional(self.pool)
+            .await?;
+        Ok(template)
+    }
+
+    /// Every template a `user_id` may see: their own (any visibility), plus every 'public' one,
+    /// plus every 'shared' one whose `template_shares` list includes an org/team they belong to.
+    /// `kind` optionally narrows the gallery to one content type (see `TemplateKind`).
+    pub async fn list_visible_templates(&self, user_id: Uuid, kind: Option<&str>) -> Result<Vec<TemplateWithLatestVersion>> {
+        let templates = sqlx::query_as::<_, TemplateWithLatestVersion>(
+            r#"
+            SELECT
+                t.id, t.kind, t.name, t.slug, t.description, t.owner_user_id, t.visibility,
+                t.created_at, t.updated_at,
+                u.username AS owner_username,
+                COUNT(tv.id) AS version_count,
+                (ARRAY_AGG(tv.version_label ORDER BY tv.created_at DESC))[1] AS latest_version_label,
+                (ARRAY_AGG(tv.id ORDER BY tv.created_at DESC))[1] AS latest_version_id
+            FROM templates t
+            JOIN users u ON u.id = t.owner_user_id
+            LEFT JOIN template_versions tv ON tv.template_id = t.id
+            WHERE ($2::VARCHAR IS NULL OR t.kind = $2)
+              AND (
+                t.owner_user_id = $1
+                OR t.visibility = 'public'
+                OR (t.visibility = 'shared' AND EXISTS (
+                    SELECT 1 FROM template_shares ts
+                    LEFT JOIN org_members om ON ts.org_id = om.org_id AND om.user_id = $1
+                    LEFT JOIN team_members tm ON ts.team_id = tm.team_id AND tm.user_id = $1
+                    WHERE ts.template_id = t.id AND (om.user_id IS NOT NULL OR tm.user_id IS NOT NULL)
+                ))
+              )
+            GROUP BY t.id, u.username
+            ORDER BY t.updated_at DESC
+            "#,
+        )
+        .bind(user_id)
+        .bind(kind)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(templates)
+    }
+
+    pub async fn list_templates_owned_by(&self, user_id: Uuid) -> Result<Vec<Template>> {
+        let templates = sqlx::query_as::<_, Template>(
+            "SELECT * FROM templates WHERE owner_user_id = $1 ORDER BY updated_at DESC",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(templates)
+    }
+
+    pub async fn update_template_visibility(&self, id: Uuid, visibility: &str) -> Result<()> {
+        sqlx::query("UPDATE templates SET visibility = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
+            .bind(visibility)
+            .bind(id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_template(&self, id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM templates WHERE id = $1")
+            .bind(id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn add_template_share(&self, template_id: Uuid, org_id: Option<Uuid>, team_id: Option<Uuid>) -> Result<TemplateShare> {
+        let id = Uuid::now_v7();
+        let share = sqlx::query_as::<_, TemplateShare>(
+            r#"
+            INSERT INTO template_shares (id, template_id, org_id, team_id)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(template_id)
+        .bind(org_id)
+        .bind(team_id)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(share)
+    }
+
+    pub async fn remove_template_share(&self, share_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM template_shares WHERE id = $1")
+            .bind(share_id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_template_shares(&self, template_id: Uuid) -> Result<Vec<TemplateShare>> {
+        let shares = sqlx::query_as::<_, TemplateShare>(
+            "SELECT * FROM template_shares WHERE template_id = $1 ORDER BY created_at ASC",
+        )
+        .bind(template_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(shares)
+    }
+
+    pub async fn publish_template_version(&self, dto: PublishTemplateVersionDto) -> Result<TemplateVersion> {
+        let id = Uuid::now_v7();
+        let version = sqlx::query_as::<_, TemplateVersion>(
+            r#"
+            INSERT INTO template_versions (id, template_id, version_label, changelog, content, published_by)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(dto.template_id)
+        .bind(&dto.version_label)
+        .bind(&dto.changelog)
+        .bind(&dto.content)
+        .bind(dto.published_by)
+        .fetch_one(self.pool)
+        .await?;
+
+        sqlx::query("UPDATE templates SET updated_at = CURRENT_TIMESTAMP WHERE id = $1")
+            .bind(dto.template_id)
+            .execute(self.pool)
+            .await?;
+
+        Ok(version)
+    }
+
+    pub async fn list_template_versions(&self, template_id: Uuid) -> Result<Vec<TemplateVersion>> {
+        let versions = sqlx::query_as::<_, TemplateVersion>(
+            "SELECT * FROM template_versions WHERE template_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(template_id)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(versions)
+    }
+
+    pub async fn get_template_version_by_id(&self, id: Uuid) -> Result<Option<TemplateVersion>> {
+        let version = sqlx::query_as::<_, TemplateVersion>("SELECT * FROM template_versions WHERE id = $1")
+            .bind(id)
+            .fetch_optional(self.pool)
+            .await?;
+        Ok(version)
+    }
+
+    pub async fn get_latest_template_version(&self, template_id: Uuid) -> Result<Option<TemplateVersion>> {
+        let version = sqlx::query_as::<_, TemplateVersion>(
+            "SELECT * FROM template_versions WHERE template_id = $1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(template_id)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(version)
     }
 }

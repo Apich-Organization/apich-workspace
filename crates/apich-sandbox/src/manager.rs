@@ -121,6 +121,31 @@ impl SandboxManager {
         let container_name = &config.container_name;
         match self.driver.inspect(container_name).await? {
             Some(info) => {
+                // Detect a container stuck on a stale image: it was created once via `podman
+                // run` and pinned to whatever image ID that tag resolved to *then*, so rebuilding
+                // e.g. docker/Containerfile.sandbox (adding a missing Python package, say) and
+                // retagging `apich-sandbox:latest` never touches containers already created from
+                // the old build -- they'd otherwise keep running the stale image forever, since
+                // every other branch below only looks at run/stop state, never image identity.
+                // `image_id` resolving to `None` (image not built/pulled yet) is left alone here;
+                // that failure surfaces naturally from `run_detached` instead.
+                let current_image_id = self.driver.image_id(&config.image).await?;
+                let is_stale = match &current_image_id {
+                    Some(current) => !info.image_id.is_empty() && &info.image_id != current,
+                    None => false,
+                };
+                if is_stale {
+                    info!(
+                        container_name = %container_name,
+                        old_image = %info.image_id,
+                        new_image = current_image_id.as_deref().unwrap_or(""),
+                        "Recreating container: image was rebuilt since this container was created"
+                    );
+                    let _ = self.driver.remove(container_name, true).await;
+                    self.driver.run_detached(&config).await?;
+                    return Ok(UserContainer::new(config, self.driver.clone()));
+                }
+
                 match info.status {
                     ContainerStatus::Running => {
                         info!(container_name = %container_name, "Container already running");

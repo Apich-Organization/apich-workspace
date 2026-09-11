@@ -29,7 +29,9 @@ pub fn NoteEditorIsland(
     backlinks: Vec<String>,
     #[prop(into)] rendered_html: String,
     #[prop(into)] task_progress_label: Option<String>,
+    is_zh: bool,
 ) -> impl IntoView {
+    let t = move |en: &'static str, zh: &'static str| crate::t(is_zh, en, zh);
     let code_ref = NodeRef::<leptos::html::Textarea>::new();
     // "Hot reload": the preview used to only ever reflect the last full page load (i.e. the last
     // Save) -- there was no live re-render as you type. `preview_html` starts from the
@@ -64,7 +66,7 @@ pub fn NoteEditorIsland(
     let outline_items = move || {
         let headings = headings_sig.get();
         if headings.is_empty() {
-            view! { <p class="text-muted" style="font-size:0.8rem;">"No headings yet"</p> }.into_any()
+            view! { <p class="text-muted" style="font-size:0.8rem;">{t("No headings yet", "暂无标题")}</p> }.into_any()
         } else {
             let min_level = headings.iter().map(|h| h.level).min().unwrap_or(1);
             let mut groups: Vec<(NoteHeadingItem, Vec<NoteHeadingItem>)> = Vec::new();
@@ -110,8 +112,45 @@ pub fn NoteEditorIsland(
         move |ev: leptos::ev::MouseEvent| handle_preview_click(ev, code_ref, project_id.clone())
     };
 
+    // Formatting toolbar: the "somehow more WYSIWYG a bit" half of the note/wiki feedback --
+    // clicking a button inserts/toggles real markdown around the current selection (see
+    // `note_formatting.rs` for the actual text logic) instead of requiring it to be hand-typed,
+    // then re-runs the exact same debounced-preview + syntax-highlight refresh a manual keystroke
+    // would have triggered via `on_body_input`, so the live preview and highlight overlay stay in
+    // sync with a toolbar-driven edit exactly as they do with a typed one.
+    // `StoredValue` rather than a plain closure: this needs to be invoked from 11 independent
+    // button handlers below, but it closes over owned `String`s (project_id/file_path), so it
+    // isn't `Copy` and a plain `let` binding could only be moved into one of them.
+    let toolbar_click = StoredValue::new({
+        let project_id = project_id.clone();
+        let file_path = file_path.clone();
+        move |action: ToolbarAction| {
+            apply_toolbar_action(code_ref, action);
+            debounced_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, preview_html, headings_sig);
+        }
+    });
+    let toolbar = view! {
+        <div class="note-toolbar">
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Bold", "加粗") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Bold))><strong>"B"</strong></button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Italic", "斜体") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Italic))><em>"I"</em></button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Inline code", "行内代码") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Code))>"</>"</button>
+            <span class="note-toolbar-sep"></span>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Heading 1", "一级标题") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Heading(1)))>"H1"</button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Heading 2", "二级标题") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Heading(2)))>"H2"</button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Quote", "引用") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Quote))>"❝"</button>
+            <span class="note-toolbar-sep"></span>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Bullet list", "无序列表") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::BulletList))>"• ⁃"</button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Numbered list", "有序列表") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::NumberedList))>"1."</button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Task checkbox", "任务复选框") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Task))>"☑"</button>
+            <span class="note-toolbar-sep"></span>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Link", "链接") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Link))>"🔗"</button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Wiki-link to another note", "链接到另一篇笔记") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::WikiLink))>"[[ ]]"</button>
+            <button type="button" class="btn btn-secondary btn-sm" title=t("Insert table", "插入表格") on:click=move |_| toolbar_click.with_value(|f| f(ToolbarAction::Table))>"⊞"</button>
+        </div>
+    };
+
     let backlink_items = if backlinks.is_empty() {
-        view! { <p class="text-muted" style="font-size:0.8rem;">"No backlinks yet"</p> }.into_any()
+        view! { <p class="text-muted" style="font-size:0.8rem;">{t("No backlinks yet", "暂无反向链接")}</p> }.into_any()
     } else {
         backlinks
             .into_iter()
@@ -129,12 +168,13 @@ pub fn NoteEditorIsland(
 
     view! {
         <div class="outline-panel" on:click={let f = on_outline_or_preview_click.clone(); move |ev| f(ev)}>
-            <h4 class="card-subtitle" style="font-size:0.85rem;">"Document Outline"</h4>
+            <h4 class="card-subtitle" style="font-size:0.85rem;">{t("Document Outline", "文档大纲")}</h4>
             {outline_items}
-            <h4 class="card-subtitle" style="font-size:0.85rem; margin-top:1.25rem;">"Backlinks"</h4>
+            <h4 class="card-subtitle" style="font-size:0.85rem; margin-top:1.25rem;">{t("Backlinks", "反向链接")}</h4>
             {backlink_items}
         </div>
         <div class="code-panel">
+            {toolbar}
             <div class="code-editor-wrap" data-lang="markdown">
                 <pre class="code-highlight-overlay" aria-hidden="true"><code></code></pre>
                 <textarea node_ref=code_ref id="note-body-editor" name="body" class="code-textarea" spellcheck="false" wrap="off" on:input=on_body_input>{body_content}</textarea>
@@ -143,12 +183,90 @@ pub fn NoteEditorIsland(
         </div>
         <div class="preview-panel">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; font-size:0.7rem; color:var(--text-sub);">
-                <span>"KaTeX Math • WikiLinks • Live Tasks"</span>
+                <span>{t("KaTeX Math • WikiLinks • Live Tasks", "KaTeX 数学公式 • 双链引用 • 实时任务")}</span>
                 {task_progress_label.map(|l| view! { <span>{l}</span> })}
             </div>
             <div id="note-preview-pane" inner_html=move || preview_html.get() on:click=on_outline_or_preview_click></div>
         </div>
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ToolbarAction {
+    Bold,
+    Italic,
+    Code,
+    Heading(u8),
+    Quote,
+    BulletList,
+    NumberedList,
+    Task,
+    Link,
+    WikiLink,
+    Table,
+}
+
+/// Thin DOM glue for the formatting toolbar: reads the textarea's current value and selection
+/// (JS `selectionStart`/`selectionEnd`, i.e. UTF-16 code unit offsets -- converted to the byte
+/// offsets `note_formatting`'s pure functions expect, so this is correct for notes containing CJK
+/// text or emoji, not just ASCII), applies the pure transformation, writes the result back, and
+/// restores a selection over whatever the user should naturally type over next (the wrapped text,
+/// or a placeholder). Also refreshes the Prism highlight overlay immediately, the same as
+/// `toggle_task` already does after its own programmatic `set_value` call, since that path
+/// doesn't fire a native `input` event on its own.
+#[cfg(feature = "hydrate")]
+fn apply_toolbar_action(code_ref: NodeRef<leptos::html::Textarea>, action: ToolbarAction) {
+    use crate::note_formatting::{insert_block, numbered_list, toggle_line_prefix, wrap_selection, TABLE_SNIPPET};
+
+    let Some(ta) = code_ref.get_untracked() else { return };
+    let value = ta.value();
+    let sel_start_u16 = ta.selection_start().ok().flatten().unwrap_or(0) as usize;
+    let sel_end_u16 = ta.selection_end().ok().flatten().unwrap_or(0) as usize;
+    let start = utf16_offset_to_byte(&value, sel_start_u16);
+    let end = utf16_offset_to_byte(&value, sel_end_u16);
+
+    let (new_value, new_start, new_end) = match action {
+        ToolbarAction::Bold => wrap_selection(&value, start, end, "**", "**", "bold text"),
+        ToolbarAction::Italic => wrap_selection(&value, start, end, "*", "*", "italic text"),
+        ToolbarAction::Code => wrap_selection(&value, start, end, "`", "`", "code"),
+        ToolbarAction::Link => wrap_selection(&value, start, end, "[", "](url)", "link text"),
+        ToolbarAction::WikiLink => wrap_selection(&value, start, end, "[[", "]]", "Note Name"),
+        ToolbarAction::Heading(level) => toggle_line_prefix(&value, start, end, &format!("{} ", "#".repeat(level as usize))),
+        ToolbarAction::Quote => toggle_line_prefix(&value, start, end, "> "),
+        ToolbarAction::BulletList => toggle_line_prefix(&value, start, end, "- "),
+        ToolbarAction::Task => toggle_line_prefix(&value, start, end, "- [ ] "),
+        ToolbarAction::NumberedList => numbered_list(&value, start, end),
+        ToolbarAction::Table => insert_block(&value, start, end, TABLE_SNIPPET),
+    };
+
+    ta.set_value(&new_value);
+    let new_start_u16 = byte_offset_to_utf16(&new_value, new_start) as u32;
+    let new_end_u16 = byte_offset_to_utf16(&new_value, new_end) as u32;
+    let _ = ta.set_selection_range(new_start_u16, new_end_u16);
+    let _ = ta.focus();
+    call_refresh_highlight("note-body-editor");
+}
+#[cfg(not(feature = "hydrate"))]
+fn apply_toolbar_action(_code_ref: NodeRef<leptos::html::Textarea>, _action: ToolbarAction) {}
+
+/// A `<textarea>`'s `selectionStart`/`selectionEnd` count UTF-16 code units (real JS string
+/// semantics, exposed as-is through web-sys), not the UTF-8 byte offsets Rust string slicing
+/// needs -- these two convert at that boundary so a CJK-heavy note's selection maps onto the
+/// right bytes instead of silently drifting or panicking on a non-char-boundary slice.
+#[cfg(feature = "hydrate")]
+fn utf16_offset_to_byte(s: &str, utf16_offset: usize) -> usize {
+    let mut units = 0usize;
+    for (byte_idx, ch) in s.char_indices() {
+        if units >= utf16_offset {
+            return byte_idx;
+        }
+        units += ch.len_utf16();
+    }
+    s.len()
+}
+#[cfg(feature = "hydrate")]
+fn byte_offset_to_utf16(s: &str, byte_offset: usize) -> usize {
+    s.get(..byte_offset).map(|s| s.encode_utf16().count()).unwrap_or_else(|| s.encode_utf16().count())
 }
 
 /// Handles both the task-checkbox toggle (a real POST that rewrites the physical note file

@@ -33,7 +33,7 @@ pub fn TerminalPage(
     let status_pill = if is_running {
         view! { <span class="status-badge badge-active"><span class="status-dot"></span>{i18n.sandbox_running()}</span> }.into_any()
     } else {
-        view! { <span class="status-badge badge-idle"><span class="status-dot"></span>"Starts automatically on first command"</span> }.into_any()
+        view! { <span class="status-badge badge-idle"><span class="status-dot"></span>{i18n.terminal_idle_status()}</span> }.into_any()
     };
 
     // Doubles as the real answer to "how do I init/build/run a whole multi-file Rust project (not
@@ -41,10 +41,7 @@ pub fn TerminalPage(
     // nobody could find out that a real `cargo` toolchain (and git, python3, R, LaTeX/Typst -- see
     // `docker/Containerfile.sandbox`) has always been available. Says nothing about a "sandbox" or
     // "container", per direct user feedback -- this reads like a plain project shell.
-    let initial_screen = format!(
-        "{} / {}\n\ncargo, git, python3, and R are all available here -- e.g. `cargo new my_crate && cd my_crate && cargo run` for a real multi-file Rust project.\n\nType a command below and press Enter or click 'Run'.\n",
-        user.username, project.slug
-    );
+    let initial_screen = format!("{} / {}\n\n{}\n", user.username, project.slug, i18n.terminal_hint());
 
     view! {
         <AppShell
@@ -61,13 +58,13 @@ pub fn TerminalPage(
                         <h1 class="page-title">{i18n.tab_terminal()}</h1>
                         {status_pill}
                     </div>
-                    <p class="page-subtitle">"A real shell for this project -- run any command, build tool, or script directly against your files"</p>
+                    <p class="page-subtitle">{i18n.terminal_subtitle()}</p>
                 </div>
             </div>
             {alert}
 
             <div class="section-card" style="background:#0f172a; padding:1.25rem;">
-                <TerminalIsland project_id=project_id.to_string() initial_screen=initial_screen />
+                <TerminalIsland project_id=project_id.to_string() initial_screen=initial_screen is_zh=i18n.is_zh() />
             </div>
         </AppShell>
     }

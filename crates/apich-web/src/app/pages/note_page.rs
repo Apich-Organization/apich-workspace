@@ -51,6 +51,10 @@ pub fn NotePage(
     graph: KnowledgeGraph,
     kanban: KanbanBoard,
     calendar: Vec<CalendarEvent>,
+    own_kanban_templates: Vec<apich_db::Template>,
+    visible_kanban_templates: Vec<apich_db::TemplateWithLatestVersion>,
+    own_note_templates: Vec<apich_db::Template>,
+    visible_note_templates: Vec<apich_db::TemplateWithLatestVersion>,
     file_share: Option<FileShareInfo>,
     all_users: Vec<User>,
     active_view: String,
@@ -104,11 +108,26 @@ pub fn NotePage(
     };
 
     let content = match view {
-        NoteView::Editor => render_editor_view(&project, &file_path, &body_content, &meta, &headings, &backlinks, &rendered_markdown_html, task_count, completed_task_count).into_any(),
+        NoteView::Editor => render_editor_view(
+            &project,
+            &file_path,
+            &body_content,
+            &meta,
+            &headings,
+            &backlinks,
+            &rendered_markdown_html,
+            task_count,
+            completed_task_count,
+            i18n.is_zh(),
+            &own_note_templates,
+            &visible_note_templates,
+            i18n,
+        )
+        .into_any(),
         NoteView::Whiteboard => render_whiteboard_view(project_id, &file_path, &meta).into_any(),
         NoteView::Wiki => render_wiki(&graph).into_any(),
         NoteView::Calendar => render_calendar(&calendar).into_any(),
-        NoteView::Kanban => render_kanban(&project, &kanban).into_any(),
+        NoteView::Kanban => render_kanban(&project, &kanban, &own_kanban_templates, &visible_kanban_templates, i18n).into_any(),
     };
 
     view! {
@@ -141,6 +160,7 @@ pub fn NotePage(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_editor_view(
     project: &Project,
     file_path: &str,
@@ -151,6 +171,10 @@ fn render_editor_view(
     rendered_html: &str,
     task_count: usize,
     completed_task_count: usize,
+    is_zh: bool,
+    own_note_templates: &[apich_db::Template],
+    visible_note_templates: &[apich_db::TemplateWithLatestVersion],
+    i18n: I18n,
 ) -> impl IntoView {
     let project_id = project.id;
     let tags_joined = meta.tags.join(", ");
@@ -160,7 +184,13 @@ fn render_editor_view(
         .iter()
         .map(|h| apich_islands::NoteHeadingItem { level: h.level as u8, text: h.text.clone(), line: h.line as u32 })
         .collect();
-    let task_progress_label = (task_count > 0).then(|| format!("Task Progress: {}/{} ({}%)", completed_task_count, task_count, progress_pct));
+    let task_progress_label = (task_count > 0).then(|| {
+        if is_zh {
+            format!("任务进度：{}/{}（{}%）", completed_task_count, task_count, progress_pct)
+        } else {
+            format!("Task Progress: {}/{} ({}%)", completed_task_count, task_count, progress_pct)
+        }
+    });
 
     view! {
         <form method="post" action=format!("/projects/{}/note/save", project_id) id="note-save-form">
@@ -190,6 +220,7 @@ fn render_editor_view(
                     backlinks=backlinks.to_vec()
                     rendered_html=rendered_html.to_string()
                     task_progress_label=task_progress_label
+                    is_zh=is_zh
                 />
             </div>
 
@@ -197,6 +228,88 @@ fn render_editor_view(
                 <button type="submit" class="btn btn-primary">"Save Note"</button>
             </div>
         </form>
+        {render_note_template_panel(project_id, file_path, own_note_templates, visible_note_templates, i18n)}
+    }
+}
+
+/// "Publish as Template" / "Apply a Template" for the note editor -- shares the same
+/// create-new-vs-publish-new-version and browse-and-apply shape the Kanban board's own panel
+/// uses (`render_kanban_template_panel`), just posting to the note-flavored routes
+/// (`ui::template_handlers`'s `*_note_*` actions) and needing a destination file name to apply
+/// into, since a note template creates a whole new file rather than updating settings in place.
+fn render_note_template_panel(
+    project_id: uuid::Uuid,
+    file_path: &str,
+    own_templates: &[apich_db::Template],
+    visible_templates: &[apich_db::TemplateWithLatestVersion],
+    i18n: I18n,
+) -> impl IntoView {
+    let publish_existing = (!own_templates.is_empty()).then(|| {
+        let rows: Vec<_> = own_templates
+            .iter()
+            .map(|t| {
+                view! {
+                    <form method="post" action=format!("/templates/{}/publish-version-note", t.id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.3rem; align-items:center;">
+                        <input type="hidden" name="project_id" value=project_id.to_string() />
+                        <input type="hidden" name="file" value=file_path.to_string() />
+                        <span style="font-size:0.8rem; min-width:120px;">{t.name.clone()}</span>
+                        <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:140px;" required=true />
+                        <input type="text" name="changelog" placeholder=i18n.template_changelog_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:220px;" />
+                        <button type="submit" class="btn btn-secondary btn-sm">{i18n.template_publish()}</button>
+                    </form>
+                }
+            })
+            .collect();
+        view! {
+            <div style="margin-top:0.5rem;">
+                <span style="font-size:0.8rem; color:var(--text-sub);">{i18n.template_publish_new_version_to()}</span>
+                {rows}
+            </div>
+        }
+    });
+
+    let apply_options: Vec<_> = visible_templates
+        .iter()
+        .filter_map(|t| t.latest_version_id.map(|vid| (t, vid)))
+        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name.clone()}" ("{t.latest_version_label.clone().unwrap_or_default()}")"</option> })
+        .collect();
+    let apply_panel = (!apply_options.is_empty()).then(|| {
+        view! {
+            <form method="post" action=format!("/projects/{}/note/apply-template", project_id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.5rem; align-items:center; flex-wrap:wrap;">
+                <select name="template_version_id" class="form-control" style="height:32px; font-size:0.82rem; max-width:260px;" required=true>
+                    <option value="" disabled=true selected=true>{i18n.template_select_version()}</option>
+                    {apply_options}
+                </select>
+                <input type="text" name="new_file_name" placeholder=i18n.template_new_file_name_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:180px;" required=true />
+                <button type="submit" class="btn btn-primary btn-sm">{i18n.template_apply()}</button>
+            </form>
+        }
+    });
+
+    view! {
+        <details style="margin-top:1rem; background:var(--bg-muted); border-radius:10px; padding:0.85rem 1rem;">
+            <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">{i18n.template_publish_as_template()}" / "{i18n.template_apply_template()}</summary>
+            <div style="margin-top:0.6rem;">
+                <form method="post" action="/templates/create-from-note" class="inline-form" style="display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center;">
+                    <input type="hidden" name="project_id" value=project_id.to_string() />
+                    <input type="hidden" name="file" value=file_path.to_string() />
+                    <input type="text" name="name" placeholder=i18n.template_name_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:160px;" required=true />
+                    <input type="text" name="slug" placeholder=i18n.template_slug_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:160px;" required=true />
+                    <input type="text" name="description" placeholder=i18n.template_description_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:200px;" />
+                    <select name="visibility" class="form-control" style="height:32px; font-size:0.82rem;">
+                        <option value="private">{i18n.template_visibility_label("private")}</option>
+                        <option value="shared">{i18n.template_visibility_label("shared")}</option>
+                        <option value="public">{i18n.template_visibility_label("public")}</option>
+                    </select>
+                    <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:140px;" required=true value="1.0.0" />
+                    <button type="submit" class="btn btn-primary btn-sm">{i18n.template_create_new()}</button>
+                </form>
+                {publish_existing}
+                {apply_panel.is_none().then(|| view! { <p class="text-muted" style="font-size:0.78rem; margin-top:0.5rem;">{i18n.template_no_templates()}</p> })}
+                {apply_panel}
+                <div style="margin-top:0.4rem;"><a href="/templates?kind=note" style="font-size:0.78rem;">{i18n.template_gallery_title()}" →"</a></div>
+            </div>
+        </details>
     }
 }
 

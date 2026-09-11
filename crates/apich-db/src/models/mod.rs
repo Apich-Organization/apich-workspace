@@ -7,6 +7,7 @@ pub mod organization;
 pub mod project;
 pub mod sso;
 pub mod team;
+pub mod template;
 pub mod user;
 pub mod workspace;
 
@@ -34,6 +35,10 @@ pub use sso::{
 pub use team::{
     CreateTeamDto, Team, TeamMember, TeamMemberWithUser, TeamRole, TeamTreeNode,
     UpdateTeamDto,
+};
+pub use template::{
+    CreateTemplateDto, PublishTemplateVersionDto, Template, TemplateKind, TemplateShare,
+    TemplateVersion, TemplateVisibility, TemplateWithLatestVersion,
 };
 pub use user::{CreateUserDto, UpdateUserProfileDto, User, UserRole};
 

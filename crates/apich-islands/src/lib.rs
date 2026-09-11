@@ -16,13 +16,16 @@ pub mod copy_link;
 pub mod delete_row_button;
 pub mod document_editor;
 pub mod file_share;
+pub mod formula;
 pub mod jump_to_line;
 pub mod modal;
 pub mod name_slug_fields;
 pub mod note_editor;
+pub mod note_formatting;
 pub mod notebook;
 pub mod org_signup_fields;
 pub mod spreadsheet;
+pub mod sql_console;
 pub mod terminal;
 pub mod webauthn;
 pub mod whiteboard;
@@ -39,9 +42,26 @@ pub use note_editor::{NoteEditorIsland, NoteHeadingItem};
 pub use notebook::{NotebookCellData, NotebookCellImageData, NotebookIsland};
 pub use org_signup_fields::OrgSignupFieldsIsland;
 pub use spreadsheet::{CellStyle as SpreadsheetCellStyle, CellStyleEntry, SpreadsheetIsland};
+pub use sql_console::SqlConsoleIsland;
 pub use terminal::TerminalIsland;
 pub use webauthn::{PasskeyEnrollIsland, PasskeyLoginIsland};
 pub use whiteboard::WhiteboardIsland;
+
+/// Minimal bilingual-string helper for islands. This crate can't depend on apich-web's `I18n`
+/// type (it must stay wasm32-compilable with zero server-only dependencies -- see this module's
+/// own doc comment), so pages pass a plain `is_zh: bool` prop (from `I18n::is_zh()`) instead, and
+/// island UI text picks between an English and Chinese literal with this. Before this existed,
+/// every island's UI text (formula bar, note toolbar, terminal quick-commands, SQL console
+/// presets, ...) was hardcoded English regardless of the user's selected language -- `i18n.rs`'s
+/// ~200 translated strings never reached any of the interactive islands at all, only the plain
+/// server-rendered page chrome around them.
+pub fn t(is_zh: bool, en: &'static str, zh: &'static str) -> &'static str {
+    if is_zh {
+        zh
+    } else {
+        en
+    }
+}
 
 /// Proof-of-concept island validating the SSR-render + WASM-hydrate pipeline end to end
 /// before building the real feature islands. A plain server `#[component]` would render this

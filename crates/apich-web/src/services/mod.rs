@@ -9,6 +9,7 @@ pub mod knowledge_sync;
 pub mod project_manager;
 pub mod sqlite_table;
 pub mod sso_service;
+pub mod template_library;
 
 pub use agent_login::{AgentLoginRegistry, AgentLoginStatus};
 pub use ai_service::{AiAssistantService, AiChatRequest, AiChatResponse};

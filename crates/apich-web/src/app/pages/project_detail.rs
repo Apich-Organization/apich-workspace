@@ -37,6 +37,10 @@ pub fn ProjectDetailPage(
     all_users: Vec<User>,
     git_status: GitStatusView,
     files: Vec<ProjectFileItem>,
+    ignore_config: apich_vcs::IgnoreConfig,
+    gitignore_content: String,
+    apichignore_content: String,
+    new_file_templates: Vec<apich_db::TemplateWithLatestVersion>,
     active_tab: String,
     notice: Option<String>,
     signature_statuses: std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
@@ -55,8 +59,8 @@ pub fn ProjectDetailPage(
     let tab_bar = render_tab_bar(project_id, tab, files.len(), conflicts.len(), snapshots.len(), members.len(), &i18n);
 
     let tab_content = match tab {
-        ProjectTab::Files => render_files_tab(&project, &files, &all_users, &i18n).into_any(),
-        ProjectTab::Vcs => render_vcs_tab(&project, is_owner, &branches, current_branch.as_deref(), &conflicts, &snapshots, &signature_statuses, &milestones, &git_status, &i18n).into_any(),
+        ProjectTab::Files => render_files_tab(&project, &files, &all_users, &new_file_templates, &i18n).into_any(),
+        ProjectTab::Vcs => render_vcs_tab(&project, is_owner, &branches, current_branch.as_deref(), &conflicts, &snapshots, &signature_statuses, &milestones, &git_status, &ignore_config, &gitignore_content, &apichignore_content, &i18n).into_any(),
         ProjectTab::Sharing => render_sharing_tab(&project, &members, &all_users, is_owner, &i18n).into_any(),
     };
 
@@ -164,8 +168,39 @@ fn render_tab_bar(project_id: uuid::Uuid, active: ProjectTab, files_count: usize
     }
 }
 
-fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[User], i18n: &I18n) -> impl IntoView {
+fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[User], new_file_templates: &[apich_db::TemplateWithLatestVersion], i18n: &I18n) -> impl IntoView {
     let project_id = project.id;
+
+    // Built as fully owned data before the `<apich_islands::ModalIsland>` below rather than
+    // inline inside its children: islands require their children to be `'static`, but this
+    // function only borrows `new_file_templates`/`i18n` -- a closure built inline in the middle
+    // of the modal's view! tree would try to carry those borrows past this function's return,
+    // which doesn't typecheck (`i18n.template_kind_label` itself already returns `&'static str`,
+    // it's the surrounding closure capturing the borrowed slice/reference that doesn't).
+    let new_file_template_picker = (!new_file_templates.is_empty()).then(|| {
+        let options: Vec<_> = new_file_templates
+            .iter()
+            .filter_map(|t| t.latest_version_id.map(|vid| (t, vid)))
+            .map(|(t, vid)| {
+                let label = format!(
+                    "[{}] {} ({})",
+                    i18n.template_kind_label(&t.kind),
+                    t.name,
+                    t.latest_version_label.clone().unwrap_or_default()
+                );
+                view! { <option value=vid.to_string()>{label}</option> }
+            })
+            .collect();
+        view! {
+            <div class="form-group">
+                <label>"Or start from a "<a href="/templates" target="_blank">"Template Library"</a>" template (overrides the starter above, keeps your file name):"</label>
+                <select name="template_version_id" class="form-control">
+                    <option value="">"-- none, use the starter template above --"</option>
+                    {options}
+                </select>
+            </div>
+        }
+    });
 
     let rows = if files.is_empty() {
         view! {
@@ -275,6 +310,7 @@ fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[U
                                     <option value="markdown">"📝 Markdown (.md)"</option>
                                 </select>
                             </div>
+                            {new_file_template_picker}
                             <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
                                 <button type="submit" class="btn btn-primary">"Create File"</button>
                             </div>
@@ -312,6 +348,9 @@ fn render_vcs_tab(
     signature_statuses: &std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
     milestones: &[Snapshot],
     git: &GitStatusView,
+    ignore_config: &apich_vcs::IgnoreConfig,
+    gitignore_content: &str,
+    apichignore_content: &str,
     i18n: &I18n,
 ) -> impl IntoView {
     let project_id = project.id;
@@ -630,6 +669,100 @@ fn render_vcs_tab(
                     <button type="submit" class="btn btn-secondary btn-sm">"Rebase"</button>
                 </form>
             </div>
+        </div>
+
+        {render_ignore_section(project_id, ignore_config, gitignore_content, apichignore_content)}
+    }
+}
+
+fn render_ignore_section(
+    project_id: uuid::Uuid,
+    ignore_config: &apich_vcs::IgnoreConfig,
+    gitignore_content: &str,
+    apichignore_content: &str,
+) -> impl IntoView {
+    let profile_rows: Vec<_> = apich_vcs::IgnoreProfile::all()
+        .iter()
+        .map(|profile| {
+            let enabled = ignore_config.profile_enabled(*profile);
+            let label = profile.label();
+            let id = profile.id();
+            let next_value = if enabled { "false" } else { "true" };
+            let (badge_label, badge_class) = if enabled {
+                ("On", "badge badge-active")
+            } else {
+                ("Off", "badge badge-idle")
+            };
+            view! {
+                <div class="passkey-item">
+                    <div class="passkey-info">
+                        <span class="passkey-name">{label}</span>
+                        <span class="passkey-meta">{format!("{} smart-ignore patterns", id)}</span>
+                    </div>
+                    <span class=badge_class style="margin-right:0.6rem;">{badge_label}</span>
+                    <form method="post" action=format!("/projects/{}/ignore/profile-toggle", project_id) class="inline-form">
+                        <input type="hidden" name="profile" value=id />
+                        <input type="hidden" name="enabled" value=next_value />
+                        <button type="submit" class="btn btn-secondary btn-sm">{if enabled { "Disable" } else { "Enable" }}</button>
+                    </form>
+                </div>
+            }
+        })
+        .collect();
+
+    let custom_rule_rows: Vec<_> = ignore_config
+        .custom_rules
+        .iter()
+        .map(|rule| {
+            let rule_val = rule.clone();
+            view! {
+                <div class="passkey-item">
+                    <div class="passkey-info"><span class="passkey-name"><code>{rule_val.clone()}</code></span></div>
+                    <form method="post" action=format!("/projects/{}/ignore/rule-remove", project_id) class="inline-form">
+                        <input type="hidden" name="rule" value=rule_val />
+                        <button type="submit" class="btn btn-secondary btn-sm" title="Remove this rule">"✕"</button>
+                    </form>
+                </div>
+            }
+        })
+        .collect();
+    let custom_rules_empty = ignore_config.custom_rules.is_empty();
+
+    view! {
+        <div class="section-card">
+            <h2 class="section-title">"Ignore Rules"</h2>
+            <p class="text-muted" style="font-size:0.875rem; margin-bottom:1.25rem;">
+                "Control what apich's \"smart ignore\" leaves out of snapshots and diffs. Toggle whole language/tool profiles, add your own patterns, or edit the raw "<code>".gitignore"</code>" / "<code>".apichignore"</code>" files directly -- all three layers combine."
+            </p>
+
+            <h3 class="card-subtitle">"Smart profiles"</h3>
+            <div class="passkey-list" style="margin-bottom:1.5rem;">{profile_rows}</div>
+
+            <h3 class="card-subtitle">"Custom rules"</h3>
+            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">"One glob pattern per rule, e.g. "<code>"*.tmp"</code>". Prefix with "<code>"!"</code>" to whitelist (un-ignore) a path that a profile or file would otherwise exclude."</p>
+            {(!custom_rules_empty).then(|| view! { <div class="passkey-list" style="margin-bottom:0.75rem;">{custom_rule_rows}</div> })}
+            <form method="post" action=format!("/projects/{}/ignore/rule-add", project_id) class="form-row" style="align-items:flex-end; margin-bottom:1.5rem;">
+                <div class="form-group" style="margin-bottom:0; flex-grow:1;">
+                    <label>"New rule"</label>
+                    <input type="text" name="rule" placeholder="*.tmp or !keep-me.csv" required=true class="form-control" />
+                </div>
+                <button type="submit" class="btn btn-secondary" style="height:38px;">"Add Rule"</button>
+            </form>
+
+            <h3 class="card-subtitle">".gitignore"</h3>
+            <form method="post" action=format!("/projects/{}/ignore/file-save", project_id) style="margin-bottom:1.5rem;">
+                <input type="hidden" name="file_name" value=".gitignore" />
+                <textarea name="content" rows="6" class="form-control" style="font-family:monospace; font-size:0.8rem;" placeholder="# one pattern per line, standard gitignore syntax">{gitignore_content.to_string()}</textarea>
+                <button type="submit" class="btn btn-secondary" style="margin-top:0.5rem;">"Save .gitignore"</button>
+            </form>
+
+            <h3 class="card-subtitle">".apichignore"</h3>
+            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">"Same syntax as .gitignore, but only apich's own version control honors it (a real Git export/sync still follows .gitignore alone)."</p>
+            <form method="post" action=format!("/projects/{}/ignore/file-save", project_id)>
+                <input type="hidden" name="file_name" value=".apichignore" />
+                <textarea name="content" rows="6" class="form-control" style="font-family:monospace; font-size:0.8rem;" placeholder="# one pattern per line">{apichignore_content.to_string()}</textarea>
+                <button type="submit" class="btn btn-secondary" style="margin-top:0.5rem;">"Save .apichignore"</button>
+            </form>
         </div>
     }
 }

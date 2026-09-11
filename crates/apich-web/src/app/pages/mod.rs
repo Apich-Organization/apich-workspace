@@ -10,4 +10,5 @@ pub mod register;
 pub mod settings;
 pub mod shared_project;
 pub mod table_page;
+pub mod template_library_page;
 pub mod terminal_page;

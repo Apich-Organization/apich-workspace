@@ -128,6 +128,21 @@ impl VcsConfig {
         if self.ignore.development_profile {
             filter.enable_profile(IgnoreProfile::Development)?;
         }
+        if self.ignore.rust_profile {
+            filter.enable_profile(IgnoreProfile::Rust)?;
+        }
+        if self.ignore.javascript_profile {
+            filter.enable_profile(IgnoreProfile::JavaScript)?;
+        }
+        if self.ignore.java_profile {
+            filter.enable_profile(IgnoreProfile::Java)?;
+        }
+        if self.ignore.ccpp_profile {
+            filter.enable_profile(IgnoreProfile::CCpp)?;
+        }
+        if self.ignore.editor_profile {
+            filter.enable_profile(IgnoreProfile::Editor)?;
+        }
 
         // Add custom rules from config
         for rule in &self.ignore.custom_rules {
@@ -218,8 +233,49 @@ pub struct IgnoreConfig {
     pub r_profile: bool,
     #[serde(default = "default_true")]
     pub development_profile: bool,
+    #[serde(default = "default_true")]
+    pub rust_profile: bool,
+    #[serde(default = "default_true")]
+    pub javascript_profile: bool,
+    #[serde(default = "default_true")]
+    pub java_profile: bool,
+    #[serde(default = "default_true")]
+    pub ccpp_profile: bool,
+    #[serde(default = "default_true")]
+    pub editor_profile: bool,
     #[serde(default)]
     pub custom_rules: Vec<String>,
+}
+
+impl IgnoreConfig {
+    /// Get/set profile toggles by `IgnoreProfile` id, for generic UI wiring
+    pub fn profile_enabled(&self, profile: IgnoreProfile) -> bool {
+        match profile {
+            IgnoreProfile::Academic => self.academic_profile,
+            IgnoreProfile::Python => self.python_profile,
+            IgnoreProfile::R => self.r_profile,
+            IgnoreProfile::Development => self.development_profile,
+            IgnoreProfile::Rust => self.rust_profile,
+            IgnoreProfile::JavaScript => self.javascript_profile,
+            IgnoreProfile::Java => self.java_profile,
+            IgnoreProfile::CCpp => self.ccpp_profile,
+            IgnoreProfile::Editor => self.editor_profile,
+        }
+    }
+
+    pub fn set_profile_enabled(&mut self, profile: IgnoreProfile, enabled: bool) {
+        match profile {
+            IgnoreProfile::Academic => self.academic_profile = enabled,
+            IgnoreProfile::Python => self.python_profile = enabled,
+            IgnoreProfile::R => self.r_profile = enabled,
+            IgnoreProfile::Development => self.development_profile = enabled,
+            IgnoreProfile::Rust => self.rust_profile = enabled,
+            IgnoreProfile::JavaScript => self.javascript_profile = enabled,
+            IgnoreProfile::Java => self.java_profile = enabled,
+            IgnoreProfile::CCpp => self.ccpp_profile = enabled,
+            IgnoreProfile::Editor => self.editor_profile = enabled,
+        }
+    }
 }
 
 impl Default for IgnoreConfig {
@@ -229,6 +285,11 @@ impl Default for IgnoreConfig {
             python_profile: true,
             r_profile: true,
             development_profile: true,
+            rust_profile: true,
+            javascript_profile: true,
+            java_profile: true,
+            ccpp_profile: true,
+            editor_profile: true,
             custom_rules: Vec::new(),
         }
     }

@@ -126,7 +126,7 @@ pub struct RemoveProjectMemberForm {
 }
 
 /// Helper to get current active language
-fn get_i18n(headers: &HeaderMap, params: Option<&HashMap<String, String>>) -> I18n {
+pub(crate) fn get_i18n(headers: &HeaderMap, params: Option<&HashMap<String, String>>) -> I18n {
     let cookie_str = headers.get(header::COOKIE).and_then(|h| h.to_str().ok());
     let accept_lang = headers.get(header::ACCEPT_LANGUAGE).and_then(|h| h.to_str().ok());
     let lang = resolve_language(params, cookie_str, accept_lang);
@@ -149,14 +149,14 @@ async fn resolve_user_id(repo: &apich_db::Repository<'_>, id_or_name: &str) -> O
 }
 
 /// Helper to build redirect with notice query parameter
-fn redirect_notice(path: &str, msg: &str) -> Response {
+pub(crate) fn redirect_notice(path: &str, msg: &str) -> Response {
     let encoded = urlencoding::encode(msg);
     let sep = if path.contains('?') { "&" } else { "?" };
     Redirect::to(&format!("{}{}notice={}", path, sep, encoded)).into_response()
 }
 
 /// Helper to build redirect with error query parameter
-fn redirect_error(path: &str, err: impl std::fmt::Display) -> Response {
+pub(crate) fn redirect_error(path: &str, err: impl std::fmt::Display) -> Response {
     let err_str = err.to_string();
     let encoded = urlencoding::encode(&err_str);
     let sep = if path.contains('?') { "&" } else { "?" };
@@ -200,6 +200,10 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/git-pull", post(git_pull_action))
         .route("/projects/:id/git-push", post(git_push_action))
         .route("/projects/:id/git-rebase", post(git_rebase_action))
+        .route("/projects/:id/ignore/profile-toggle", post(ignore_profile_toggle_action))
+        .route("/projects/:id/ignore/rule-add", post(ignore_rule_add_action))
+        .route("/projects/:id/ignore/rule-remove", post(ignore_rule_remove_action))
+        .route("/projects/:id/ignore/file-save", post(ignore_file_save_action))
         .route("/vcs-remote/:id/bundle", get(vcs_remote_bundle_get_action).post(vcs_remote_bundle_post_action))
         .route("/git/:id/*path", get(git_http_backend_action).post(git_http_backend_action))
         .route("/projects/:id/members/add", post(add_project_member_form))
@@ -245,6 +249,10 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/knowledge", get(project_knowledge_page))
         .route("/projects/:id/knowledge/toggle-task", post(toggle_task_action))
         .route("/projects/:id/knowledge/toggle-task-ajax", post(toggle_task_ajax_action))
+        .route("/projects/:id/knowledge/kanban/columns/add", post(kanban_add_column_action))
+        .route("/projects/:id/knowledge/kanban/columns/rename", post(kanban_rename_column_action))
+        .route("/projects/:id/knowledge/kanban/columns/delete", post(kanban_delete_column_action))
+        .route("/projects/:id/knowledge/kanban/columns/move", post(kanban_move_column_action))
         // Project Interactive Terminal
         .route("/projects/:id/terminal", get(project_terminal_page))
         .route("/projects/:id/terminal/exec", post(terminal_exec_action))
@@ -274,6 +282,10 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/admin/platform", get(admin_platform_page))
         .route("/admin/platform/settings", post(update_platform_settings_form))
         .route("/admin/platform/smtp-test", post(test_smtp_form))
+        // Template Library -- kept in its own module/router (template_handlers.rs) rather than
+        // added inline here; this file is already large and the template library is a
+        // self-contained feature with no other handler here depending on it.
+        .merge(crate::ui::template_handlers::build_template_router())
 }
 
 
@@ -550,7 +562,7 @@ async fn logout_action(
 }
 
 /// Helper to find project by UUID string or Slug
-async fn resolve_project(state: &AppState, id_or_slug: &str) -> Option<Project> {
+pub(crate) async fn resolve_project(state: &AppState, id_or_slug: &str) -> Option<Project> {
     let repo = state.db.repository();
     if let Ok(u) = Uuid::parse_str(id_or_slug) {
         if let Ok(Some(p)) = repo.get_project_by_id(u).await {
@@ -656,6 +668,22 @@ async fn project_detail_page(
         .await
         .unwrap_or_default();
 
+    let ignore_config = state
+        .project_manager
+        .get_ignore_config(project.id)
+        .await
+        .unwrap_or_default();
+    let gitignore_content = state
+        .project_manager
+        .read_ignore_file(project.id, ".gitignore")
+        .await
+        .unwrap_or_default();
+    let apichignore_content = state
+        .project_manager
+        .read_ignore_file(project.id, ".apichignore")
+        .await
+        .unwrap_or_default();
+
     let is_org_admin = state.identity_service.is_org_or_team_admin(user.id).await.unwrap_or(false);
     let active_tab = params.get("tab").cloned().unwrap_or_else(|| "files".to_string());
     let notice = params.get("notice").map(|s| match s.as_str() {
@@ -676,6 +704,7 @@ async fn project_detail_page(
         "collaborator_added" => "Collaborator added successfully.",
         "collaborator_removed" => "Collaborator removed.",
         "sharing_updated" => "Sharing settings updated.",
+        "ignore_updated" => "Ignore rules updated.",
         _ => s.as_str(),
     }.to_string());
 
@@ -683,6 +712,14 @@ async fn project_detail_page(
         .resolve_hub_links(project.org_id, project.team_id)
         .await
         .ok();
+
+    // Templates the "+ New File" modal can start a brand-new single file from -- kanban-kind
+    // templates are excluded (see `create_file_action`'s own comment: they apply onto a
+    // project's board settings, not a single file, so they don't fit this flow).
+    let mut new_file_templates = Vec::new();
+    for kind in ["note", "latex", "typst", "slides"] {
+        new_file_templates.extend(crate::ui::template_handlers::list_visible_templates_of_kind(&state, user.id, kind).await);
+    }
 
     let current_path = format!("/projects/{}?tab={}", id_or_slug, active_tab);
     let html = crate::app::components::render_document(move || {
@@ -702,6 +739,10 @@ async fn project_detail_page(
                 all_users=all_users
                 git_status=git_status
                 files=files
+                ignore_config=ignore_config
+                gitignore_content=gitignore_content
+                apichignore_content=apichignore_content
+                new_file_templates=new_file_templates
                 active_tab=active_tab
                 notice=notice
                 i18n=i18n
@@ -873,6 +914,14 @@ async fn seed_demo_files_action(
 pub struct CreateFileForm {
     pub filename: String,
     pub template: Option<String>,
+    /// When set, overrides `template`'s fixed builtin starters entirely -- content comes from a
+    /// published Template Library version instead (note body, or a latex/typst/slides template's
+    /// single captured file; kanban-kind templates aren't offered here, they apply onto a
+    /// project's board settings, not a single new file). A plain `Option<Uuid>` won't do: the
+    /// picker's own "no template" option still submits this field with an empty string value
+    /// (not an absent key), which fails to parse as a `Uuid` -- so this stays a string and gets
+    /// parsed manually below, treating "" the same as "not provided".
+    pub template_version_id: Option<String>,
 }
 
 /// Create new file in project workspace
@@ -887,8 +936,44 @@ async fn create_file_action(
         return Ok(Redirect::to(&format!("/projects/{}?tab=files&error=Filename+cannot+be+empty", id)).into_response());
     }
 
-    let template = payload.template.as_deref().unwrap_or("empty");
-    state.project_manager.create_file(id, user.id, filename, template).await?;
+    let version_id = payload
+        .template_version_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| Uuid::parse_str(s).ok());
+    if let Some(version_id) = version_id {
+        // `can_access_template` takes a *template* id, but the picker only gives us a *version*
+        // id -- resolve version -> template before checking access.
+        let repo = state.db.repository();
+        let Some(version) = repo.get_template_version_by_id(version_id).await? else {
+            return Ok(Redirect::to(&format!("/projects/{}?tab=files&error=Template+version+not+found", id)).into_response());
+        };
+        if !IdentityPermissionResolver::can_access_template(state.db.pool(), user.id, version.template_id).await.unwrap_or(false) {
+            return Ok(Redirect::to(&format!("/projects/{}?tab=files&error=No+access+to+that+template", id)).into_response());
+        }
+        let Some(template) = repo.get_template_by_id(version.template_id).await? else {
+            return Ok(Redirect::to(&format!("/projects/{}?tab=files&error=Template+not+found", id)).into_response());
+        };
+        let content = match template.kind.as_str() {
+            "note" => crate::services::template_library::note_body_from_content(&version.content)?,
+            "latex" | "typst" | "slides" => {
+                let files = crate::services::template_library::files_from_content(&version.content)?;
+                files.first().map(|f| f.content.clone()).unwrap_or_default()
+            }
+            _ => return Ok(Redirect::to(&format!("/projects/{}?tab=files&error=That+template+kind+can%27t+start+a+new+file", id)).into_response()),
+        };
+        if template.kind == "slides" {
+            // Same "slide.typ isn't guaranteed to exist yet" gap as the plain "Cargo-Slide Deck"
+            // starter -- see `cargo_slide_helpers`'s own doc comment.
+            if let Some(proj) = repo.get_project_by_id(id).await? {
+                let _ = crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(&proj.storage_path).await;
+            }
+        }
+        state.project_manager.create_file_with_content(id, user.id, filename, &content).await?;
+    } else {
+        let template = payload.template.as_deref().unwrap_or("empty");
+        state.project_manager.create_file(id, user.id, filename, template).await?;
+    }
 
     let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
     let redirect_url = match ext.as_str() {
@@ -1062,6 +1147,28 @@ async fn project_editor_page(
     let file_share = state.project_manager.get_file_share(project.id, &file_path).await.ok().flatten();
     let all_users = repo.list_users().await.unwrap_or_default();
 
+    // Template kind this file could be published/applied as -- `None` for a plain script, since
+    // scripts aren't one of the 5 template kinds (see `apich_db::TemplateKind`).
+    let is_latex_preview_for_kind = !is_script && !(file_path.ends_with(".typ") || file_path.ends_with(".slide.typ") || is_slide) && (file_path.ends_with(".tex") || file_path.ends_with(".latex"));
+    let file_template_kind = if is_script {
+        None
+    } else if is_slide {
+        Some("slides")
+    } else if is_latex_preview_for_kind {
+        Some("latex")
+    } else if file_path.ends_with(".typ") {
+        Some("typst")
+    } else {
+        None
+    };
+    let (own_file_templates, visible_file_templates) = match file_template_kind {
+        Some(k) => (
+            crate::ui::template_handlers::list_own_templates_of_kind(&state, user.id, k).await,
+            crate::ui::template_handlers::list_visible_templates_of_kind(&state, user.id, k).await,
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
     let current_path = format!("/projects/{}/editor?file={}", project.id, urlencoding::encode(&file_path));
     let notice = query.notice;
     let error = query.error;
@@ -1081,6 +1188,9 @@ async fn project_editor_page(
                 compile_error=compile_error
                 file_share=file_share
                 all_users=all_users
+                template_kind=file_template_kind.map(|k| k.to_string())
+                own_file_templates=own_file_templates
+                visible_file_templates=visible_file_templates
                 notice=notice
                 error=error
                 i18n=i18n
@@ -1202,7 +1312,7 @@ async fn latex_sync_action(
     }
 }
 
-fn html_escape(s: &str) -> String {
+pub(crate) fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
@@ -1709,6 +1819,71 @@ async fn git_rebase_action(
     Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=git_rebased", id)).into_response())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct IgnoreProfileToggleForm {
+    pub profile: String,
+    pub enabled: String,
+}
+
+async fn ignore_profile_toggle_action(
+    AuthUser(_user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<IgnoreProfileToggleForm>,
+) -> Result<Response, WebError> {
+    let enabled = payload.enabled.trim() == "true";
+    state.project_manager.set_ignore_profile(id, payload.profile.trim(), enabled).await?;
+    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IgnoreRuleForm {
+    pub rule: String,
+}
+
+async fn ignore_rule_add_action(
+    AuthUser(_user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<IgnoreRuleForm>,
+) -> Result<Response, WebError> {
+    let rule = payload.rule.trim();
+    if !rule.is_empty() {
+        state.project_manager.add_ignore_rule(id, rule).await?;
+    }
+    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+}
+
+async fn ignore_rule_remove_action(
+    AuthUser(_user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<IgnoreRuleForm>,
+) -> Result<Response, WebError> {
+    state.project_manager.remove_ignore_rule(id, payload.rule.trim()).await?;
+    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IgnoreFileSaveForm {
+    pub file_name: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+async fn ignore_file_save_action(
+    AuthUser(_user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<IgnoreFileSaveForm>,
+) -> Result<Response, WebError> {
+    state
+        .project_manager
+        .write_ignore_file(id, payload.file_name.trim(), &payload.content)
+        .await?;
+    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+}
+
 /// Add collaborator to project
 async fn add_project_member_form(
     AuthUser(user): AuthUser,
@@ -1863,6 +2038,11 @@ pub struct ToggleTaskForm {
     pub file: String,
     pub line_number: usize,
     pub status: String,
+    /// Whether `status`'s column counts as "done" (see `KanbanColumnDef::is_done`) -- sent by the
+    /// Kanban board's own card button, which already knows this from the project's column config
+    /// it just rendered. `None` (an old bookmarked/cached form) falls back to the pre-custom-
+    /// columns behavior of treating only the literal "done" id as done.
+    pub done: Option<String>,
     pub view: Option<String>,
 }
 
@@ -3259,11 +3439,21 @@ async fn project_note_page(
         nodes: Vec::new(),
         edges: Vec::new(),
     });
-    let kanban = KnowledgeSyncService::build_kanban_board(&project.storage_path).unwrap_or(crate::services::knowledge_sync::KanbanBoard {
-        columns: Vec::new(),
-        total_tasks: 0,
-        completed_tasks: 0,
-    });
+    let kanban_columns = KnowledgeSyncService::parse_kanban_columns(
+        &project.settings,
+        KnowledgeSyncService::default_kanban_columns(i18n.kanban_col_todo(), i18n.kanban_col_in_progress(), i18n.kanban_col_done()),
+    );
+    let kanban = KnowledgeSyncService::build_kanban_board(&project.storage_path, &kanban_columns, i18n.kanban_col_unsorted()).unwrap_or(
+        crate::services::knowledge_sync::KanbanBoard {
+            columns: Vec::new(),
+            total_tasks: 0,
+            completed_tasks: 0,
+        },
+    );
+    let own_kanban_templates = crate::ui::template_handlers::list_own_templates_of_kind(&state, user.id, "kanban").await;
+    let visible_kanban_templates = crate::ui::template_handlers::list_visible_templates_of_kind(&state, user.id, "kanban").await;
+    let own_note_templates = crate::ui::template_handlers::list_own_templates_of_kind(&state, user.id, "note").await;
+    let visible_note_templates = crate::ui::template_handlers::list_visible_templates_of_kind(&state, user.id, "note").await;
     let calendar = KnowledgeSyncService::extract_calendar_events(&project.storage_path).unwrap_or_default();
     let note_id = std::path::Path::new(&file_path)
         .file_stem()
@@ -3302,6 +3492,10 @@ async fn project_note_page(
                 graph=graph
                 kanban=kanban
                 calendar=calendar
+                own_kanban_templates=own_kanban_templates
+                visible_kanban_templates=visible_kanban_templates
+                own_note_templates=own_note_templates
+                visible_note_templates=visible_note_templates
                 file_share=file_share
                 all_users=all_users
                 active_view=view
@@ -3479,7 +3673,12 @@ async fn toggle_task_action(
     }
 
     let view = payload.view.as_deref().unwrap_or("kanban");
-    if let Err(e) = KnowledgeSyncService::update_task_status(&project.storage_path, &payload.file, payload.line_number, &payload.status) {
+    let is_done_column = payload
+        .done
+        .as_deref()
+        .map(|d| d == "true")
+        .unwrap_or_else(|| payload.status == "done");
+    if let Err(e) = KnowledgeSyncService::update_task_status(&project.storage_path, &payload.file, payload.line_number, &payload.status, is_done_column) {
         return redirect_error(&format!("/projects/{}/note?view={}", project.id, view), e);
     }
 
@@ -3488,6 +3687,193 @@ async fn toggle_task_action(
     }
 
     Redirect::to(&format!("/projects/{}/note?view={}", project.id, view)).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KanbanAddColumnForm {
+    pub title: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KanbanRenameColumnForm {
+    pub col_id: String,
+    pub title: String,
+    /// A missing checkbox field means "unchecked" in a standard HTML form post, not absent --
+    /// `Option` here would silently treat every unchecked submission as "leave `is_done`
+    /// unchanged" instead of "set it to false".
+    #[serde(default)]
+    pub is_done: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KanbanDeleteColumnForm {
+    pub col_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KanbanMoveColumnForm {
+    pub col_id: String,
+    pub direction: String, // "left" | "right"
+}
+
+/// Loads a project's current Kanban column layout (falling back to the localized default 3
+/// columns if it's never been customized) -- shared by all 4 column-management handlers below so
+/// each mutates the same starting point `render_kanban_column_settings`'s forms were rendered
+/// against.
+pub(crate) async fn load_project_kanban_columns(
+    state: &AppState,
+    project: &apich_db::Project,
+    i18n: crate::ui::i18n::I18n,
+) -> Vec<crate::services::knowledge_sync::KanbanColumnDef> {
+    let _ = state;
+    crate::services::knowledge_sync::KnowledgeSyncService::parse_kanban_columns(
+        &project.settings,
+        crate::services::knowledge_sync::KnowledgeSyncService::default_kanban_columns(
+            i18n.kanban_col_todo(),
+            i18n.kanban_col_in_progress(),
+            i18n.kanban_col_done(),
+        ),
+    )
+}
+
+async fn kanban_add_column_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    Form(payload): Form<KanbanAddColumnForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let i18n = get_i18n(&headers, None);
+    let title = payload.title.trim().to_string();
+    if !title.is_empty() {
+        let mut columns = load_project_kanban_columns(&state, &project, i18n).await;
+        let id = crate::services::knowledge_sync::KnowledgeSyncService::slugify_kanban_column_id(&title, &columns);
+        columns.push(crate::services::knowledge_sync::KanbanColumnDef { id, title, is_done: false });
+        let mut settings = project.settings.clone();
+        settings["kanban_columns"] = crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(&columns);
+        let _ = state.db.repository().update_project_settings(project.id, settings).await;
+    }
+
+    Redirect::to(&format!("/projects/{}/note?view=kanban", project.id)).into_response()
+}
+
+async fn kanban_rename_column_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    Form(payload): Form<KanbanRenameColumnForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let i18n = get_i18n(&headers, None);
+    let title = payload.title.trim().to_string();
+    if !title.is_empty() {
+        let mut columns = load_project_kanban_columns(&state, &project, i18n).await;
+        if let Some(col) = columns.iter_mut().find(|c| c.id == payload.col_id) {
+            col.title = title;
+            col.is_done = payload.is_done;
+        }
+        let mut settings = project.settings.clone();
+        settings["kanban_columns"] = crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(&columns);
+        let _ = state.db.repository().update_project_settings(project.id, settings).await;
+    }
+
+    Redirect::to(&format!("/projects/{}/note?view=kanban", project.id)).into_response()
+}
+
+async fn kanban_delete_column_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    Form(payload): Form<KanbanDeleteColumnForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let i18n = get_i18n(&headers, None);
+    let mut columns = load_project_kanban_columns(&state, &project, i18n).await;
+    // Never delete down to zero columns -- `render_kanban`'s cycling and `Unsorted` fallback both
+    // assume at least one real column exists (the delete button is also disabled client-side for
+    // the last remaining column, this is the server-side backstop for that same invariant).
+    if columns.len() > 1 {
+        columns.retain(|c| c.id != payload.col_id);
+        let mut settings = project.settings.clone();
+        settings["kanban_columns"] = crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(&columns);
+        let _ = state.db.repository().update_project_settings(project.id, settings).await;
+    }
+
+    Redirect::to(&format!("/projects/{}/note?view=kanban", project.id)).into_response()
+}
+
+async fn kanban_move_column_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    Form(payload): Form<KanbanMoveColumnForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let i18n = get_i18n(&headers, None);
+    let mut columns = load_project_kanban_columns(&state, &project, i18n).await;
+    if let Some(idx) = columns.iter().position(|c| c.id == payload.col_id) {
+        let swap_with = if payload.direction == "left" { idx.checked_sub(1) } else { (idx + 1 < columns.len()).then_some(idx + 1) };
+        if let Some(j) = swap_with {
+            columns.swap(idx, j);
+            let mut settings = project.settings.clone();
+            settings["kanban_columns"] = crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(&columns);
+            let _ = state.db.repository().update_project_settings(project.id, settings).await;
+        }
+    }
+
+    Redirect::to(&format!("/projects/{}/note?view=kanban", project.id)).into_response()
 }
 
 /// Project Interactive Terminal Page
@@ -3754,7 +4140,11 @@ async fn toggle_task_ajax_action(
         Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
     };
 
-    if let Err(e) = KnowledgeSyncService::update_task_status(&project.storage_path, &payload.file, payload.line_number, &payload.status) {
+    // The inline note-view checkbox only ever sends "done" or "todo" (see note_editor.rs's
+    // `toggle_task`), so deriving `is_done_column` from that literal id reproduces the exact
+    // pre-custom-columns behavior of this endpoint.
+    let is_done_column = payload.status == "done";
+    if let Err(e) = KnowledgeSyncService::update_task_status(&project.storage_path, &payload.file, payload.line_number, &payload.status, is_done_column) {
         return (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response();
     }
 

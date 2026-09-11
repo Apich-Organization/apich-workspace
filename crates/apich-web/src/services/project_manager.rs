@@ -427,6 +427,87 @@ impl ProjectManager {
         }
     }
 
+    /// Compiles a LaTeX file that doesn't belong to any real project -- a Template Library
+    /// template's own content, previewed before anyone has applied it anywhere -- by spinning up
+    /// a genuinely throwaway container (own scratch host directory, own container name, `pdflatex`
+    /// run exactly like `compile_latex_in_sandbox` does for a real project) and tearing both down
+    /// again afterward regardless of outcome. Unlike every other sandbox container in this app,
+    /// this one is never meant to persist between calls -- there's no project for it to belong to.
+    pub async fn compile_latex_preview_ephemeral(&self, files: &[(String, String)]) -> WebResult<Result<Vec<u8>, String>> {
+        let scratch_id = Uuid::new_v4();
+        let host_dir = self.base_storage_dir.join("_template_previews").join(scratch_id.to_string());
+        tokio::fs::create_dir_all(&host_dir)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to create preview workspace: {e}")))?;
+
+        for (rel_path, content) in files {
+            let target = host_dir.join(rel_path);
+            if let Some(parent) = target.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            if tokio::fs::write(&target, content).await.is_err() {
+                let _ = tokio::fs::remove_dir_all(&host_dir).await;
+                return Err(WebError::Internal(format!("Failed to write {rel_path} into preview workspace")));
+            }
+        }
+
+        let Some((main_path, _)) = files.first() else {
+            let _ = tokio::fs::remove_dir_all(&host_dir).await;
+            return Ok(Err("No files to compile".to_string()));
+        };
+        let file_stem = std::path::Path::new(main_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("main")
+            .to_string();
+
+        let container_name = format!("apich-preview-{scratch_id}");
+        let image = std::env::var("APICH_SANDBOX_IMAGE").unwrap_or_else(|_| "localhost/apich-sandbox:latest".to_string());
+        let config = SandboxConfig::builder(format!("preview-{scratch_id}"), &host_dir)
+            .container_name(&container_name)
+            .image(image)
+            .memory_limit("1024m")
+            .cpu_limit(1.0)
+            .keep_id(true)
+            .build();
+
+        let outcome: WebResult<Result<Vec<u8>, String>> = async {
+            let container = self
+                .sandbox_manager
+                .ensure_running_with_config(config)
+                .await
+                .map_err(|e| WebError::Internal(format!("Failed to start preview container: {e}")))?;
+
+            let cmd = vec!["pdflatex".to_string(), "-interaction=nonstopmode".to_string(), "-halt-on-error".to_string(), main_path.clone()];
+            let _ = container.exec(cmd.clone()).await;
+            let result = container
+                .exec(cmd)
+                .await
+                .map_err(|e| WebError::Internal(format!("Failed to run pdflatex: {e}")))?;
+
+            if !result.success() {
+                let log = container
+                    .read_file_str(format!("{file_stem}.log"))
+                    .await
+                    .unwrap_or_else(|_| format!("{}{}", result.stdout_lossy(), result.stderr_lossy()));
+                return Ok(Err(log));
+            }
+
+            match container.read_file(format!("{file_stem}.pdf")).await {
+                Ok(bytes) => Ok(Ok(bytes)),
+                Err(e) => Ok(Err(format!("pdflatex reported success but no PDF was found: {e}"))),
+            }
+        }
+        .await;
+
+        // Always torn down, success or failure -- this container and its scratch directory have
+        // no reason to exist a moment longer than this one preview request.
+        let _ = self.sandbox_manager.driver().remove(&container_name, true).await;
+        let _ = tokio::fs::remove_dir_all(&host_dir).await;
+
+        outcome
+    }
+
     /// Reverse search: given a click position inside the compiled PDF (page number, plus x/y in
     /// PDF points from the page's top-left -- the units `synctex edit`'s `-o` spec expects),
     /// returns the `.tex` source line that produced whatever's at that spot, via the real
@@ -1101,6 +1182,97 @@ impl ProjectManager {
         })
     }
 
+    /// Fetch the project's ignore configuration (profile toggles + custom rules).
+    pub async fn get_ignore_config(&self, project_id: Uuid) -> WebResult<apich_vcs::IgnoreConfig> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        Ok(vcs.config().ignore.clone())
+    }
+
+    /// Enable or disable a named ignore profile and persist it to the project's config file.
+    pub async fn set_ignore_profile(&self, project_id: Uuid, profile_id: &str, enabled: bool) -> WebResult<()> {
+        let profile = ignore_profile_from_id(profile_id)
+            .ok_or_else(|| WebError::BadRequest(format!("Unknown ignore profile: {profile_id}")))?;
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let mut vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        if enabled {
+            vcs.enable_ignore_profile(profile)?;
+        } else {
+            vcs.disable_ignore_profile(profile)?;
+        }
+        vcs.save_config()?;
+        Ok(())
+    }
+
+    /// Add a custom ignore/whitelist rule (e.g. `*.tmp` or `!keep-me.csv`) and persist it.
+    pub async fn add_ignore_rule(&self, project_id: Uuid, rule: &str) -> WebResult<()> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let mut vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        vcs.add_ignore_rule(rule)?;
+        vcs.save_config()?;
+        Ok(())
+    }
+
+    /// Remove a custom ignore/whitelist rule and persist it.
+    pub async fn remove_ignore_rule(&self, project_id: Uuid, rule: &str) -> WebResult<()> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let mut vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        vcs.remove_ignore_rule(rule)?;
+        vcs.save_config()?;
+        Ok(())
+    }
+
+    /// Read the raw contents of the project's `.gitignore` or `.apichignore` file (empty string
+    /// if the file does not exist yet).
+    pub async fn read_ignore_file(&self, project_id: Uuid, file_name: &str) -> WebResult<String> {
+        let file_name = validate_ignore_file_name(file_name)?;
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let path = PathBuf::from(&proj.storage_path).join(file_name);
+        match tokio::fs::read_to_string(&path).await {
+            Ok(content) => Ok(content),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(WebError::Internal(format!("Failed to read {file_name}: {e}"))),
+        }
+    }
+
+    /// Overwrite the project's `.gitignore` or `.apichignore` file with new raw content, then
+    /// reload the live ignore filter so the change takes effect immediately.
+    pub async fn write_ignore_file(&self, project_id: Uuid, file_name: &str, content: &str) -> WebResult<()> {
+        let file_name = validate_ignore_file_name(file_name)?;
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let path = PathBuf::from(&proj.storage_path).join(file_name);
+        tokio::fs::write(&path, content)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to write {file_name}: {e}")))?;
+        let mut vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        vcs.reload_config()?;
+        Ok(())
+    }
+
     /// Add or update a Git remote on the project's working repository.
     pub async fn git_add_remote(&self, project_id: Uuid, name: &str, url: &str) -> WebResult<()> {
         let repo = self.db.repository();
@@ -1538,6 +1710,15 @@ INSERT INTO records (item_name, category, value, status, notes) VALUES
             )
             .map_err(|e| WebError::Internal(format!("Failed to seed table: {}", e)))?;
         } else {
+            // A new "slide" (cargo-slide) file imports `theme.typ`/`slide.typ` -- provision them
+            // into this project if they're not already there (previously only ever written by
+            // the demo seeder), or the file this same match arm is about to create would fail its
+            // very first compile.
+            if template == "slide" {
+                crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(&proj.storage_path)
+                    .await
+                    .map_err(|e| WebError::Internal(format!("Failed to provision slide.typ/theme.typ: {}", e)))?;
+            }
             let initial_content = match template {
                 "typst" => r#"#set page(paper: "a4", margin: 2.5cm)
 #set text(font: "Linux Libertine", size: 11pt)
@@ -1547,23 +1728,26 @@ INSERT INTO records (item_name, category, value, status, notes) VALUES
 == Introduction
 This document is authored inside APICH Unified Research Cloud.
 "#,
-                "slide" => r###"#import "slide.typ": *
+                // Matches `slide.typ`'s real exported API (`title-slide(title:, subtitle:,
+                // author:, institution:, date:)`, `slide(title:, body)`) -- a previous version of
+                // this called a `slide-theme` function and a `step[...]` block that don't exist
+                // in that file at all, which failed every single new slide deck's very first
+                // compile with "unknown variable: slide-theme" before a single edit was made.
+                "slide" => r#"#import "slide.typ": *
 
-#show: slide-theme.with(
+#title-slide(
   title: "New Presentation",
   subtitle: "APICH Slide Deck",
-  authors: "Researcher",
+  author: "Researcher",
+  institution: "",
+  date: "",
 )
 
-#title-slide()
-
 #slide(title: "Overview")[
-  #step[
-    - First bullet point of our presentation
-    - Second critical takeaway
-  ]
+  - First bullet point of our presentation
+  - Second critical takeaway
 ]
-"###,
+"#,
                 "latex" => r#"\documentclass{article}
 \usepackage[utf8]{inputenc}
 
@@ -1606,6 +1790,52 @@ status: "in_progress"
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
         let _ = vcs.snapshot_if_changed(format!("Create {} (by user {})", clean, user_suffix))?;
+
+        Ok(())
+    }
+
+    /// Same path-safety/existence/directory-creation/VCS-snapshot behavior as `create_file`, but
+    /// with the new file's content given directly rather than picked from `create_file`'s fixed
+    /// set of builtin starter templates -- used by the "start from a Template Library template"
+    /// path (`ui::template_handlers`), which needed a *published* template's content (arbitrary
+    /// text, not one of the 8 hardcoded kinds `create_file` knows about).
+    pub async fn create_file_with_content(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+        content: &str,
+    ) -> WebResult<()> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let clean = rel_path.trim().trim_start_matches('/');
+        if clean.contains("..") || clean.is_empty() {
+            return Err(WebError::BadRequest("Invalid file path".to_string()));
+        }
+
+        let full_path = PathBuf::from(&proj.storage_path).join(clean);
+        if full_path.exists() {
+            return Err(WebError::Conflict(format!("File '{}' already exists", rel_path)));
+        }
+
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| WebError::Internal(format!("Failed to create parent directory: {}", e)))?;
+        }
+
+        tokio::fs::write(&full_path, content.as_bytes())
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to write new file: {}", e)))?;
+
+        let user_hex = user_id.simple().to_string();
+        let user_suffix = &user_hex[24..];
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let _ = vcs.snapshot_if_changed(format!("Create {} from template (by user {})", clean, user_suffix))?;
 
         Ok(())
     }
@@ -1730,6 +1960,23 @@ pub fn resolve_conflict_content(raw: &str, choice: &str) -> String {
         }
     }
     result
+}
+
+/// Map a stable profile id (as used in the ignore-config UI/forms) to an `IgnoreProfile` variant.
+pub fn ignore_profile_from_id(id: &str) -> Option<apich_vcs::IgnoreProfile> {
+    apich_vcs::IgnoreProfile::all()
+        .iter()
+        .copied()
+        .find(|p| p.id() == id)
+}
+
+/// Restrict raw ignore-file editing to the two known file names, rejecting any path traversal.
+fn validate_ignore_file_name(file_name: &str) -> WebResult<&'static str> {
+    match file_name {
+        ".gitignore" => Ok(".gitignore"),
+        ".apichignore" => Ok(".apichignore"),
+        _ => Err(WebError::BadRequest(format!("Unsupported ignore file: {file_name}"))),
+    }
 }
 
 fn parse_conflict_snippets(content: &str) -> (String, String) {

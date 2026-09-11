@@ -71,6 +71,11 @@ impl MigrationManager {
             name: "006_pat_ssh_gpg_keys",
             sql: PAT_SSH_GPG_KEYS_SQL,
         });
+        manager.register(Migration {
+            version: 7,
+            name: "007_template_library",
+            sql: TEMPLATE_LIBRARY_SQL,
+        });
         manager
     }
 
@@ -760,6 +765,60 @@ CREATE TABLE IF NOT EXISTS gpg_public_keys (
 
 ALTER TABLE projects
     ADD COLUMN IF NOT EXISTS vigilant_mode BOOLEAN NOT NULL DEFAULT false;
+"#;
+
+pub const TEMPLATE_LIBRARY_SQL: &str = r#"
+-- 007: Template Library -- publishable, versioned templates (LaTeX/Typst/slides/Kanban/note) a
+-- user can browse and apply. Visibility is per-template: 'private' (owner only), 'shared' (only
+-- the orgs/teams explicitly listed in template_shares -- not necessarily the publisher's own),
+-- or 'public' (every user on this instance). Content is stored directly as JSONB on each version
+-- rather than as files on disk -- kind-specific shape (e.g. kanban: {"columns":[...]}, note:
+-- {"body":"..."}, latex/typst/slides: {"files":[{"path":...,"content":...}]}) interpreted by
+-- application code, not by this schema.
+
+CREATE TABLE IF NOT EXISTS templates (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    kind VARCHAR(32) NOT NULL, -- 'kanban', 'note', 'latex', 'typst', 'slides'
+    name VARCHAR(128) NOT NULL,
+    slug VARCHAR(64) NOT NULL,
+    description TEXT,
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    visibility VARCHAR(16) NOT NULL DEFAULT 'private', -- 'private', 'shared', 'public'
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_template_owner_slug UNIQUE (owner_user_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_templates_kind ON templates(kind);
+CREATE INDEX IF NOT EXISTS idx_templates_owner ON templates(owner_user_id);
+
+-- Explicit share targets for 'shared'-visibility templates. Deliberately not limited to the
+-- publisher's own org -- a template can be shared to any org/team the publisher chooses.
+CREATE TABLE IF NOT EXISTS template_shares (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    template_id UUID NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+    team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_template_share_target CHECK (
+        (org_id IS NOT NULL AND team_id IS NULL) OR (org_id IS NULL AND team_id IS NOT NULL)
+    )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_template_share_org ON template_shares (template_id, org_id) WHERE org_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_template_share_team ON template_shares (template_id, team_id) WHERE team_id IS NOT NULL;
+
+-- Immutable once published, like a package registry version -- "publish a new version" always
+-- inserts a new row rather than mutating an old one.
+CREATE TABLE IF NOT EXISTS template_versions (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    template_id UUID NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+    version_label VARCHAR(64) NOT NULL, -- free-form, e.g. "1.0.0" or "v3"
+    changelog TEXT,
+    content JSONB NOT NULL,
+    published_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_template_version_label UNIQUE (template_id, version_label)
+);
+CREATE INDEX IF NOT EXISTS idx_template_versions_template ON template_versions(template_id, created_at DESC);
 "#;
 
 

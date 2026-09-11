@@ -451,7 +451,11 @@ async fn get_knowledge_kanban(
         .await?
         .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
 
-    let board = KnowledgeSyncService::build_kanban_board(&proj.storage_path)?;
+    let columns = KnowledgeSyncService::parse_kanban_columns(
+        &proj.settings,
+        KnowledgeSyncService::default_kanban_columns("To Do", "In Progress", "Completed"),
+    );
+    let board = KnowledgeSyncService::build_kanban_board(&proj.storage_path, &columns, "Unsorted")?;
     Ok(Json(board))
 }
 
@@ -478,11 +482,25 @@ async fn update_knowledge_task(
         .await?
         .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
 
+    // This API's request body predates custom Kanban columns and has no `is_done` field of its
+    // own -- resolve it from the project's own column config instead, falling back to the
+    // pre-custom-columns "only the literal 'done' id counts as done" rule for either a built-in
+    // status id or one that doesn't match any configured column.
+    let columns = KnowledgeSyncService::parse_kanban_columns(
+        &proj.settings,
+        KnowledgeSyncService::default_kanban_columns("To Do", "In Progress", "Completed"),
+    );
+    let is_done_column = columns
+        .iter()
+        .find(|c| c.id == payload.status)
+        .map(|c| c.is_done)
+        .unwrap_or(payload.status == "done");
     KnowledgeSyncService::update_task_status(
         &proj.storage_path,
         &payload.file,
         payload.line_number,
         &payload.status,
+        is_done_column,
     )?;
 
     Ok(Json(json!({ "status": "success", "message": "Task status updated in document" })))

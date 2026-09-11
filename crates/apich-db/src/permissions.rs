@@ -415,5 +415,64 @@ impl IdentityPermissionResolver {
 
         Ok(ids)
     }
+
+    /// A template's visibility (see `TemplateVisibility`) is per-template, not derived from
+    /// project/org membership like everything else in this file: 'private' means only its owner,
+    /// 'public' means every user on the instance, and 'shared' means whatever specific orgs/teams
+    /// are listed in `template_shares` -- deliberately not limited to the owner's own org, a
+    /// template can be shared to any org/team the owner chooses.
+    pub async fn can_access_template(
+        pool: &PgPool,
+        user_id: uuid::Uuid,
+        template_id: uuid::Uuid,
+    ) -> Result<bool> {
+        let row = sqlx::query("SELECT owner_user_id, visibility FROM templates WHERE id = $1")
+            .bind(template_id)
+            .fetch_optional(pool)
+            .await?;
+        let Some(row) = row else { return Ok(false) };
+
+        let owner_user_id: uuid::Uuid = row.try_get("owner_user_id")?;
+        if owner_user_id == user_id {
+            return Ok(true);
+        }
+
+        let visibility: String = row.try_get("visibility")?;
+        match visibility.as_str() {
+            "public" => Ok(true),
+            "shared" => {
+                let is_shared = sqlx::query_scalar::<_, bool>(
+                    r#"
+                    SELECT EXISTS (
+                        SELECT 1 FROM template_shares ts
+                        LEFT JOIN org_members om ON ts.org_id = om.org_id AND om.user_id = $2
+                        LEFT JOIN team_members tm ON ts.team_id = tm.team_id AND tm.user_id = $2
+                        WHERE ts.template_id = $1 AND (om.user_id IS NOT NULL OR tm.user_id IS NOT NULL)
+                    )
+                    "#,
+                )
+                .bind(template_id)
+                .bind(user_id)
+                .fetch_one(pool)
+                .await?;
+                Ok(is_shared)
+            }
+            _ => Ok(false), // 'private' (or anything unrecognized): owner-only, already checked above
+        }
+    }
+
+    /// Only a template's owner can publish new versions, edit its visibility/shares, or delete
+    /// it -- unlike projects, a template has no member/admin roles of its own to delegate this to.
+    pub async fn can_manage_template(
+        pool: &PgPool,
+        user_id: uuid::Uuid,
+        template_id: uuid::Uuid,
+    ) -> Result<bool> {
+        let owner_user_id = sqlx::query_scalar::<_, uuid::Uuid>("SELECT owner_user_id FROM templates WHERE id = $1")
+            .bind(template_id)
+            .fetch_optional(pool)
+            .await?;
+        Ok(owner_user_id == Some(user_id))
+    }
 }
 

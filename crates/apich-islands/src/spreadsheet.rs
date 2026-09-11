@@ -49,7 +49,9 @@ pub fn SpreadsheetIsland(
     rows: Vec<Vec<String>>,
     row_ids: Vec<i64>,
     cell_styles: Vec<CellStyleEntry>,
+    is_zh: bool,
 ) -> impl IntoView {
+    let t = move |en: &'static str, zh: &'static str| crate::t(is_zh, en, zh);
     let n_cols = columns.len();
     let cells = RwSignal::new(rows);
     let active = RwSignal::new(None::<(usize, usize)>);
@@ -215,7 +217,14 @@ pub fn SpreadsheetIsland(
                                         />
                                     }.into_any()
                                 } else {
-                                    let text = cells.with(|rows| rows.get(r).and_then(|row| row.get(c)).cloned().unwrap_or_default());
+                                    // A raw value starting with `=` is a formula (see
+                                    // `crate::formula`) -- displayed as its computed result while
+                                    // still stored/edited as the formula text itself, the same
+                                    // display-vs-edit split every spreadsheet does.
+                                    let text = cells.with(|rows| {
+                                        let raw = rows.get(r).and_then(|row| row.get(c)).cloned().unwrap_or_default();
+                                        crate::formula::display_value(&raw, rows)
+                                    });
                                     view! { {text} }.into_any()
                                 }
                             }}
@@ -239,10 +248,13 @@ pub fn SpreadsheetIsland(
                 if op == "none" {
                     return "-".to_string();
                 }
+                // Resolve formula cells (values starting with `=`) to their computed number
+                // before aggregating -- otherwise a column summary silently skipped every
+                // formula cell (its raw text, e.g. "=SUM(A1:A3)", never parses as f64).
                 let nums: Vec<f64> = cells.with(|rows| {
                     rows.iter()
                         .filter_map(|row| row.get(c))
-                        .filter_map(|v| v.trim().parse::<f64>().ok())
+                        .filter_map(|v| crate::formula::display_value(v, rows).parse::<f64>().ok())
                         .collect()
                 });
                 let count = cells.with(|rows| rows.len());
@@ -265,12 +277,12 @@ pub fn SpreadsheetIsland(
                             summary_ops.update(|ops| { if let Some(slot) = ops.get_mut(c) { *slot = val; } });
                         }
                     >
-                        <option value="none">"--"</option>
-                        <option value="sum" selected=true>"Sum"</option>
-                        <option value="avg">"Avg"</option>
-                        <option value="count">"Count"</option>
-                        <option value="min">"Min"</option>
-                        <option value="max">"Max"</option>
+                        <option value="none">{t("--", "——")}</option>
+                        <option value="sum" selected=true>{t("Sum", "求和")}</option>
+                        <option value="avg">{t("Avg", "平均值")}</option>
+                        <option value="count">{t("Count", "计数")}</option>
+                        <option value="min">{t("Min", "最小值")}</option>
+                        <option value="max">{t("Max", "最大值")}</option>
                     </select>
                     <div style="font-size:0.8rem; margin-top:3px; font-weight:700; color:var(--primary);">{summary_val}</div>
                 </td>
@@ -310,12 +322,19 @@ pub fn SpreadsheetIsland(
             <span class="formula-fx">"fx"</span>
             <input
                 class="formula-input"
-                placeholder="Select a cell to edit its value..."
+                placeholder=t(
+                    "Value, or a formula: =SUM(A1:A5), =AVG(A:A), =A1+B1*2",
+                    "输入数值，或公式：=SUM(A1:A5)，=AVG(A:A)，=A1+B1*2",
+                )
+                title=t(
+                    "Formulas start with '=': SUM, AVG/AVERAGE, COUNT, MIN, MAX over a range (A1:A5 or a whole column A:A), plus +-*/ and parentheses on cell refs and numbers.",
+                    "公式以“=”开头：SUM、AVG/AVERAGE、COUNT、MIN、MAX 可作用于一个区域（如 A1:A5 或整列 A:A），也支持对单元格和数字使用 +-*/ 及括号运算。",
+                )
                 prop:value=move || fx_value.get()
                 on:input=move |ev| fx_value.set(event_target_value(&ev))
                 on:keydown=move |ev| { if ev.key() == "Enter" { do_commit_fx(); } }
             />
-            <button type="button" class="btn btn-primary btn-sm" on:click=move |_| do_commit_fx()>"✓ Commit"</button>
+            <button type="button" class="btn btn-primary btn-sm" on:click=move |_| do_commit_fx()>{t("✓ Commit", "✓ 提交")}</button>
         </div>
 
         <div class="formula-bar-container" style="gap:0.5rem;">
@@ -324,7 +343,7 @@ pub fn SpreadsheetIsland(
                 class="btn btn-sm"
                 class:btn-primary=move || active_style().bold
                 class:btn-secondary=move || !active_style().bold
-                title="Bold"
+                title=t("Bold", "加粗")
                 disabled=move || active.get().is_none()
                 on:click=move |_| apply_style(Box::new(|s| s.bold = !s.bold))
             >
@@ -335,14 +354,14 @@ pub fn SpreadsheetIsland(
                 class="btn btn-sm"
                 class:btn-primary=move || active_style().italic
                 class:btn-secondary=move || !active_style().italic
-                title="Italic"
+                title=t("Italic", "斜体")
                 disabled=move || active.get().is_none()
                 on:click=move |_| apply_style(Box::new(|s| s.italic = !s.italic))
             >
                 <em>"I"</em>
             </button>
             <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:var(--text-sub);">
-                "Text"
+                {t("Text", "文字")}
                 <input
                     type="color"
                     style="width:26px; height:26px; border:none; padding:0; cursor:pointer;"
@@ -352,7 +371,7 @@ pub fn SpreadsheetIsland(
                 />
             </label>
             <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:var(--text-sub);">
-                "Fill"
+                {t("Fill", "填充")}
                 <input
                     type="color"
                     style="width:26px; height:26px; border:none; padding:0; cursor:pointer;"
@@ -364,11 +383,11 @@ pub fn SpreadsheetIsland(
             <button
                 type="button"
                 class="btn btn-ghost btn-sm"
-                title="Clear formatting"
+                title=t("Clear formatting", "清除格式")
                 disabled=move || active.get().is_none()
                 on:click=move |_| apply_style(Box::new(|s| *s = CellStyle::default()))
             >
-                "✕ Clear"
+                {t("✕ Clear", "✕ 清除")}
             </button>
         </div>
 

@@ -4,7 +4,11 @@
 use leptos::prelude::*;
 
 #[island]
-pub fn TerminalIsland(#[prop(into)] project_id: String, #[prop(into)] initial_screen: String) -> impl IntoView {
+pub fn TerminalIsland(
+    #[prop(into)] project_id: String,
+    #[prop(into)] initial_screen: String,
+    is_zh: bool,
+) -> impl IntoView {
     let screen = RwSignal::new(initial_screen);
     let input = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
@@ -29,7 +33,7 @@ pub fn TerminalIsland(#[prop(into)] project_id: String, #[prop(into)] initial_sc
     view! {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
             <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
-                <span style="font-size:0.75rem; color:#94a3b8; margin-right:0.25rem; display:flex; align-items:center;">"Quick Commands:"</span>
+                <span style="font-size:0.75rem; color:#94a3b8; margin-right:0.25rem; display:flex; align-items:center;">{crate::t(is_zh, "Quick Commands:", "快捷命令：")}</span>
                 {quick_commands.into_iter().map(|cmd| {
                     view! {
                         <button
@@ -52,13 +56,13 @@ pub fn TerminalIsland(#[prop(into)] project_id: String, #[prop(into)] initial_sc
                 <input
                     type="text"
                     class="terminal-input"
-                    placeholder="e.g., typst compile main.typ paper.pdf"
+                    placeholder=crate::t(is_zh, "e.g., typst compile main.typ paper.pdf", "例如：typst compile main.typ paper.pdf")
                     autocomplete="off"
                     autofocus=true
                     prop:value=move || input.get()
                     on:input=move |ev| input.set(event_target_value(&ev))
                 />
-                <button type="submit" class="btn btn-primary btn-sm" disabled=move || busy.get()>"Run"</button>
+                <button type="submit" class="btn btn-primary btn-sm" disabled=move || busy.get()>{crate::t(is_zh, "Run", "运行")}</button>
             </div>
         </form>
     }

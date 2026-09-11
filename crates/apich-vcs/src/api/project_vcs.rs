@@ -894,25 +894,15 @@ impl ProjectVcs {
         self.ignore_filter.remove_rule(rule)
     }
 
-    /// Enable an ignore profile programmatically (Academic, Python, R, Development)
+    /// Enable an ignore profile programmatically
     pub fn enable_ignore_profile(&mut self, profile: crate::ignore::IgnoreProfile) -> Result<()> {
-        match profile {
-            crate::ignore::IgnoreProfile::Academic => self.config.ignore.academic_profile = true,
-            crate::ignore::IgnoreProfile::Python => self.config.ignore.python_profile = true,
-            crate::ignore::IgnoreProfile::R => self.config.ignore.r_profile = true,
-            crate::ignore::IgnoreProfile::Development => self.config.ignore.development_profile = true,
-        }
+        self.config.ignore.set_profile_enabled(profile, true);
         self.ignore_filter.enable_profile(profile)
     }
 
     /// Disable an ignore profile programmatically
     pub fn disable_ignore_profile(&mut self, profile: crate::ignore::IgnoreProfile) -> Result<()> {
-        match profile {
-            crate::ignore::IgnoreProfile::Academic => self.config.ignore.academic_profile = false,
-            crate::ignore::IgnoreProfile::Python => self.config.ignore.python_profile = false,
-            crate::ignore::IgnoreProfile::R => self.config.ignore.r_profile = false,
-            crate::ignore::IgnoreProfile::Development => self.config.ignore.development_profile = false,
-        }
+        self.config.ignore.set_profile_enabled(profile, false);
         self.ignore_filter.disable_profile(profile)
     }
 

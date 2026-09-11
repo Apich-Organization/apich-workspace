@@ -73,7 +73,7 @@ pub fn TablePage(
     };
 
     let main_view = match &schema {
-        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells).into_any(),
+        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells, i18n.is_zh()).into_any(),
         None => view! { <div></div> }.into_any(),
     };
 
@@ -110,6 +110,7 @@ fn render_schema_view(
     mode: &str,
     search: Option<&str>,
     notebook_cells: Vec<NotebookCell>,
+    is_zh: bool,
 ) -> impl IntoView {
     let project_id = project.id;
 
@@ -131,10 +132,15 @@ fn render_schema_view(
         })
         .collect();
 
-    let sql_console = render_sql_console(project_id, cur_file, selected_table.or_else(|| schema.tables.first().map(|t| t.name.as_str())), sql_query, sql_result, mode);
+    let sql_table_name = selected_table.or_else(|| schema.tables.first().map(|t| t.name.as_str()));
+    let sql_first_column = sql_table_name
+        .and_then(|t| schema.tables.iter().find(|table| table.name == t))
+        .and_then(|t| t.columns.first())
+        .map(|c| c.name.clone());
+    let sql_console = render_sql_console(project_id, cur_file, sql_table_name, sql_query, sql_result, mode, sql_first_column, is_zh);
 
     let grid = match table_data {
-        Some(td) => render_grid(project, td, schema, cur_file, mode, search).into_any(),
+        Some(td) => render_grid(project, td, schema, cur_file, mode, search, is_zh).into_any(),
         None if !schema.tables.is_empty() => view! { <div class="empty-state"><p>"Select a table tab above to inspect rows."</p></div> }.into_any(),
         None => view! { <div class="empty-state"><p>"Database is empty. Use the SQL console below to create tables."</p></div> }.into_any(),
     };
@@ -174,7 +180,8 @@ fn render_schema_view(
     }
 }
 
-fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, cur_file: &str, mode: &str, search: Option<&str>) -> impl IntoView {
+#[allow(clippy::too_many_arguments)]
+fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, cur_file: &str, mode: &str, search: Option<&str>, is_zh: bool) -> impl IntoView {
     let project_id = project.id;
     let cur_tbl_schema = schema.tables.iter().find(|t| t.name == td.table_name);
 
@@ -297,6 +304,7 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
                 rows=rows
                 row_ids=td.row_ids.clone()
                 cell_styles=cell_styles
+                is_zh=is_zh
             />
 
             <div style="display:flex; justify-content:space-between; align-items:center; padding:0.65rem 1rem; background:var(--bg-muted); border-top:1px solid var(--border-subtle); font-size:0.8rem;">
@@ -310,7 +318,17 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
     }
 }
 
-fn render_sql_console(project_id: uuid::Uuid, cur_file: &str, table_name: Option<&str>, sql_query: &str, sql_result: Option<&SqlExecutionResult>, mode: &str) -> impl IntoView {
+#[allow(clippy::too_many_arguments)]
+fn render_sql_console(
+    project_id: uuid::Uuid,
+    cur_file: &str,
+    table_name: Option<&str>,
+    sql_query: &str,
+    sql_result: Option<&SqlExecutionResult>,
+    mode: &str,
+    first_column: Option<String>,
+    is_zh: bool,
+) -> impl IntoView {
     let default_sql = if !sql_query.is_empty() {
         sql_query.to_string()
     } else if let Some(t) = table_name {
@@ -360,12 +378,21 @@ fn render_sql_console(project_id: uuid::Uuid, cur_file: &str, table_name: Option
 
     let is_open = mode == "sql" || sql_result.is_some();
 
+    let sql_input = match table_name {
+        Some(t) => view! {
+            <apich_islands::SqlConsoleIsland initial_sql=default_sql table_name=t.to_string() first_column=first_column is_zh=is_zh />
+        }.into_any(),
+        None => view! {
+            <textarea name="sql" class="sql-textarea" style="width:100%; height:80px; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:6px; font-family:var(--font-mono); font-size:0.85rem; padding:0.75rem;" required=true>{default_sql}</textarea>
+        }.into_any(),
+    };
+
     view! {
         <details style="margin-top:1.5rem; background:#0f172a; border-radius:10px; padding:1.25rem; color:#fff;" open=is_open>
             <summary style="cursor:pointer; font-weight:700; color:#38bdf8; outline:none;">"💻 SQLite Console & Raw SQL (click to expand)"</summary>
             <form method="post" action=format!("/projects/{}/table/sql", project_id) style="margin-top:1rem;">
                 <input type="hidden" name="file" value=cur_file.to_string() />
-                <textarea name="sql" class="sql-textarea" style="width:100%; height:80px; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:6px; font-family:var(--font-mono); font-size:0.85rem; padding:0.75rem;" required=true>{default_sql}</textarea>
+                {sql_input}
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.5rem;">
                     <span style="font-size:0.75rem; color:#94a3b8;">"Target: "<code>{cur_file.to_string()}</code></span>
                     <button type="submit" class="btn btn-primary btn-sm">"▶ Run SQL"</button>

@@ -62,6 +62,14 @@ pub struct RawInspectOutput {
     pub state: ContainerStateInfo,
     #[serde(rename = "Created", default)]
     pub created: Option<String>,
+    // Resolved image ID the container was actually created from -- distinct from `ImageName`
+    // (the tag, e.g. "localhost/apich-sandbox:latest"), which stays the same string even after
+    // the tag is repointed at a freshly rebuilt image. Comparing this against the *current*
+    // image's own ID (see `PodmanDriver::image_id`) is how `ensure_running_with_config` detects
+    // a container stuck on a stale image (e.g. one built before `pandas`/`numpy`/`matplotlib`
+    // were added to `docker/Containerfile.sandbox`) instead of silently reusing it forever.
+    #[serde(rename = "Image", default)]
+    pub image: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +84,7 @@ pub struct ContainerInspectInfo {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub created_at: Option<String>,
+    pub image_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -258,9 +267,39 @@ impl PodmanDriver {
                 started_at: first.state.started_at,
                 finished_at: first.state.finished_at,
                 created_at: first.created,
+                image_id: first.image,
             }))
         } else {
             Ok(None)
+        }
+    }
+
+    /// Resolve a tag (e.g. "localhost/apich-sandbox:latest") to the concrete image ID it
+    /// currently points at, so callers can tell a stale, already-created container (still
+    /// pinned to whatever image ID existed at its own `podman run` time) apart from what
+    /// rebuilding the image via `podman build` just produced. Returns `Ok(None)` rather than an
+    /// error if the image simply hasn't been pulled/built yet -- that's not this call's problem
+    /// to report, `run_detached`'s own error on a missing image is the right place for that.
+    pub async fn image_id(&self, image: &str) -> Result<Option<String>> {
+        let output = Command::new(&self.bin_path)
+            .arg("image")
+            .arg("inspect")
+            .arg(image)
+            .arg("--format")
+            .arg("{{.Id}}")
+            .output()
+            .await
+            .map_err(SandboxError::Io)?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if id.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(id))
         }
     }
 
@@ -848,6 +887,7 @@ mod tests {
             {
                 "Id": "abc123456",
                 "Name": "apich-sandbox-user1",
+                "Image": "sha256:deadbeef",
                 "State": {
                     "Status": "running",
                     "Running": true,
@@ -866,8 +906,34 @@ mod tests {
         let first = &parsed[0];
         assert_eq!(first.id, "abc123456");
         assert_eq!(first.name, "apich-sandbox-user1");
+        assert_eq!(first.image, "sha256:deadbeef");
         assert_eq!(first.state.status, "running");
         assert!(first.state.running);
         assert_eq!(first.state.pid, Some(4321));
+    }
+
+    #[test]
+    fn test_parse_inspect_json_missing_image_field_defaults_empty() {
+        // Older podman versions or an unusual inspect payload might omit "Image" entirely --
+        // `#[serde(default)]` must keep this parseable rather than failing the whole inspect.
+        let json_sample = r#"[
+            {
+                "Id": "abc123456",
+                "Name": "apich-sandbox-user1",
+                "State": {
+                    "Status": "running",
+                    "Running": true,
+                    "Paused": false,
+                    "Pid": 4321,
+                    "ExitCode": 0,
+                    "StartedAt": "2026-09-06T10:00:00Z",
+                    "FinishedAt": ""
+                },
+                "Created": "2026-09-06T09:59:00Z"
+            }
+        ]"#;
+
+        let parsed: Vec<RawInspectOutput> = serde_json::from_str(json_sample).unwrap();
+        assert_eq!(parsed[0].image, "");
     }
 }
