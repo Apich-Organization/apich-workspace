@@ -1,6 +1,9 @@
-use crate::app::components::{ActiveNav, AppShell};
+use crate::app::components::ActiveNav;
+use crate::app::components::AppShell;
 use crate::ui::i18n::I18n;
-use apich_db::{OAuthClient, SystemSettings, User};
+use apich_db::OAuthClient;
+use apich_db::SystemSettings;
+use apich_db::User;
 use leptos::prelude::*;
 
 #[component]
@@ -14,9 +17,15 @@ pub fn AdminPlatformPage(
     current_path: String,
 ) -> impl IntoView {
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }
+                .into_any()
+        })
     };
 
     let pwd_placeholder = if settings.smtp_password.is_some() {
@@ -26,7 +35,8 @@ pub fn AdminPlatformPage(
     };
 
     let sso_rows = if sso_clients.is_empty() {
-        view! { <p class="text-muted" style="font-size:0.85rem;">{i18n.no_sso_clients()}</p> }.into_any()
+        view! { <p class="text-muted" style="font-size:0.85rem;">{i18n.no_sso_clients()}</p> }
+            .into_any()
     } else {
         let rows = sso_clients
             .into_iter()

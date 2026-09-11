@@ -1,4 +1,6 @@
-use apich_sandbox::{ContainerStatus, PodmanDriver, SandboxManager};
+use apich_sandbox::ContainerStatus;
+use apich_sandbox::PodmanDriver;
+use apich_sandbox::SandboxManager;
 use tempfile::tempdir;
 
 #[tokio::test]
@@ -32,10 +34,17 @@ async fn test_keep_id_allows_writes_to_mounted_workspace() {
         .with_keep_id(true);
 
     let user_id = "test_user_keep_id_write";
-    let container = manager.ensure_running(user_id).await.expect("Failed to ensure running");
+    let container = manager
+        .ensure_running(user_id)
+        .await
+        .expect("Failed to ensure running");
 
     let result = container
-        .exec(["sh", "-c", "id; touch /workspace/keep-id-write-check.txt && echo WRITE_OK || echo WRITE_FAIL"])
+        .exec([
+            "sh",
+            "-c",
+            "id; touch /workspace/keep-id-write-check.txt && echo WRITE_OK || echo WRITE_FAIL",
+        ])
         .await
         .expect("exec should succeed");
     let combined = format!("{}{}", result.stdout_lossy(), result.stderr_lossy());
@@ -44,7 +53,10 @@ async fn test_keep_id_allows_writes_to_mounted_workspace() {
         "write into the mounted workspace should succeed with --userns=keep-id: {combined}"
     );
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }
 
 /// The other half of the regression pair above: proves the test actually detects the bug (and
@@ -55,13 +67,21 @@ async fn test_keep_id_allows_writes_to_mounted_workspace() {
 #[tokio::test]
 async fn test_without_keep_id_write_to_mounted_workspace_fails() {
     let temp = tempdir().unwrap();
-    let manager = SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
+    let manager =
+        SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
 
     let user_id = "test_user_no_keep_id_write";
-    let container = manager.ensure_running(user_id).await.expect("Failed to ensure running");
+    let container = manager
+        .ensure_running(user_id)
+        .await
+        .expect("Failed to ensure running");
 
     let result = container
-        .exec(["sh", "-c", "id; touch /workspace/no-keep-id-write-check.txt && echo WRITE_OK || echo WRITE_FAIL"])
+        .exec([
+            "sh",
+            "-c",
+            "id; touch /workspace/no-keep-id-write-check.txt && echo WRITE_OK || echo WRITE_FAIL",
+        ])
         .await
         .expect("exec should succeed");
     let combined = format!("{}{}", result.stdout_lossy(), result.stderr_lossy());
@@ -73,7 +93,10 @@ async fn test_without_keep_id_write_to_mounted_workspace_fails() {
          assertion): {combined}"
     );
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }
 
 #[tokio::test]

@@ -1,18 +1,56 @@
 use crate::error::Result;
-use crate::models::{
-    AuditLog, CreateAuditLogDto, CreateDocumentDto, CreateInvitationDto, CreateKnowledgeEdgeDto,
-    CreateKnowledgeNodeDto, CreateOAuthClientDto, CreateOrganizationDto, CreateProjectDto,
-    CreateTeamDto, CreateUserDto, CreateWorkspaceDto, Document, DocumentSearchResult,
-    Fido2Credential, GpgPublicKey, Invitation, KnowledgeEdge, KnowledgeNode, MemberRole,
-    OAuthAuthCode, OAuthClient, OrgMemberWithUser, Organization, PersonalAccessToken, Project,
-    ProjectMember, ProjectMemberWithUser, ProjectSandbox, SshPublicKey, SystemSettings, Team,
-    TeamMemberWithUser, TeamTreeNode,
-    UpdateOrganizationDto, UpdateSystemSettingsDto, UpdateTeamDto, UpdateUserProfileDto, User,
-    UserRole, UserSession, Workspace, WorkspaceMember, EffectiveHubLinks,
-    CreateTemplateDto, PublishTemplateVersionDto, Template, TemplateShare, TemplateVersion,
-    TemplateWithLatestVersion,
-};
-use chrono::{DateTime, Utc};
+use crate::models::AuditLog;
+use crate::models::CreateAuditLogDto;
+use crate::models::CreateDocumentDto;
+use crate::models::CreateInvitationDto;
+use crate::models::CreateKnowledgeEdgeDto;
+use crate::models::CreateKnowledgeNodeDto;
+use crate::models::CreateOAuthClientDto;
+use crate::models::CreateOrganizationDto;
+use crate::models::CreateProjectDto;
+use crate::models::CreateTeamDto;
+use crate::models::CreateTemplateDto;
+use crate::models::CreateUserDto;
+use crate::models::CreateWorkspaceDto;
+use crate::models::Document;
+use crate::models::DocumentSearchResult;
+use crate::models::EffectiveHubLinks;
+use crate::models::Fido2Credential;
+use crate::models::GpgPublicKey;
+use crate::models::Invitation;
+use crate::models::KnowledgeEdge;
+use crate::models::KnowledgeNode;
+use crate::models::MemberRole;
+use crate::models::OAuthAuthCode;
+use crate::models::OAuthClient;
+use crate::models::OrgMemberWithUser;
+use crate::models::Organization;
+use crate::models::PersonalAccessToken;
+use crate::models::Project;
+use crate::models::ProjectMember;
+use crate::models::ProjectMemberWithUser;
+use crate::models::ProjectSandbox;
+use crate::models::PublishTemplateVersionDto;
+use crate::models::SshPublicKey;
+use crate::models::SystemSettings;
+use crate::models::Team;
+use crate::models::TeamMemberWithUser;
+use crate::models::TeamTreeNode;
+use crate::models::Template;
+use crate::models::TemplateShare;
+use crate::models::TemplateVersion;
+use crate::models::TemplateWithLatestVersion;
+use crate::models::UpdateOrganizationDto;
+use crate::models::UpdateSystemSettingsDto;
+use crate::models::UpdateTeamDto;
+use crate::models::UpdateUserProfileDto;
+use crate::models::User;
+use crate::models::UserRole;
+use crate::models::UserSession;
+use crate::models::Workspace;
+use crate::models::WorkspaceMember;
+use chrono::DateTime;
+use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -27,10 +65,15 @@ impl<'a> Repository<'a> {
 
     // --- User Operations ---
 
-    pub async fn create_user(&self, dto: CreateUserDto) -> Result<User> {
+    pub async fn create_user(
+        &self,
+        dto: CreateUserDto,
+    ) -> Result<User> {
         let id = Uuid::now_v7();
         let role = dto.role.unwrap_or_default();
-        let is_platform_admin = dto.is_platform_admin.unwrap_or(matches!(role, UserRole::Admin));
+        let is_platform_admin = dto
+            .is_platform_admin
+            .unwrap_or(matches!(role, UserRole::Admin));
         let quota = dto.storage_quota_bytes.unwrap_or(10 * 1024 * 1024 * 1024);
 
         let user = sqlx::query_as::<_, User>(
@@ -54,7 +97,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
-    pub async fn get_user_by_id(&self, id: Uuid) -> Result<Option<User>> {
+    pub async fn get_user_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
             .bind(id)
             .fetch_optional(self.pool)
@@ -62,7 +108,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
-    pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
+    pub async fn get_user_by_username(
+        &self,
+        username: &str,
+    ) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1")
             .bind(username)
             .fetch_optional(self.pool)
@@ -70,7 +119,11 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
-    pub async fn update_user_profile(&self, id: Uuid, dto: UpdateUserProfileDto) -> Result<User> {
+    pub async fn update_user_profile(
+        &self,
+        id: Uuid,
+        dto: UpdateUserProfileDto,
+    ) -> Result<User> {
         let user = sqlx::query_as::<_, User>(
             r#"
             UPDATE users
@@ -92,7 +145,11 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
-    pub async fn update_user_password(&self, id: Uuid, password_hash: &str) -> Result<()> {
+    pub async fn update_user_password(
+        &self,
+        id: Uuid,
+        password_hash: &str,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE users
@@ -109,10 +166,12 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-
     // --- Workspace Operations ---
 
-    pub async fn create_workspace(&self, dto: CreateWorkspaceDto) -> Result<Workspace> {
+    pub async fn create_workspace(
+        &self,
+        dto: CreateWorkspaceDto,
+    ) -> Result<Workspace> {
         let id = dto.id.unwrap_or_else(Uuid::now_v7);
         let visibility = dto.visibility.unwrap_or_default();
         let container_name = format!("apich-ws-{}", dto.slug);
@@ -155,7 +214,10 @@ impl<'a> Repository<'a> {
         Ok(ws)
     }
 
-    pub async fn get_workspace_by_id(&self, id: Uuid) -> Result<Option<Workspace>> {
+    pub async fn get_workspace_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<Workspace>> {
         let ws = sqlx::query_as::<_, Workspace>("SELECT * FROM workspaces WHERE id = $1")
             .bind(id)
             .fetch_optional(self.pool)
@@ -188,7 +250,10 @@ impl<'a> Repository<'a> {
 
     // --- Document Operations ---
 
-    pub async fn create_document(&self, dto: CreateDocumentDto) -> Result<Document> {
+    pub async fn create_document(
+        &self,
+        dto: CreateDocumentDto,
+    ) -> Result<Document> {
         let id = dto.id.unwrap_or_else(Uuid::now_v7);
         let content = dto.content.unwrap_or_default();
         let doc_type = dto.doc_type.unwrap_or_default();
@@ -215,7 +280,10 @@ impl<'a> Repository<'a> {
     }
 
     /// Atomic document upsert leveraging PostgreSQL MERGE syntax
-    pub async fn upsert_document(&self, dto: CreateDocumentDto) -> Result<Document> {
+    pub async fn upsert_document(
+        &self,
+        dto: CreateDocumentDto,
+    ) -> Result<Document> {
         let id = dto.id.unwrap_or_else(Uuid::now_v7);
         let content = dto.content.unwrap_or_default();
         let doc_type = dto.doc_type.unwrap_or_default();
@@ -337,13 +405,14 @@ impl<'a> Repository<'a> {
     }
 
     /// Extract creation timestamp from UUIDv7 natively via PostgreSQL 18 function `uuid_extract_timestamp`
-    pub async fn extract_uuidv7_timestamp(&self, id: Uuid) -> Result<DateTime<Utc>> {
-        let ts: DateTime<Utc> = sqlx::query_scalar(
-            "SELECT uuid_extract_timestamp($1);"
-        )
-        .bind(id)
-        .fetch_one(self.pool)
-        .await?;
+    pub async fn extract_uuidv7_timestamp(
+        &self,
+        id: Uuid,
+    ) -> Result<DateTime<Utc>> {
+        let ts: DateTime<Utc> = sqlx::query_scalar("SELECT uuid_extract_timestamp($1);")
+            .bind(id)
+            .fetch_one(self.pool)
+            .await?;
 
         Ok(ts)
     }
@@ -404,7 +473,10 @@ impl<'a> Repository<'a> {
 
     // --- Audit Log Operations (Plan.md Section 6) ---
 
-    pub async fn record_audit_log(&self, dto: CreateAuditLogDto) -> Result<AuditLog> {
+    pub async fn record_audit_log(
+        &self,
+        dto: CreateAuditLogDto,
+    ) -> Result<AuditLog> {
         let id = Uuid::now_v7();
 
         let log = sqlx::query_as::<_, AuditLog>(
@@ -428,7 +500,10 @@ impl<'a> Repository<'a> {
 
     // --- User Extensions ---
 
-    pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>> {
+    pub async fn get_user_by_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
             .bind(email)
             .fetch_optional(self.pool)
@@ -489,7 +564,10 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
-    pub async fn get_organization_by_id(&self, id: Uuid) -> Result<Option<Organization>> {
+    pub async fn get_organization_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<Organization>> {
         let org = sqlx::query_as::<_, Organization>("SELECT * FROM organizations WHERE id = $1")
             .bind(id)
             .fetch_optional(self.pool)
@@ -497,7 +575,10 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
-    pub async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
+    pub async fn get_organization_by_slug(
+        &self,
+        slug: &str,
+    ) -> Result<Option<Organization>> {
         let org = sqlx::query_as::<_, Organization>("SELECT * FROM organizations WHERE slug = $1")
             .bind(slug)
             .fetch_optional(self.pool)
@@ -505,7 +586,10 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
-    pub async fn list_organizations_for_user(&self, user_id: Uuid) -> Result<Vec<Organization>> {
+    pub async fn list_organizations_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<Organization>> {
         let orgs = sqlx::query_as::<_, Organization>(
             r#"
             SELECT o.* FROM organizations o
@@ -520,7 +604,10 @@ impl<'a> Repository<'a> {
         Ok(orgs)
     }
 
-    pub async fn list_organizations(&self, limit: i64) -> Result<Vec<Organization>> {
+    pub async fn list_organizations(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<Organization>> {
         let orgs = sqlx::query_as::<_, Organization>(
             "SELECT * FROM organizations ORDER BY name ASC LIMIT $1",
         )
@@ -530,7 +617,12 @@ impl<'a> Repository<'a> {
         Ok(orgs)
     }
 
-    pub async fn add_org_member(&self, org_id: Uuid, user_id: Uuid, role: &str) -> Result<()> {
+    pub async fn add_org_member(
+        &self,
+        org_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO org_members (org_id, user_id, role)
@@ -546,7 +638,11 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn remove_org_member(&self, org_id: Uuid, user_id: Uuid) -> Result<()> {
+    pub async fn remove_org_member(
+        &self,
+        org_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM org_members WHERE org_id = $1 AND user_id = $2")
             .bind(org_id)
             .bind(user_id)
@@ -555,7 +651,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn list_org_members(&self, org_id: Uuid) -> Result<Vec<OrgMemberWithUser>> {
+    pub async fn list_org_members(
+        &self,
+        org_id: Uuid,
+    ) -> Result<Vec<OrgMemberWithUser>> {
         let rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, String, String, Option<String>, DateTime<Utc>)>(
             r#"
             SELECT om.org_id, om.user_id, om.role, u.username, u.email, u.display_name, u.avatar_url, om.joined_at
@@ -571,18 +670,20 @@ impl<'a> Repository<'a> {
 
         let members = rows
             .into_iter()
-            .map(|(org_id, user_id, role, username, email, display_name, avatar_url, joined_at)| {
-                OrgMemberWithUser {
-                    org_id,
-                    user_id,
-                    role,
-                    username,
-                    email,
-                    display_name,
-                    avatar_url,
-                    joined_at,
-                }
-            })
+            .map(
+                |(org_id, user_id, role, username, email, display_name, avatar_url, joined_at)| {
+                    OrgMemberWithUser {
+                        org_id,
+                        user_id,
+                        role,
+                        username,
+                        email,
+                        display_name,
+                        avatar_url,
+                        joined_at,
+                    }
+                },
+            )
             .collect();
 
         Ok(members)
@@ -624,7 +725,10 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
-    pub async fn delete_organization(&self, id: Uuid) -> Result<()> {
+    pub async fn delete_organization(
+        &self,
+        id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM organizations WHERE id = $1")
             .bind(id)
             .execute(self.pool)
@@ -644,8 +748,8 @@ impl<'a> Repository<'a> {
         team_id: Option<Uuid>,
     ) -> Result<EffectiveHubLinks> {
         let org = match self.get_organization_by_id(org_id).await? {
-            Some(o) => o,
-            None => return Ok(EffectiveHubLinks::default()),
+            | Some(o) => o,
+            | None => return Ok(EffectiveHubLinks::default()),
         };
 
         if !org.allow_team_override || team_id.is_none() {
@@ -704,7 +808,11 @@ impl<'a> Repository<'a> {
     // --- Team Operations (Recursive tree) ---
 
 
-    pub async fn create_team(&self, creator_id: Uuid, dto: CreateTeamDto) -> Result<Team> {
+    pub async fn create_team(
+        &self,
+        creator_id: Uuid,
+        dto: CreateTeamDto,
+    ) -> Result<Team> {
         let id = Uuid::now_v7();
         let mut tx = self.pool.begin().await?;
 
@@ -745,7 +853,10 @@ impl<'a> Repository<'a> {
         Ok(team)
     }
 
-    pub async fn get_team_by_id(&self, id: Uuid) -> Result<Option<Team>> {
+    pub async fn get_team_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<Team>> {
         let team = sqlx::query_as::<_, Team>("SELECT * FROM teams WHERE id = $1")
             .bind(id)
             .fetch_optional(self.pool)
@@ -753,7 +864,10 @@ impl<'a> Repository<'a> {
         Ok(team)
     }
 
-    pub async fn list_teams_by_org(&self, org_id: Uuid) -> Result<Vec<Team>> {
+    pub async fn list_teams_by_org(
+        &self,
+        org_id: Uuid,
+    ) -> Result<Vec<Team>> {
         let teams = sqlx::query_as::<_, Team>(
             "SELECT * FROM teams WHERE org_id = $1 ORDER BY parent_team_id NULLS FIRST, name ASC",
         )
@@ -764,7 +878,10 @@ impl<'a> Repository<'a> {
     }
 
     /// Build hierarchical team tree for an organization
-    pub async fn get_team_tree_for_org(&self, org_id: Uuid) -> Result<Vec<TeamTreeNode>> {
+    pub async fn get_team_tree_for_org(
+        &self,
+        org_id: Uuid,
+    ) -> Result<Vec<TeamTreeNode>> {
         let all_teams = self.list_teams_by_org(org_id).await?;
 
         // Helper to recursively assemble tree nodes
@@ -789,7 +906,12 @@ impl<'a> Repository<'a> {
         Ok(assemble_subtrees(None, &all_teams))
     }
 
-    pub async fn add_team_member(&self, team_id: Uuid, user_id: Uuid, role: &str) -> Result<()> {
+    pub async fn add_team_member(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO team_members (team_id, user_id, role)
@@ -805,7 +927,11 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn remove_team_member(&self, team_id: Uuid, user_id: Uuid) -> Result<()> {
+    pub async fn remove_team_member(
+        &self,
+        team_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM team_members WHERE team_id = $1 AND user_id = $2")
             .bind(team_id)
             .bind(user_id)
@@ -814,7 +940,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn list_team_members(&self, team_id: Uuid) -> Result<Vec<TeamMemberWithUser>> {
+    pub async fn list_team_members(
+        &self,
+        team_id: Uuid,
+    ) -> Result<Vec<TeamMemberWithUser>> {
         let rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, String, String, Option<String>, DateTime<Utc>)>(
             r#"
             SELECT tm.team_id, tm.user_id, tm.role, u.username, u.email, u.display_name, u.avatar_url, tm.joined_at
@@ -830,27 +959,33 @@ impl<'a> Repository<'a> {
 
         let members = rows
             .into_iter()
-            .map(|(team_id, user_id, role, username, email, display_name, avatar_url, joined_at)| {
-                TeamMemberWithUser {
-                    team_id,
-                    user_id,
-                    role,
-                    username,
-                    email,
-                    display_name,
-                    avatar_url,
-                    joined_at,
-                }
-            })
+            .map(
+                |(team_id, user_id, role, username, email, display_name, avatar_url, joined_at)| {
+                    TeamMemberWithUser {
+                        team_id,
+                        user_id,
+                        role,
+                        username,
+                        email,
+                        display_name,
+                        avatar_url,
+                        joined_at,
+                    }
+                },
+            )
             .collect();
 
         Ok(members)
     }
 
-    pub async fn update_team(&self, id: Uuid, dto: UpdateTeamDto) -> Result<Team> {
+    pub async fn update_team(
+        &self,
+        id: Uuid,
+        dto: UpdateTeamDto,
+    ) -> Result<Team> {
         let (update_parent, parent_id) = match dto.parent_team_id {
-            Some(p) => (true, p),
-            None => (false, None),
+            | Some(p) => (true, p),
+            | None => (false, None),
         };
 
         let team = sqlx::query_as::<_, Team>(
@@ -885,7 +1020,10 @@ impl<'a> Repository<'a> {
         Ok(team)
     }
 
-    pub async fn delete_team(&self, id: Uuid) -> Result<()> {
+    pub async fn delete_team(
+        &self,
+        id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM teams WHERE id = $1")
             .bind(id)
             .execute(self.pool)
@@ -896,7 +1034,10 @@ impl<'a> Repository<'a> {
     // --- Project Operations (Core Unit) ---
 
 
-    pub async fn create_project(&self, dto: CreateProjectDto) -> Result<Project> {
+    pub async fn create_project(
+        &self,
+        dto: CreateProjectDto,
+    ) -> Result<Project> {
         let id = Uuid::now_v7();
         let settings = dto.settings.unwrap_or_else(|| serde_json::json!({}));
 
@@ -931,7 +1072,10 @@ impl<'a> Repository<'a> {
         Ok(proj)
     }
 
-    pub async fn get_project_by_id(&self, id: Uuid) -> Result<Option<Project>> {
+    pub async fn get_project_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<Project>> {
         let proj = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")
             .bind(id)
             .fetch_optional(self.pool)
@@ -939,16 +1083,24 @@ impl<'a> Repository<'a> {
         Ok(proj)
     }
 
-    pub async fn get_project_by_slug(&self, org_id: Uuid, slug: &str) -> Result<Option<Project>> {
-        let proj = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE org_id = $1 AND slug = $2")
-            .bind(org_id)
-            .bind(slug)
-            .fetch_optional(self.pool)
-            .await?;
+    pub async fn get_project_by_slug(
+        &self,
+        org_id: Uuid,
+        slug: &str,
+    ) -> Result<Option<Project>> {
+        let proj =
+            sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE org_id = $1 AND slug = $2")
+                .bind(org_id)
+                .bind(slug)
+                .fetch_optional(self.pool)
+                .await?;
         Ok(proj)
     }
 
-    pub async fn list_projects_for_user(&self, user_id: Uuid) -> Result<Vec<Project>> {
+    pub async fn list_projects_for_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<Project>> {
         let projs = sqlx::query_as::<_, Project>(
             r#"
             SELECT DISTINCT p.* FROM projects p
@@ -979,7 +1131,11 @@ impl<'a> Repository<'a> {
         Ok(projs)
     }
 
-    pub async fn update_project_status(&self, id: Uuid, status: &str) -> Result<()> {
+    pub async fn update_project_status(
+        &self,
+        id: Uuid,
+        status: &str,
+    ) -> Result<()> {
         sqlx::query("UPDATE projects SET status = $1 WHERE id = $2")
             .bind(status)
             .bind(id)
@@ -988,7 +1144,11 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn set_project_vcs_initialized(&self, id: Uuid, initialized: bool) -> Result<()> {
+    pub async fn set_project_vcs_initialized(
+        &self,
+        id: Uuid,
+        initialized: bool,
+    ) -> Result<()> {
         sqlx::query("UPDATE projects SET vcs_initialized = $1 WHERE id = $2")
             .bind(initialized)
             .bind(id)
@@ -997,12 +1157,18 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn update_project_settings(&self, id: Uuid, settings: serde_json::Value) -> Result<()> {
-        sqlx::query("UPDATE projects SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
-            .bind(settings)
-            .bind(id)
-            .execute(self.pool)
-            .await?;
+    pub async fn update_project_settings(
+        &self,
+        id: Uuid,
+        settings: serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE projects SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        )
+        .bind(settings)
+        .bind(id)
+        .execute(self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1174,7 +1340,11 @@ impl<'a> Repository<'a> {
     /// Record real activity in a running sandbox (a terminal command, script run, or agent run),
     /// resetting its idle clock. The idle reaper (`ProjectManagerService::reap_idle_sandboxes`)
     /// stops any `running` sandbox whose activity is older than the configured idle timeout.
-    pub async fn touch_sandbox_activity(&self, project_id: Uuid, user_id: Uuid) -> Result<()> {
+    pub async fn touch_sandbox_activity(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<()> {
         sqlx::query(
             "UPDATE project_sandboxes SET last_activity_at = CURRENT_TIMESTAMP WHERE project_id = $1 AND user_id = $2",
         )
@@ -1187,7 +1357,10 @@ impl<'a> Repository<'a> {
 
     /// All `running` sandboxes whose last real activity (or, if none was ever recorded, their
     /// start time) is older than `idle_since` -- candidates for the idle reaper to stop.
-    pub async fn list_idle_running_sandboxes(&self, idle_since: DateTime<Utc>) -> Result<Vec<ProjectSandbox>> {
+    pub async fn list_idle_running_sandboxes(
+        &self,
+        idle_since: DateTime<Utc>,
+    ) -> Result<Vec<ProjectSandbox>> {
         let rows = sqlx::query_as::<_, ProjectSandbox>(
             "SELECT * FROM project_sandboxes WHERE status = 'running' AND COALESCE(last_activity_at, last_started_at) < $1",
         )
@@ -1202,7 +1375,10 @@ impl<'a> Repository<'a> {
     /// running container; nothing previously deleted a stopped one, so every sandbox this app ever
     /// started accumulated on the host forever once idle-stopped -- confirmed live: dozens of
     /// `apich-proj-*` containers going back over a day, none of them removed.
-    pub async fn list_stale_stopped_sandboxes(&self, stopped_since: DateTime<Utc>) -> Result<Vec<ProjectSandbox>> {
+    pub async fn list_stale_stopped_sandboxes(
+        &self,
+        stopped_since: DateTime<Utc>,
+    ) -> Result<Vec<ProjectSandbox>> {
         let rows = sqlx::query_as::<_, ProjectSandbox>(
             "SELECT * FROM project_sandboxes WHERE status = 'stopped' AND last_stopped_at IS NOT NULL AND last_stopped_at < $1",
         )
@@ -1226,7 +1402,11 @@ impl<'a> Repository<'a> {
     /// Removes a sandbox's tracking row entirely, once its container has actually been removed
     /// from the host -- leaving a stale row around (even with `status = 'stopped'`) after the real
     /// container is gone serves no purpose and only risks a future stale-container mixup.
-    pub async fn delete_project_sandbox(&self, project_id: Uuid, user_id: Uuid) -> Result<()> {
+    pub async fn delete_project_sandbox(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM project_sandboxes WHERE project_id = $1 AND user_id = $2")
             .bind(project_id)
             .bind(user_id)
@@ -1265,7 +1445,10 @@ impl<'a> Repository<'a> {
         Ok(session)
     }
 
-    pub async fn get_user_by_session_token_hash(&self, token_hash: &str) -> Result<Option<User>> {
+    pub async fn get_user_by_session_token_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
             r#"
             SELECT u.* FROM users u
@@ -1280,7 +1463,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
-    pub async fn delete_user_session(&self, token_hash: &str) -> Result<()> {
+    pub async fn delete_user_session(
+        &self,
+        token_hash: &str,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM user_sessions WHERE token_hash = $1")
             .bind(token_hash)
             .execute(self.pool)
@@ -1320,7 +1506,10 @@ impl<'a> Repository<'a> {
         Ok(cred)
     }
 
-    pub async fn get_fido2_credentials_by_user(&self, user_id: Uuid) -> Result<Vec<Fido2Credential>> {
+    pub async fn get_fido2_credentials_by_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<Fido2Credential>> {
         let creds = sqlx::query_as::<_, Fido2Credential>(
             "SELECT * FROM fido2_credentials WHERE user_id = $1 ORDER BY created_at DESC",
         )
@@ -1330,7 +1519,10 @@ impl<'a> Repository<'a> {
         Ok(creds)
     }
 
-    pub async fn get_fido2_credential_by_id(&self, credential_id: &str) -> Result<Option<Fido2Credential>> {
+    pub async fn get_fido2_credential_by_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<Option<Fido2Credential>> {
         let cred = sqlx::query_as::<_, Fido2Credential>(
             "SELECT * FROM fido2_credentials WHERE credential_id = $1",
         )
@@ -1340,7 +1532,11 @@ impl<'a> Repository<'a> {
         Ok(cred)
     }
 
-    pub async fn update_fido2_counter(&self, credential_id: &str, counter: i64) -> Result<()> {
+    pub async fn update_fido2_counter(
+        &self,
+        credential_id: &str,
+        counter: i64,
+    ) -> Result<()> {
         sqlx::query(
             "UPDATE fido2_credentials SET counter = $1, last_used_at = CURRENT_TIMESTAMP WHERE credential_id = $2",
         )
@@ -1380,7 +1576,10 @@ impl<'a> Repository<'a> {
         Ok(pat)
     }
 
-    pub async fn list_personal_access_tokens(&self, user_id: Uuid) -> Result<Vec<PersonalAccessToken>> {
+    pub async fn list_personal_access_tokens(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<PersonalAccessToken>> {
         let tokens = sqlx::query_as::<_, PersonalAccessToken>(
             "SELECT * FROM personal_access_tokens WHERE user_id = $1 ORDER BY created_at DESC",
         )
@@ -1392,7 +1591,10 @@ impl<'a> Repository<'a> {
 
     /// Look up the active user behind a plaintext PAT's hash, for Basic/Bearer auth on the
     /// self-hosted git and apich-vcs remote endpoints. Touches `last_used_at` on a hit.
-    pub async fn get_user_by_active_pat_hash(&self, token_hash: &str) -> Result<Option<User>> {
+    pub async fn get_user_by_active_pat_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
             r#"
             SELECT u.* FROM users u
@@ -1418,7 +1620,11 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
-    pub async fn revoke_personal_access_token(&self, user_id: Uuid, token_id: Uuid) -> Result<()> {
+    pub async fn revoke_personal_access_token(
+        &self,
+        user_id: Uuid,
+        token_id: Uuid,
+    ) -> Result<()> {
         sqlx::query(
             "UPDATE personal_access_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2",
         )
@@ -1458,7 +1664,10 @@ impl<'a> Repository<'a> {
         Ok(key)
     }
 
-    pub async fn list_ssh_public_keys(&self, user_id: Uuid) -> Result<Vec<SshPublicKey>> {
+    pub async fn list_ssh_public_keys(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<SshPublicKey>> {
         let keys = sqlx::query_as::<_, SshPublicKey>(
             "SELECT * FROM ssh_public_keys WHERE user_id = $1 ORDER BY created_at DESC",
         )
@@ -1468,7 +1677,11 @@ impl<'a> Repository<'a> {
         Ok(keys)
     }
 
-    pub async fn delete_ssh_public_key(&self, user_id: Uuid, key_id: Uuid) -> Result<()> {
+    pub async fn delete_ssh_public_key(
+        &self,
+        user_id: Uuid,
+        key_id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM ssh_public_keys WHERE id = $1 AND user_id = $2")
             .bind(key_id)
             .bind(user_id)
@@ -1504,7 +1717,10 @@ impl<'a> Repository<'a> {
         Ok(key)
     }
 
-    pub async fn list_gpg_public_keys(&self, user_id: Uuid) -> Result<Vec<GpgPublicKey>> {
+    pub async fn list_gpg_public_keys(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<GpgPublicKey>> {
         let keys = sqlx::query_as::<_, GpgPublicKey>(
             "SELECT * FROM gpg_public_keys WHERE user_id = $1 ORDER BY created_at DESC",
         )
@@ -1514,7 +1730,11 @@ impl<'a> Repository<'a> {
         Ok(keys)
     }
 
-    pub async fn delete_gpg_public_key(&self, user_id: Uuid, key_id: Uuid) -> Result<()> {
+    pub async fn delete_gpg_public_key(
+        &self,
+        user_id: Uuid,
+        key_id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM gpg_public_keys WHERE id = $1 AND user_id = $2")
             .bind(key_id)
             .bind(user_id)
@@ -1526,7 +1746,10 @@ impl<'a> Repository<'a> {
     /// All GPG public keys belonging to anyone with access to a project (owner + members) --
     /// used to check a snapshot's signature under "vigilant mode" without needing to know exactly
     /// which member authored it (apich-vcs snapshots don't yet carry a real per-member author id).
-    pub async fn list_gpg_public_keys_for_project(&self, project_id: Uuid) -> Result<Vec<GpgPublicKey>> {
+    pub async fn list_gpg_public_keys_for_project(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<GpgPublicKey>> {
         let keys = sqlx::query_as::<_, GpgPublicKey>(
             r#"
             SELECT DISTINCT k.* FROM gpg_public_keys k
@@ -1540,27 +1763,35 @@ impl<'a> Repository<'a> {
         Ok(keys)
     }
 
-    pub async fn set_project_vigilant_mode(&self, project_id: Uuid, enabled: bool) -> Result<()> {
-        sqlx::query("UPDATE projects SET vigilant_mode = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
-            .bind(enabled)
-            .bind(project_id)
-            .execute(self.pool)
-            .await?;
+    pub async fn set_project_vigilant_mode(
+        &self,
+        project_id: Uuid,
+        enabled: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE projects SET vigilant_mode = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        )
+        .bind(enabled)
+        .bind(project_id)
+        .execute(self.pool)
+        .await?;
         Ok(())
     }
 
     // --- System Settings & Invitations ---
 
     pub async fn get_system_settings(&self) -> Result<SystemSettings> {
-        let settings = sqlx::query_as::<_, SystemSettings>(
-            "SELECT * FROM system_settings WHERE id = 1",
-        )
-        .fetch_one(self.pool)
-        .await?;
+        let settings =
+            sqlx::query_as::<_, SystemSettings>("SELECT * FROM system_settings WHERE id = 1")
+                .fetch_one(self.pool)
+                .await?;
         Ok(settings)
     }
 
-    pub async fn update_system_settings(&self, dto: UpdateSystemSettingsDto) -> Result<SystemSettings> {
+    pub async fn update_system_settings(
+        &self,
+        dto: UpdateSystemSettingsDto,
+    ) -> Result<SystemSettings> {
         let settings = sqlx::query_as::<_, SystemSettings>(
             r#"
             UPDATE system_settings
@@ -1593,7 +1824,11 @@ impl<'a> Repository<'a> {
         Ok(settings)
     }
 
-    pub async fn create_invitation(&self, token: &str, dto: CreateInvitationDto) -> Result<Invitation> {
+    pub async fn create_invitation(
+        &self,
+        token: &str,
+        dto: CreateInvitationDto,
+    ) -> Result<Invitation> {
         let id = Uuid::now_v7();
         let role = dto.role.unwrap_or_else(|| "member".to_string());
 
@@ -1618,7 +1853,10 @@ impl<'a> Repository<'a> {
         Ok(invite)
     }
 
-    pub async fn get_invitation_by_token(&self, token: &str) -> Result<Option<Invitation>> {
+    pub async fn get_invitation_by_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<Invitation>> {
         let invite = sqlx::query_as::<_, Invitation>(
             "SELECT * FROM invitations WHERE token = $1 AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP",
         )
@@ -1628,7 +1866,10 @@ impl<'a> Repository<'a> {
         Ok(invite)
     }
 
-    pub async fn mark_invitation_used(&self, token: &str) -> Result<()> {
+    pub async fn mark_invitation_used(
+        &self,
+        token: &str,
+    ) -> Result<()> {
         sqlx::query("UPDATE invitations SET used_at = CURRENT_TIMESTAMP WHERE token = $1")
             .bind(token)
             .execute(self.pool)
@@ -1638,7 +1879,10 @@ impl<'a> Repository<'a> {
 
     // --- SSO / OAuth2 Platform Operations ---
 
-    pub async fn create_oauth_client(&self, dto: CreateOAuthClientDto) -> Result<OAuthClient> {
+    pub async fn create_oauth_client(
+        &self,
+        dto: CreateOAuthClientDto,
+    ) -> Result<OAuthClient> {
         let client = sqlx::query_as::<_, OAuthClient>(
             r#"
             INSERT INTO oauth_clients (client_id, client_secret_hash, name, redirect_uris, is_confidential)
@@ -1657,13 +1901,15 @@ impl<'a> Repository<'a> {
         Ok(client)
     }
 
-    pub async fn get_oauth_client_by_id(&self, client_id: &str) -> Result<Option<OAuthClient>> {
-        let client = sqlx::query_as::<_, OAuthClient>(
-            "SELECT * FROM oauth_clients WHERE client_id = $1",
-        )
-        .bind(client_id)
-        .fetch_optional(self.pool)
-        .await?;
+    pub async fn get_oauth_client_by_id(
+        &self,
+        client_id: &str,
+    ) -> Result<Option<OAuthClient>> {
+        let client =
+            sqlx::query_as::<_, OAuthClient>("SELECT * FROM oauth_clients WHERE client_id = $1")
+                .bind(client_id)
+                .fetch_optional(self.pool)
+                .await?;
         Ok(client)
     }
 
@@ -1704,7 +1950,10 @@ impl<'a> Repository<'a> {
         Ok(auth_code)
     }
 
-    pub async fn consume_oauth_auth_code(&self, code: &str) -> Result<Option<OAuthAuthCode>> {
+    pub async fn consume_oauth_auth_code(
+        &self,
+        code: &str,
+    ) -> Result<Option<OAuthAuthCode>> {
         let auth_code = sqlx::query_as::<_, OAuthAuthCode>(
             r#"
             DELETE FROM oauth_auth_codes
@@ -1721,7 +1970,10 @@ impl<'a> Repository<'a> {
 
     // --- Template Library Operations ---
 
-    pub async fn create_template(&self, dto: CreateTemplateDto) -> Result<Template> {
+    pub async fn create_template(
+        &self,
+        dto: CreateTemplateDto,
+    ) -> Result<Template> {
         let id = Uuid::now_v7();
         let template = sqlx::query_as::<_, Template>(
             r#"
@@ -1742,7 +1994,10 @@ impl<'a> Repository<'a> {
         Ok(template)
     }
 
-    pub async fn get_template_by_id(&self, id: Uuid) -> Result<Option<Template>> {
+    pub async fn get_template_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<Template>> {
         let template = sqlx::query_as::<_, Template>("SELECT * FROM templates WHERE id = $1")
             .bind(id)
             .fetch_optional(self.pool)
@@ -1753,7 +2008,11 @@ impl<'a> Repository<'a> {
     /// Every template a `user_id` may see: their own (any visibility), plus every 'public' one,
     /// plus every 'shared' one whose `template_shares` list includes an org/team they belong to.
     /// `kind` optionally narrows the gallery to one content type (see `TemplateKind`).
-    pub async fn list_visible_templates(&self, user_id: Uuid, kind: Option<&str>) -> Result<Vec<TemplateWithLatestVersion>> {
+    pub async fn list_visible_templates(
+        &self,
+        user_id: Uuid,
+        kind: Option<&str>,
+    ) -> Result<Vec<TemplateWithLatestVersion>> {
         let templates = sqlx::query_as::<_, TemplateWithLatestVersion>(
             r#"
             SELECT
@@ -1788,7 +2047,10 @@ impl<'a> Repository<'a> {
         Ok(templates)
     }
 
-    pub async fn list_templates_owned_by(&self, user_id: Uuid) -> Result<Vec<Template>> {
+    pub async fn list_templates_owned_by(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<Template>> {
         let templates = sqlx::query_as::<_, Template>(
             "SELECT * FROM templates WHERE owner_user_id = $1 ORDER BY updated_at DESC",
         )
@@ -1798,16 +2060,25 @@ impl<'a> Repository<'a> {
         Ok(templates)
     }
 
-    pub async fn update_template_visibility(&self, id: Uuid, visibility: &str) -> Result<()> {
-        sqlx::query("UPDATE templates SET visibility = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2")
-            .bind(visibility)
-            .bind(id)
-            .execute(self.pool)
-            .await?;
+    pub async fn update_template_visibility(
+        &self,
+        id: Uuid,
+        visibility: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE templates SET visibility = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        )
+        .bind(visibility)
+        .bind(id)
+        .execute(self.pool)
+        .await?;
         Ok(())
     }
 
-    pub async fn delete_template(&self, id: Uuid) -> Result<()> {
+    pub async fn delete_template(
+        &self,
+        id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM templates WHERE id = $1")
             .bind(id)
             .execute(self.pool)
@@ -1815,7 +2086,12 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn add_template_share(&self, template_id: Uuid, org_id: Option<Uuid>, team_id: Option<Uuid>) -> Result<TemplateShare> {
+    pub async fn add_template_share(
+        &self,
+        template_id: Uuid,
+        org_id: Option<Uuid>,
+        team_id: Option<Uuid>,
+    ) -> Result<TemplateShare> {
         let id = Uuid::now_v7();
         let share = sqlx::query_as::<_, TemplateShare>(
             r#"
@@ -1833,7 +2109,10 @@ impl<'a> Repository<'a> {
         Ok(share)
     }
 
-    pub async fn remove_template_share(&self, share_id: Uuid) -> Result<()> {
+    pub async fn remove_template_share(
+        &self,
+        share_id: Uuid,
+    ) -> Result<()> {
         sqlx::query("DELETE FROM template_shares WHERE id = $1")
             .bind(share_id)
             .execute(self.pool)
@@ -1841,7 +2120,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
-    pub async fn list_template_shares(&self, template_id: Uuid) -> Result<Vec<TemplateShare>> {
+    pub async fn list_template_shares(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Vec<TemplateShare>> {
         let shares = sqlx::query_as::<_, TemplateShare>(
             "SELECT * FROM template_shares WHERE template_id = $1 ORDER BY created_at ASC",
         )
@@ -1851,7 +2133,10 @@ impl<'a> Repository<'a> {
         Ok(shares)
     }
 
-    pub async fn publish_template_version(&self, dto: PublishTemplateVersionDto) -> Result<TemplateVersion> {
+    pub async fn publish_template_version(
+        &self,
+        dto: PublishTemplateVersionDto,
+    ) -> Result<TemplateVersion> {
         let id = Uuid::now_v7();
         let version = sqlx::query_as::<_, TemplateVersion>(
             r#"
@@ -1877,7 +2162,10 @@ impl<'a> Repository<'a> {
         Ok(version)
     }
 
-    pub async fn list_template_versions(&self, template_id: Uuid) -> Result<Vec<TemplateVersion>> {
+    pub async fn list_template_versions(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Vec<TemplateVersion>> {
         let versions = sqlx::query_as::<_, TemplateVersion>(
             "SELECT * FROM template_versions WHERE template_id = $1 ORDER BY created_at DESC",
         )
@@ -1887,15 +2175,22 @@ impl<'a> Repository<'a> {
         Ok(versions)
     }
 
-    pub async fn get_template_version_by_id(&self, id: Uuid) -> Result<Option<TemplateVersion>> {
-        let version = sqlx::query_as::<_, TemplateVersion>("SELECT * FROM template_versions WHERE id = $1")
-            .bind(id)
-            .fetch_optional(self.pool)
-            .await?;
+    pub async fn get_template_version_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<TemplateVersion>> {
+        let version =
+            sqlx::query_as::<_, TemplateVersion>("SELECT * FROM template_versions WHERE id = $1")
+                .bind(id)
+                .fetch_optional(self.pool)
+                .await?;
         Ok(version)
     }
 
-    pub async fn get_latest_template_version(&self, template_id: Uuid) -> Result<Option<TemplateVersion>> {
+    pub async fn get_latest_template_version(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Option<TemplateVersion>> {
         let version = sqlx::query_as::<_, TemplateVersion>(
             "SELECT * FROM template_versions WHERE template_id = $1 ORDER BY created_at DESC LIMIT 1",
         )

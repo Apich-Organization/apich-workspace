@@ -24,10 +24,22 @@ pub fn SqlConsoleIsland(
     let quoted = format!("\"{}\"", table_name.replace('"', "\"\""));
 
     let mut presets: Vec<(&'static str, String)> = vec![
-        (t("Preview 50 rows", "预览 50 行"), format!("SELECT * FROM {quoted} LIMIT 50;")),
-        (t("Count rows", "统计行数"), format!("SELECT COUNT(*) FROM {quoted};")),
-        (t("Distinct rows", "去重行"), format!("SELECT DISTINCT * FROM {quoted};")),
-        (t("Column info", "列信息"), format!("PRAGMA table_info({quoted});")),
+        (
+            t("Preview 50 rows", "预览 50 行"),
+            format!("SELECT * FROM {quoted} LIMIT 50;"),
+        ),
+        (
+            t("Count rows", "统计行数"),
+            format!("SELECT COUNT(*) FROM {quoted};"),
+        ),
+        (
+            t("Distinct rows", "去重行"),
+            format!("SELECT DISTINCT * FROM {quoted};"),
+        ),
+        (
+            t("Column info", "列信息"),
+            format!("PRAGMA table_info({quoted});"),
+        ),
     ];
     if let Some(col) = first_column.filter(|c| !c.is_empty()) {
         let qcol = format!("\"{}\"", col.replace('"', "\"\""));
@@ -103,7 +115,9 @@ pub fn SqlConsoleIsland(
 fn submit_enclosing_form(ev: &leptos::ev::KeyboardEvent) {
     use wasm_bindgen::JsCast;
     let Some(target) = ev.target() else { return };
-    let Ok(textarea) = target.dyn_into::<web_sys::HtmlTextAreaElement>() else { return };
+    let Ok(textarea) = target.dyn_into::<web_sys::HtmlTextAreaElement>() else {
+        return;
+    };
     if let Some(form) = textarea.form() {
         let _ = form.request_submit();
     }

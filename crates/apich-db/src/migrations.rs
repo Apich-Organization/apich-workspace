@@ -1,5 +1,6 @@
 use crate::error::Result;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use chrono::Utc;
 use sqlx::PgPool;
 use tracing::info;
 
@@ -87,7 +88,10 @@ impl MigrationManager {
     }
 
     /// Register a new migration. Future modules or plugins use this to extend the DB schema.
-    pub fn register(&mut self, migration: Migration) -> &mut Self {
+    pub fn register(
+        &mut self,
+        migration: Migration,
+    ) -> &mut Self {
         // Prevent duplicate version numbers
         self.migrations.retain(|m| m.version != migration.version);
         self.migrations.push(migration);
@@ -96,7 +100,10 @@ impl MigrationManager {
     }
 
     /// Register multiple migrations at once
-    pub fn register_all<I: IntoIterator<Item = Migration>>(&mut self, iter: I) -> &mut Self {
+    pub fn register_all<I: IntoIterator<Item = Migration>>(
+        &mut self,
+        iter: I,
+    ) -> &mut Self {
         for migration in iter {
             self.register(migration);
         }
@@ -109,7 +116,10 @@ impl MigrationManager {
     }
 
     /// Run all pending migrations against the PostgreSQL pool within atomic transactions
-    pub async fn migrate(&self, pool: &PgPool) -> Result<Vec<MigrationResult>> {
+    pub async fn migrate(
+        &self,
+        pool: &PgPool,
+    ) -> Result<Vec<MigrationResult>> {
         info!("Running database migrations for APICH Workspace");
 
         // 1. Ensure migrations tracking table exists
@@ -126,11 +136,10 @@ impl MigrationManager {
         .await?;
 
         // 2. Fetch already applied versions
-        let applied_versions: Vec<i32> = sqlx::query_scalar(
-            "SELECT version FROM _schema_migrations ORDER BY version ASC;"
-        )
-        .fetch_all(pool)
-        .await?;
+        let applied_versions: Vec<i32> =
+            sqlx::query_scalar("SELECT version FROM _schema_migrations ORDER BY version ASC;")
+                .fetch_all(pool)
+                .await?;
 
         let mut newly_applied = Vec::new();
 
@@ -820,5 +829,3 @@ CREATE TABLE IF NOT EXISTS template_versions (
 );
 CREATE INDEX IF NOT EXISTS idx_template_versions_template ON template_versions(template_id, created_at DESC);
 "#;
-
-

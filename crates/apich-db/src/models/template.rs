@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -17,11 +19,11 @@ pub enum TemplateKind {
 impl TemplateKind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Note => "note",
-            Self::Latex => "latex",
-            Self::Typst => "typst",
-            Self::Slides => "slides",
-            Self::Kanban => "kanban",
+            | Self::Note => "note",
+            | Self::Latex => "latex",
+            | Self::Typst => "typst",
+            | Self::Slides => "slides",
+            | Self::Kanban => "kanban",
         }
     }
 }
@@ -31,11 +33,11 @@ impl std::str::FromStr for TemplateKind {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "latex" => Self::Latex,
-            "typst" => Self::Typst,
-            "slides" => Self::Slides,
-            "kanban" => Self::Kanban,
-            _ => Self::Note,
+            | "latex" => Self::Latex,
+            | "typst" => Self::Typst,
+            | "slides" => Self::Slides,
+            | "kanban" => Self::Kanban,
+            | _ => Self::Note,
         })
     }
 }
@@ -52,9 +54,9 @@ pub enum TemplateVisibility {
 impl TemplateVisibility {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Private => "private",
-            Self::Shared => "shared",
-            Self::Public => "public",
+            | Self::Private => "private",
+            | Self::Shared => "shared",
+            | Self::Public => "public",
         }
     }
 }
@@ -64,9 +66,9 @@ impl std::str::FromStr for TemplateVisibility {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "shared" => Self::Shared,
-            "public" => Self::Public,
-            _ => Self::Private,
+            | "shared" => Self::Shared,
+            | "public" => Self::Public,
+            | _ => Self::Private,
         })
     }
 }

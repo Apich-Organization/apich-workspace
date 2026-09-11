@@ -1,10 +1,15 @@
 use super::lfs::LfsPolicy;
-use crate::error::{Result, VcsError};
-use crate::model::{Snapshot, VcsTree};
+use crate::error::Result;
+use crate::error::VcsError;
+use crate::model::Snapshot;
+use crate::model::VcsTree;
 use crate::storage::ContentAddressableStorage;
-use git2::{Oid, Repository, Signature};
+use git2::Oid;
+use git2::Repository;
+use git2::Signature;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Git Compatibility Bridge allowing bidirectional translation between
@@ -22,12 +27,18 @@ impl GitBridge {
         }
     }
 
-    pub fn with_lfs_policy(mut self, policy: LfsPolicy) -> Self {
+    pub fn with_lfs_policy(
+        mut self,
+        policy: LfsPolicy,
+    ) -> Self {
         self.lfs_policy = policy;
         self
     }
 
-    pub fn set_lfs_policy(&mut self, policy: LfsPolicy) {
+    pub fn set_lfs_policy(
+        &mut self,
+        policy: LfsPolicy,
+    ) {
         self.lfs_policy = policy;
     }
 
@@ -42,11 +53,11 @@ impl GitBridge {
     /// Open existing Git repository or initialize a new one in the project directory
     pub fn open_or_init(&self) -> Result<Repository> {
         match Repository::open(&self.project_root) {
-            Ok(repo) => Ok(repo),
-            Err(_) => {
+            | Ok(repo) => Ok(repo),
+            | Err(_) => {
                 let repo = Repository::init(&self.project_root)?;
                 Ok(repo)
-            }
+            },
         }
     }
 
@@ -77,13 +88,13 @@ impl GitBridge {
         // Check if branch exists to set parent
         let branch_ref_name = format!("refs/heads/{}", branch_name);
         let parent_commit = match repo.find_reference(&branch_ref_name) {
-            Ok(r) => r.peel_to_commit().ok(),
-            Err(_) => None,
+            | Ok(r) => r.peel_to_commit().ok(),
+            | Err(_) => None,
         };
 
         let parents = match &parent_commit {
-            Some(p) => vec![p],
-            None => vec![],
+            | Some(p) => vec![p],
+            | None => vec![],
         };
 
         let commit_oid = repo.commit(
@@ -126,7 +137,11 @@ impl GitBridge {
                     let (pointer, _) = LfsPolicy::create_lfs_pointer(&file_bytes);
                     (pointer.into_bytes(), 0o100644)
                 } else {
-                    let mode = if entry.is_executable { 0o100755 } else { 0o100644 };
+                    let mode = if entry.is_executable {
+                        0o100755
+                    } else {
+                        0o100644
+                    };
                     (file_bytes, mode)
                 };
 
@@ -147,7 +162,10 @@ impl GitBridge {
 
     // --- Branch Operations ---
 
-    pub fn branch_create(&self, name: &str) -> Result<()> {
+    pub fn branch_create(
+        &self,
+        name: &str,
+    ) -> Result<()> {
         let repo = self.open_or_init()?;
         if let Ok(head) = repo.head().and_then(|h| h.peel_to_commit()) {
             let _ = repo.branch(name, &head, false);
@@ -155,7 +173,10 @@ impl GitBridge {
         Ok(())
     }
 
-    pub fn branch_switch(&self, name: &str) -> Result<()> {
+    pub fn branch_switch(
+        &self,
+        name: &str,
+    ) -> Result<()> {
         let repo = self.open_or_init()?;
         let ref_name = format!("refs/heads/{}", name);
         let _ = repo.set_head(&ref_name);
@@ -176,7 +197,11 @@ impl GitBridge {
 
     // --- Remote Operations ---
 
-    pub fn remote_add(&self, name: &str, url: &str) -> Result<()> {
+    pub fn remote_add(
+        &self,
+        name: &str,
+        url: &str,
+    ) -> Result<()> {
         let repo = self.open_or_init()?;
         repo.remote(name, url)?;
         Ok(())
@@ -203,7 +228,10 @@ impl GitBridge {
     // auth flows here.
 
     /// Clone a remote Git repository directly into `dest` (which must not already exist).
-    pub fn clone_repo(url: &str, dest: &Path) -> Result<()> {
+    pub fn clone_repo(
+        url: &str,
+        dest: &Path,
+    ) -> Result<()> {
         if dest.exists() {
             return Err(VcsError::Internal(format!(
                 "Clone destination already exists: {}",
@@ -223,7 +251,10 @@ impl GitBridge {
         Ok(())
     }
 
-    pub fn fetch(&self, remote: &str) -> Result<()> {
+    pub fn fetch(
+        &self,
+        remote: &str,
+    ) -> Result<()> {
         let output = Command::new("git")
             .arg("-C")
             .arg(&self.project_root)
@@ -238,7 +269,10 @@ impl GitBridge {
         Ok(())
     }
 
-    pub fn rebase(&self, upstream: &str) -> Result<()> {
+    pub fn rebase(
+        &self,
+        upstream: &str,
+    ) -> Result<()> {
         let output = Command::new("git")
             .arg("-C")
             .arg(&self.project_root)
@@ -253,7 +287,11 @@ impl GitBridge {
         Ok(())
     }
 
-    pub fn push(&self, remote: &str, branch: &str) -> Result<()> {
+    pub fn push(
+        &self,
+        remote: &str,
+        branch: &str,
+    ) -> Result<()> {
         let mut cmd = Command::new("git");
         cmd.arg("-C")
             .arg(&self.project_root)
@@ -269,7 +307,11 @@ impl GitBridge {
         Ok(())
     }
 
-    pub fn pull(&self, remote: &str, branch: &str) -> Result<()> {
+    pub fn pull(
+        &self,
+        remote: &str,
+        branch: &str,
+    ) -> Result<()> {
         let mut cmd = Command::new("git");
         cmd.arg("-C")
             .arg(&self.project_root)

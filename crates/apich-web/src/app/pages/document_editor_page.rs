@@ -1,9 +1,14 @@
-use crate::app::components::{ActiveNav, AiDrawer, AppShell, FileShareModal};
+use crate::app::components::ActiveNav;
+use crate::app::components::AiDrawer;
+use crate::app::components::AppShell;
+use crate::app::components::FileShareModal;
 use crate::services::knowledge_sync::NoteHeading;
 use crate::services::FileShareInfo;
 use crate::ui::i18n::I18n;
-use apich_db::{Project, User};
-use apich_islands::{DocumentEditorIsland, HeadingItem};
+use apich_db::Project;
+use apich_db::User;
+use apich_islands::DocumentEditorIsland;
+use apich_islands::HeadingItem;
 use leptos::prelude::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -32,47 +37,103 @@ pub fn DocumentEditorPage(
     let project_id = project.id;
 
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                .into_any()
+        })
     };
 
-    let kind_label = if is_script { "PYTHON / SCRIPT" } else if is_slide { "CARGO-SLIDE" } else { "TYPST / LATEX" };
+    let kind_label = if is_script {
+        "PYTHON / SCRIPT"
+    } else if is_slide {
+        "CARGO-SLIDE"
+    } else {
+        "TYPST / LATEX"
+    };
 
     let share_label = match file_share.as_ref() {
-        Some(s) if s.mode == "public" => format!("🌐 Public ({})", s.role),
-        Some(s) if s.mode == "specific" => format!("👥 Specific ({})", s.role),
-        _ => "🔒 Private".to_string(),
+        | Some(s) if s.mode == "public" => format!("🌐 Public ({})", s.role),
+        | Some(s) if s.mode == "specific" => format!("👥 Specific ({})", s.role),
+        | _ => "🔒 Private".to_string(),
     };
-    let share_mode = file_share.as_ref().map(|s| s.mode.clone()).unwrap_or_else(|| "private".to_string());
-    let share_role = file_share.as_ref().map(|s| s.role.clone()).unwrap_or_else(|| "read".to_string());
-    let share_users = file_share.as_ref().map(|s| s.allowed_users.join(",")).unwrap_or_default();
+    let share_mode = file_share
+        .as_ref()
+        .map(|s| s.mode.clone())
+        .unwrap_or_else(|| "private".to_string());
+    let share_role = file_share
+        .as_ref()
+        .map(|s| s.role.clone())
+        .unwrap_or_else(|| "read".to_string());
+    let share_users = file_share
+        .as_ref()
+        .map(|s| s.allowed_users.join(","))
+        .unwrap_or_default();
     let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
-    let share_onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))", share_detail);
+    let share_onclick = format!(
+        "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))",
+        share_detail
+    );
 
     let slide_present_btn = is_slide.then(|| view! {
         <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('editor-present-trigger')?.click()">"🖥️ " {i18n.present_mode()}</button>
     });
 
     let is_typst_preview = is_slide || file_path.ends_with(".typ");
-    let is_latex_preview = !is_script && !is_typst_preview && (file_path.ends_with(".tex") || file_path.ends_with(".latex"));
+    let is_latex_preview = !is_script
+        && !is_typst_preview
+        && (file_path.ends_with(".tex") || file_path.ends_with(".latex"));
 
     // LaTeX has its own "Download PDF" link inside `DocumentEditorIsland`'s preview toolbar (it
     // needs to stay in sync with the reactive engine selector there); only Typst gets one here.
-    let download_pdf_href = is_typst_preview
-        .then(|| format!("/projects/{}/editor/typst-pdf?file={}", project_id, urlencoding::encode(&file_path)));
-    let download_pdf_name = std::path::Path::new(&file_path).file_stem().and_then(|s| s.to_str()).unwrap_or("document").to_string();
+    let download_pdf_href = is_typst_preview.then(|| {
+        format!(
+            "/projects/{}/editor/typst-pdf?file={}",
+            project_id,
+            urlencoding::encode(&file_path)
+        )
+    });
+    let download_pdf_name = std::path::Path::new(&file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document")
+        .to_string();
     let download_pdf_btn = download_pdf_href.map(|href| view! {
         <a href=href download=format!("{}.pdf", download_pdf_name) class="btn btn-secondary btn-sm">"⬇️ Download PDF"</a>
     });
     let download_slide_bin_btn = is_slide.then(|| view! {
         <apich_islands::SlideBuildIsland project_id=project_id.to_string() file_path=file_path.clone() />
     });
-    let rendered_markdown_html = (!is_script && !is_typst_preview && !is_latex_preview).then(|| {
-        crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(&content, &file_path, project_id).html
+    let rendered_markdown_html =
+        (!is_script && !is_typst_preview && !is_latex_preview).then(|| {
+            crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(
+                &content, &file_path, project_id,
+            )
+            .html
+        });
+    let editor_headings: Vec<HeadingItem> = headings
+        .iter()
+        .map(|h| {
+            HeadingItem {
+                level: h.level as u8,
+                text: h.text.clone(),
+            }
+        })
+        .collect();
+    let template_panel = template_kind.map(|kind| {
+        render_file_template_panel(
+            project_id,
+            &file_path,
+            &kind,
+            &own_file_templates,
+            &visible_file_templates,
+            i18n,
+        )
     });
-    let editor_headings: Vec<HeadingItem> = headings.iter().map(|h| HeadingItem { level: h.level as u8, text: h.text.clone() }).collect();
-    let template_panel = template_kind.map(|kind| render_file_template_panel(project_id, &file_path, &kind, &own_file_templates, &visible_file_templates, i18n));
 
     view! {
         <AppShell

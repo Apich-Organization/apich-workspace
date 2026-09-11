@@ -1,15 +1,20 @@
-use crate::error::{WebError, WebResult};
+use crate::error::WebError;
+use crate::error::WebResult;
 use base64::prelude::*;
-use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use p256::ecdsa::signature::Verifier;
+use p256::ecdsa::Signature;
+use p256::ecdsa::VerifyingKey;
 use p256::pkcs8::DecodePublicKey;
 use rand::RngCore;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use serde::Deserialize;
+use serde::Serialize;
+use sha2::Digest;
+use sha2::Sha256;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -75,7 +80,10 @@ impl PasskeyManager {
     }
 
     /// Generate a cryptographically secure 32-byte random challenge
-    pub fn generate_challenge(&self, user_id: Option<Uuid>) -> String {
+    pub fn generate_challenge(
+        &self,
+        user_id: Option<Uuid>,
+    ) -> String {
         let mut bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut bytes);
         let challenge = BASE64_URL_SAFE_NO_PAD.encode(bytes);
@@ -95,16 +103,23 @@ impl PasskeyManager {
     }
 
     /// Verify and consume a challenge
-    pub fn verify_and_consume_challenge(&self, challenge: &str) -> WebResult<Option<Uuid>> {
+    pub fn verify_and_consume_challenge(
+        &self,
+        challenge: &str,
+    ) -> WebResult<Option<Uuid>> {
         let mut lock = self.challenges.lock().unwrap();
         match lock.remove(challenge) {
-            Some(entry) => {
+            | Some(entry) => {
                 if entry.created_at.elapsed() > Duration::from_secs(300) {
                     return Err(WebError::PasskeyError("Challenge expired".to_string()));
                 }
                 Ok(entry.user_id)
-            }
-            None => Err(WebError::PasskeyError("Invalid or unknown challenge".to_string())),
+            },
+            | None => {
+                Err(WebError::PasskeyError(
+                    "Invalid or unknown challenge".to_string(),
+                ))
+            },
         }
     }
 
@@ -143,8 +158,13 @@ impl PasskeyManager {
 
         // 5. Verify ECDSA signature
         match verifying_key.verify(&signed_data, &signature) {
-            Ok(()) => Ok(true),
-            Err(e) => Err(WebError::PasskeyError(format!("Signature verification failed: {}", e))),
+            | Ok(()) => Ok(true),
+            | Err(e) => {
+                Err(WebError::PasskeyError(format!(
+                    "Signature verification failed: {}",
+                    e
+                )))
+            },
         }
     }
 }
@@ -152,7 +172,8 @@ impl PasskeyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p256::ecdsa::{signature::Signer, SigningKey};
+    use p256::ecdsa::signature::Signer;
+    use p256::ecdsa::SigningKey;
     use serde_json::json;
 
     #[test]
@@ -199,4 +220,3 @@ mod tests {
         assert!(result.unwrap());
     }
 }
-

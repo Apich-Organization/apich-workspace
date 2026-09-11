@@ -35,18 +35,26 @@ pub use auth_tabs::AuthTabsIsland;
 pub use confirm_submit::ConfirmSubmitButton;
 pub use copy_link::CopyLinkIsland;
 pub use delete_row_button::DeleteRowButtonIsland;
-pub use document_editor::{DocumentEditorIsland, HeadingItem};
-pub use file_share::{FileShareModalIsland, ShareableUser};
+pub use document_editor::DocumentEditorIsland;
+pub use document_editor::HeadingItem;
+pub use file_share::FileShareModalIsland;
+pub use file_share::ShareableUser;
 pub use modal::ModalIsland;
 pub use name_slug_fields::NameSlugFieldsIsland;
-pub use note_editor::{NoteEditorIsland, NoteHeadingItem};
-pub use notebook::{NotebookCellData, NotebookCellImageData, NotebookIsland};
+pub use note_editor::NoteEditorIsland;
+pub use note_editor::NoteHeadingItem;
+pub use notebook::NotebookCellData;
+pub use notebook::NotebookCellImageData;
+pub use notebook::NotebookIsland;
 pub use org_signup_fields::OrgSignupFieldsIsland;
 pub use slide_build::SlideBuildIsland;
-pub use spreadsheet::{CellStyle as SpreadsheetCellStyle, CellStyleEntry, SpreadsheetIsland};
+pub use spreadsheet::CellStyle as SpreadsheetCellStyle;
+pub use spreadsheet::CellStyleEntry;
+pub use spreadsheet::SpreadsheetIsland;
 pub use sql_console::SqlConsoleIsland;
 pub use terminal::TerminalIsland;
-pub use webauthn::{PasskeyEnrollIsland, PasskeyLoginIsland};
+pub use webauthn::PasskeyEnrollIsland;
+pub use webauthn::PasskeyLoginIsland;
 pub use whiteboard::WhiteboardIsland;
 
 /// Minimal bilingual-string helper for islands. This crate can't depend on apich-web's `I18n`
@@ -57,7 +65,11 @@ pub use whiteboard::WhiteboardIsland;
 /// presets, ...) was hardcoded English regardless of the user's selected language -- `i18n.rs`'s
 /// ~200 translated strings never reached any of the interactive islands at all, only the plain
 /// server-rendered page chrome around them.
-pub fn t(is_zh: bool, en: &'static str, zh: &'static str) -> &'static str {
+pub fn t(
+    is_zh: bool,
+    en: &'static str,
+    zh: &'static str,
+) -> &'static str {
     if is_zh {
         zh
     } else {
@@ -105,8 +117,17 @@ mod tests {
     #[test]
     fn island_marker_matches_expected_shape() {
         let html = view! { <PingCounterIsland start=0 /> }.to_html();
-        assert!(html.contains("leptos-island"), "missing <leptos-island> wrapper: {html}");
-        assert!(html.contains("data-component"), "missing data-component attr: {html}");
-        assert!(html.contains("PingCounterIsland"), "component id should be derived from the fn name: {html}");
+        assert!(
+            html.contains("leptos-island"),
+            "missing <leptos-island> wrapper: {html}"
+        );
+        assert!(
+            html.contains("data-component"),
+            "missing data-component attr: {html}"
+        );
+        assert!(
+            html.contains("PingCounterIsland"),
+            "component id should be derived from the fn name: {html}"
+        );
     }
 }

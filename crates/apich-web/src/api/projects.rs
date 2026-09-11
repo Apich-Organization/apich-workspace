@@ -1,19 +1,24 @@
-use crate::{
-    auth::AuthUser,
-    error::{WebError, WebResult},
-    services::{KnowledgeSyncService, SqliteTableService},
-    state::AppState,
-};
-use apich_db::{
-    CreateProjectDto, IdentityPermissionResolver, Project, ProjectMember, ProjectMemberWithUser,
-    ProjectSandbox,
-};
+use crate::auth::AuthUser;
+use crate::error::WebError;
+use crate::error::WebResult;
+use crate::services::KnowledgeSyncService;
+use crate::services::SqliteTableService;
+use crate::state::AppState;
+use apich_db::CreateProjectDto;
+use apich_db::IdentityPermissionResolver;
+use apich_db::Project;
+use apich_db::ProjectMember;
+use apich_db::ProjectMemberWithUser;
+use apich_db::ProjectSandbox;
 use apich_vcs::Snapshot;
-use axum::{
-    extract::{Path, Query, State},
-    routing::{get, post, put},
-    Json, Router,
-};
+use axum::extract::Path;
+use axum::extract::Query;
+use axum::extract::State;
+use axum::routing::get;
+use axum::routing::post;
+use axum::routing::put;
+use axum::Json;
+use axum::Router;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -44,9 +49,15 @@ pub fn router() -> Router<AppState> {
         // Knowledge Hub (Tasks, Kanban, Wiki, Calendar)
         .route("/projects/:id/knowledge/tasks", get(get_knowledge_tasks))
         .route("/projects/:id/knowledge/kanban", get(get_knowledge_kanban))
-        .route("/projects/:id/knowledge/tasks/update", post(update_knowledge_task))
+        .route(
+            "/projects/:id/knowledge/tasks/update",
+            post(update_knowledge_task),
+        )
         .route("/projects/:id/knowledge/graph", get(get_knowledge_graph))
-        .route("/projects/:id/knowledge/calendar", get(get_knowledge_calendar))
+        .route(
+            "/projects/:id/knowledge/calendar",
+            get(get_knowledge_calendar),
+        )
         // Effective Hub Links
         .route("/projects/:id/hub-links", get(get_project_hub_links))
 }
@@ -113,7 +124,8 @@ async fn get_project(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Project>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -132,9 +144,12 @@ async fn start_sandbox(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<ProjectSandbox>> {
-    let can_edit = IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
+    let can_edit =
+        IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
     if !can_edit {
-        return Err(WebError::Forbidden("Edit privileges required to launch project sandbox".to_string()));
+        return Err(WebError::Forbidden(
+            "Edit privileges required to launch project sandbox".to_string(),
+        ));
     }
 
     let sandbox = state.project_manager.launch_sandbox(id, user.id).await?;
@@ -146,9 +161,12 @@ async fn stop_sandbox(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<ProjectSandbox>> {
-    let can_edit = IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
+    let can_edit =
+        IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
     if !can_edit {
-        return Err(WebError::Forbidden("Edit privileges required to stop project sandbox".to_string()));
+        return Err(WebError::Forbidden(
+            "Edit privileges required to stop project sandbox".to_string(),
+        ));
     }
 
     let sandbox = state.project_manager.stop_sandbox(id, user.id).await?;
@@ -160,7 +178,8 @@ async fn get_sandbox_status(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Option<ProjectSandbox>>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -176,9 +195,12 @@ async fn snapshot_project(
     Path(id): Path<Uuid>,
     Json(payload): Json<SnapshotRequest>,
 ) -> WebResult<Json<Option<Snapshot>>> {
-    let can_edit = IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
+    let can_edit =
+        IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
     if !can_edit {
-        return Err(WebError::Forbidden("Edit privileges required to snapshot project".to_string()));
+        return Err(WebError::Forbidden(
+            "Edit privileges required to snapshot project".to_string(),
+        ));
     }
 
     let summary = state
@@ -194,7 +216,8 @@ async fn get_project_timeline(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<Snapshot>>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -208,13 +231,18 @@ async fn archive_project(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<serde_json::Value>> {
-    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
+    let can_manage =
+        IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
     if !can_manage {
-        return Err(WebError::Forbidden("Management privileges required to archive project".to_string()));
+        return Err(WebError::Forbidden(
+            "Management privileges required to archive project".to_string(),
+        ));
     }
 
     state.project_manager.archive_project(id).await?;
-    Ok(Json(json!({ "status": "success", "message": "Project archived" })))
+    Ok(Json(
+        json!({ "status": "success", "message": "Project archived" }),
+    ))
 }
 
 async fn delete_project(
@@ -222,13 +250,18 @@ async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<serde_json::Value>> {
-    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
+    let can_manage =
+        IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
     if !can_manage {
-        return Err(WebError::Forbidden("Management privileges required to delete project".to_string()));
+        return Err(WebError::Forbidden(
+            "Management privileges required to delete project".to_string(),
+        ));
     }
 
     state.project_manager.delete_project(id).await?;
-    Ok(Json(json!({ "status": "success", "message": "Project deleted" })))
+    Ok(Json(
+        json!({ "status": "success", "message": "Project deleted" }),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,9 +280,12 @@ async fn list_project_members(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<ProjectMemberWithUser>>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
-        return Err(WebError::Forbidden("Access denied to project members".to_string()));
+        return Err(WebError::Forbidden(
+            "Access denied to project members".to_string(),
+        ));
     }
 
     let repo = state.db.repository();
@@ -263,9 +299,12 @@ async fn add_project_member(
     Path(id): Path<Uuid>,
     Json(payload): Json<AddProjectMemberRequest>,
 ) -> WebResult<Json<ProjectMember>> {
-    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
+    let can_manage =
+        IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
     if !can_manage {
-        return Err(WebError::Forbidden("Management privileges required to share project".to_string()));
+        return Err(WebError::Forbidden(
+            "Management privileges required to share project".to_string(),
+        ));
     }
 
     let role = payload.role.as_deref().unwrap_or("editor");
@@ -280,13 +319,18 @@ async fn update_project_member(
     Path((id, target_user_id)): Path<(Uuid, Uuid)>,
     Json(payload): Json<UpdateProjectMemberRequest>,
 ) -> WebResult<Json<ProjectMember>> {
-    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
+    let can_manage =
+        IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
     if !can_manage {
-        return Err(WebError::Forbidden("Management privileges required to update collaborator role".to_string()));
+        return Err(WebError::Forbidden(
+            "Management privileges required to update collaborator role".to_string(),
+        ));
     }
 
     let repo = state.db.repository();
-    let member = repo.update_project_member_role(id, target_user_id, &payload.role).await?;
+    let member = repo
+        .update_project_member_role(id, target_user_id, &payload.role)
+        .await?;
     Ok(Json(member))
 }
 
@@ -295,14 +339,19 @@ async fn remove_project_member(
     State(state): State<AppState>,
     Path((id, target_user_id)): Path<(Uuid, Uuid)>,
 ) -> WebResult<Json<serde_json::Value>> {
-    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
+    let can_manage =
+        IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
     if !can_manage {
-        return Err(WebError::Forbidden("Management privileges required to remove collaborators".to_string()));
+        return Err(WebError::Forbidden(
+            "Management privileges required to remove collaborators".to_string(),
+        ));
     }
 
     let repo = state.db.repository();
     repo.remove_project_member(id, target_user_id).await?;
-    Ok(Json(json!({ "status": "success", "message": "Collaborator removed from project" })))
+    Ok(Json(
+        json!({ "status": "success", "message": "Collaborator removed from project" }),
+    ))
 }
 
 async fn list_project_databases(
@@ -310,7 +359,8 @@ async fn list_project_databases(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<crate::services::sqlite_table::DatabaseFileInfo>>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -335,7 +385,8 @@ async fn get_database_schema(
     Path(id): Path<Uuid>,
     Query(query): Query<DatabaseFileQuery>,
 ) -> WebResult<Json<crate::services::sqlite_table::DatabaseSchema>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -367,7 +418,8 @@ async fn get_table_data(
     Path(id): Path<Uuid>,
     Query(query): Query<TableDataQuery>,
 ) -> WebResult<Json<crate::services::sqlite_table::TableDataPage>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -402,9 +454,12 @@ async fn execute_project_sql(
     Path(id): Path<Uuid>,
     Json(payload): Json<ExecuteSqlRequest>,
 ) -> WebResult<Json<crate::services::sqlite_table::SqlExecutionResult>> {
-    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
+    let can_manage =
+        IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, id).await?;
     if !can_manage {
-        return Err(WebError::Forbidden("Management privileges required to execute SQL".to_string()));
+        return Err(WebError::Forbidden(
+            "Management privileges required to execute SQL".to_string(),
+        ));
     }
     let repo = state.db.repository();
     let proj = repo
@@ -422,7 +477,8 @@ async fn get_knowledge_tasks(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<crate::services::knowledge_sync::MarkdownTask>>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -441,7 +497,8 @@ async fn get_knowledge_kanban(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<crate::services::knowledge_sync::KanbanBoard>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -472,7 +529,8 @@ async fn update_knowledge_task(
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateTaskRequest>,
 ) -> WebResult<Json<serde_json::Value>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -503,7 +561,9 @@ async fn update_knowledge_task(
         is_done_column,
     )?;
 
-    Ok(Json(json!({ "status": "success", "message": "Task status updated in document" })))
+    Ok(Json(
+        json!({ "status": "success", "message": "Task status updated in document" }),
+    ))
 }
 
 async fn get_knowledge_graph(
@@ -511,7 +571,8 @@ async fn get_knowledge_graph(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<crate::services::knowledge_sync::KnowledgeGraph>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -530,7 +591,8 @@ async fn get_knowledge_calendar(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<crate::services::knowledge_sync::CalendarEvent>>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }
@@ -549,7 +611,8 @@ async fn get_project_hub_links(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<apich_db::EffectiveHubLinks>> {
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
     if !can_access {
         return Err(WebError::Forbidden("Access denied to project".to_string()));
     }

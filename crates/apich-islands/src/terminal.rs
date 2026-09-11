@@ -46,7 +46,12 @@ pub fn TerminalIsland(
         run_command(project_id.clone(), cmd, screen, busy);
     };
 
-    let quick_commands = ["typst --version", "python3 --version", "git status", "ls -la"];
+    let quick_commands = [
+        "typst --version",
+        "python3 --version",
+        "git status",
+        "ls -la",
+    ];
 
     view! {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
@@ -101,39 +106,52 @@ pub fn TerminalIsland(
 }
 
 #[cfg(feature = "hydrate")]
-fn run_command(project_id: String, cmd: String, screen: RwSignal<String>, busy: RwSignal<bool>) {
+fn run_command(
+    project_id: String,
+    cmd: String,
+    screen: RwSignal<String>,
+    busy: RwSignal<bool>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         let body = format!("command={}", urlencode(&cmd));
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/terminal/exec", project_id))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .expect("valid form body")
-            .send()
-            .await;
+        let result =
+            gloo_net::http::Request::post(&format!("/projects/{}/terminal/exec", project_id))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(body)
+                .expect("valid form body")
+                .send()
+                .await;
 
         match result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(data) => {
-                    if let Some(out) = data.get("output").and_then(|v| v.as_str()) {
-                        screen.update(|s| s.push_str(out));
-                    } else if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
-                        screen.update(|s| {
-                            s.push_str("[Error]: ");
-                            s.push_str(err);
-                            s.push('\n');
-                        });
-                    }
+            | Ok(resp) => {
+                match resp.json::<serde_json::Value>().await {
+                    | Ok(data) => {
+                        if let Some(out) = data.get("output").and_then(|v| v.as_str()) {
+                            screen.update(|s| s.push_str(out));
+                        } else if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                            screen.update(|s| {
+                                s.push_str("[Error]: ");
+                                s.push_str(err);
+                                s.push('\n');
+                            });
+                        }
+                    },
+                    | Err(e) => screen.update(|s| s.push_str(&format!("[Response Error]: {e}\n"))),
                 }
-                Err(e) => screen.update(|s| s.push_str(&format!("[Response Error]: {e}\n"))),
             },
-            Err(e) => screen.update(|s| s.push_str(&format!("[Network Error]: {e}\n"))),
+            | Err(e) => screen.update(|s| s.push_str(&format!("[Network Error]: {e}\n"))),
         }
         busy.set(false);
     });
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn run_command(_project_id: String, _cmd: String, _screen: RwSignal<String>, busy: RwSignal<bool>) {
+fn run_command(
+    _project_id: String,
+    _cmd: String,
+    _screen: RwSignal<String>,
+    busy: RwSignal<bool>,
+) {
     busy.set(false);
 }
 
@@ -142,9 +160,11 @@ fn urlencode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            b' ' => out.push('+'),
-            _ => out.push_str(&format!("%{:02X}", b)),
+            | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            },
+            | b' ' => out.push('+'),
+            | _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
     out

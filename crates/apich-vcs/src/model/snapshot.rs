@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use uuid::Uuid;
 
 /// Immutable point-in-time state of a project
@@ -84,12 +86,21 @@ impl Snapshot {
         parent_snapshot_id: Option<Uuid>,
         author: impl Into<String>,
     ) -> Self {
-        let mut s = Self::new(tree_hash, "Auto-saved workspace state", parent_snapshot_id, author);
+        let mut s = Self::new(
+            tree_hash,
+            "Auto-saved workspace state",
+            parent_snapshot_id,
+            author,
+        );
         s.is_auto_save = true;
         s
     }
 
-    pub fn mark_milestone(&mut self, name: impl Into<String>, description: impl Into<String>) {
+    pub fn mark_milestone(
+        &mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+    ) {
         self.is_milestone = true;
         self.milestone_name = Some(name.into());
         let desc = description.into();

@@ -1,8 +1,15 @@
-use super::op::{OpAction, VcsOperation};
+use super::op::OpAction;
+use super::op::VcsOperation;
 use crate::error::Result;
-use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::fs::OpenOptions;
+use std::fs::{
+    self,
+};
+use std::io::BufRead;
+use std::io::BufReader;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 /// Append-only operation ledger facilitating 100% reversible history and undo-tree
@@ -20,7 +27,10 @@ impl OpLog {
     }
 
     /// Append a new operation to the log
-    pub fn append(&self, op: &VcsOperation) -> Result<()> {
+    pub fn append(
+        &self,
+        op: &VcsOperation,
+    ) -> Result<()> {
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -54,19 +64,22 @@ impl OpLog {
 
     /// Undo the last mutating operation: find the target snapshot before the operation,
     /// and record an Undo entry. Returns target snapshot ID to revert to.
-    pub fn undo(&self, current_snapshot: Option<Uuid>) -> Result<Option<Uuid>> {
+    pub fn undo(
+        &self,
+        current_snapshot: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
         let ops = self.list()?;
         let mut net_undo_depth: usize = 0;
 
         for op in ops.iter().rev() {
             match op.action {
-                OpAction::Redo => {
+                | OpAction::Redo => {
                     net_undo_depth = net_undo_depth.saturating_sub(1);
-                }
-                OpAction::Undo => {
+                },
+                | OpAction::Undo => {
                     net_undo_depth += 1;
-                }
-                _ => {
+                },
+                | _ => {
                     if net_undo_depth > 0 {
                         net_undo_depth -= 1;
                     } else {
@@ -85,7 +98,7 @@ impl OpLog {
                             return Ok(None);
                         }
                     }
-                }
+                },
             }
         }
         Ok(None)
@@ -93,16 +106,19 @@ impl OpLog {
 
     /// Redo the last undone operation: find the matching Undo operation to reverse,
     /// and record a Redo entry. Returns target snapshot ID to restore.
-    pub fn redo(&self, current_snapshot: Option<Uuid>) -> Result<Option<Uuid>> {
+    pub fn redo(
+        &self,
+        current_snapshot: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
         let ops = self.list()?;
         let mut net_redo_depth: usize = 0;
 
         for op in ops.iter().rev() {
             match op.action {
-                OpAction::Redo => {
+                | OpAction::Redo => {
                     net_redo_depth += 1;
-                }
-                OpAction::Undo => {
+                },
+                | OpAction::Undo => {
                     if net_redo_depth > 0 {
                         net_redo_depth -= 1;
                     } else if let Some(target_id) = op.snapshot_before {
@@ -115,11 +131,11 @@ impl OpLog {
                         self.append(&redo_op)?;
                         return Ok(Some(target_id));
                     }
-                }
-                _ => {
+                },
+                | _ => {
                     // New mutation encountered; cannot redo past a fresh mutation
                     break;
-                }
+                },
             }
         }
 

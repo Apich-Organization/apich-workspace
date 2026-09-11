@@ -1,12 +1,20 @@
-use crate::{
-    auth::{hash_password, verify_password},
-    error::{WebError, WebResult},
-};
-use apich_db::{
-    CreateOrganizationDto, CreateTeamDto, Database, IdentityPermissionResolver, OrgMemberWithUser,
-    Organization, Team, TeamMemberWithUser, TeamTreeNode, UpdateOrganizationDto, UpdateTeamDto,
-    UpdateUserProfileDto, User,
-};
+use crate::auth::hash_password;
+use crate::auth::verify_password;
+use crate::error::WebError;
+use crate::error::WebResult;
+use apich_db::CreateOrganizationDto;
+use apich_db::CreateTeamDto;
+use apich_db::Database;
+use apich_db::IdentityPermissionResolver;
+use apich_db::OrgMemberWithUser;
+use apich_db::Organization;
+use apich_db::Team;
+use apich_db::TeamMemberWithUser;
+use apich_db::TeamTreeNode;
+use apich_db::UpdateOrganizationDto;
+use apich_db::UpdateTeamDto;
+use apich_db::UpdateUserProfileDto;
+use apich_db::User;
 
 use std::sync::Arc;
 use uuid::Uuid;
@@ -52,26 +60,34 @@ impl IdentityService {
             .ok_or_else(|| WebError::NotFound("Organization not found".to_string()))?;
 
         // Check view access (org admin, member, or platform admin)
-        let can_manage = IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
         if !can_manage {
             // Check if member
             let members = repo.list_org_members(org_id).await?;
             if !members.iter().any(|m| m.user_id == caller_id) {
-                return Err(WebError::Forbidden("Access denied to organization".to_string()));
+                return Err(WebError::Forbidden(
+                    "Access denied to organization".to_string(),
+                ));
             }
         }
 
         Ok(org)
     }
 
-    pub async fn list_user_organizations(&self, user_id: Uuid) -> WebResult<Vec<Organization>> {
-        let is_admin = IdentityPermissionResolver::is_platform_admin(self.db.pool(), user_id).await?;
+    pub async fn list_user_organizations(
+        &self,
+        user_id: Uuid,
+    ) -> WebResult<Vec<Organization>> {
+        let is_admin =
+            IdentityPermissionResolver::is_platform_admin(self.db.pool(), user_id).await?;
         let repo = self.db.repository();
         if is_admin {
             // Platform admin sees all orgs
-            let all = sqlx::query_as::<_, Organization>("SELECT * FROM organizations ORDER BY name ASC")
-                .fetch_all(self.db.pool())
-                .await?;
+            let all =
+                sqlx::query_as::<_, Organization>("SELECT * FROM organizations ORDER BY name ASC")
+                    .fetch_all(self.db.pool())
+                    .await?;
             Ok(all)
         } else {
             let orgs = repo.list_organizations_for_user(user_id).await?;
@@ -86,7 +102,8 @@ impl IdentityService {
         target_user_id: Uuid,
         role: &str,
     ) -> WebResult<()> {
-        let can_manage = IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
         if !can_manage {
             return Err(WebError::Forbidden(
                 "You must be an Organization Owner or Platform Admin to manage members".to_string(),
@@ -104,7 +121,8 @@ impl IdentityService {
         org_id: Uuid,
         target_user_id: Uuid,
     ) -> WebResult<()> {
-        let can_manage = IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
         if !can_manage {
             return Err(WebError::Forbidden(
                 "You must be an Organization Owner or Platform Admin to remove members".to_string(),
@@ -133,10 +151,12 @@ impl IdentityService {
         org_id: Uuid,
         dto: UpdateOrganizationDto,
     ) -> WebResult<Organization> {
-        let can_manage = IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, org_id).await?;
         if !can_manage {
             return Err(WebError::Forbidden(
-                "You must be an Organization Owner or Platform Admin to edit this organization".to_string(),
+                "You must be an Organization Owner or Platform Admin to edit this organization"
+                    .to_string(),
             ));
         }
 
@@ -150,14 +170,18 @@ impl IdentityService {
         caller_id: Uuid,
         org_id: Uuid,
     ) -> WebResult<()> {
-        let is_platform_admin = IdentityPermissionResolver::is_platform_admin(self.db.pool(), caller_id).await?;
+        let is_platform_admin =
+            IdentityPermissionResolver::is_platform_admin(self.db.pool(), caller_id).await?;
         let repo = self.db.repository();
         let members = repo.list_org_members(org_id).await?;
-        let is_owner = members.iter().any(|m| m.user_id == caller_id && m.role == "owner");
+        let is_owner = members
+            .iter()
+            .any(|m| m.user_id == caller_id && m.role == "owner");
 
         if !is_platform_admin && !is_owner {
             return Err(WebError::Forbidden(
-                "Only the Organization Owner or Platform Admin can delete an organization".to_string(),
+                "Only the Organization Owner or Platform Admin can delete an organization"
+                    .to_string(),
             ));
         }
 
@@ -177,9 +201,11 @@ impl IdentityService {
         // If parent_team_id is specified: caller must be admin of parent team OR org owner
         // If no parent_team_id: caller must be org owner/admin
         let can_manage = if let Some(parent_id) = dto.parent_team_id {
-            IdentityPermissionResolver::can_manage_team(self.db.pool(), creator_id, parent_id).await?
+            IdentityPermissionResolver::can_manage_team(self.db.pool(), creator_id, parent_id)
+                .await?
         } else {
-            IdentityPermissionResolver::can_manage_org(self.db.pool(), creator_id, dto.org_id).await?
+            IdentityPermissionResolver::can_manage_org(self.db.pool(), creator_id, dto.org_id)
+                .await?
         };
 
         if !can_manage {
@@ -222,7 +248,8 @@ impl IdentityService {
         target_user_id: Uuid,
         role: &str,
     ) -> WebResult<()> {
-        let can_manage = IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?;
         if !can_manage {
             return Err(WebError::Forbidden(
                 "You do not have administrative rights to manage members in this team".to_string(),
@@ -240,10 +267,12 @@ impl IdentityService {
         team_id: Uuid,
         target_user_id: Uuid,
     ) -> WebResult<()> {
-        let can_manage = IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?;
         if !can_manage {
             return Err(WebError::Forbidden(
-                "You do not have administrative rights to remove members from this team".to_string(),
+                "You do not have administrative rights to remove members from this team"
+                    .to_string(),
             ));
         }
 
@@ -263,8 +292,13 @@ impl IdentityService {
             .await?
             .ok_or_else(|| WebError::NotFound("Team not found".to_string()))?;
 
-        let can_view = IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?
-            || repo.list_team_members(team_id).await?.iter().any(|m| m.user_id == caller_id);
+        let can_view =
+            IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?
+                || repo
+                    .list_team_members(team_id)
+                    .await?
+                    .iter()
+                    .any(|m| m.user_id == caller_id);
 
         if !can_view {
             let _ = self.get_organization(caller_id, team.org_id).await?;
@@ -287,8 +321,14 @@ impl IdentityService {
             .ok_or_else(|| WebError::NotFound("Team not found".to_string()))?;
 
         // Caller must be able to manage this team or its organization
-        let can_manage = IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?
-            || IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, team.org_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?
+                || IdentityPermissionResolver::can_manage_org(
+                    self.db.pool(),
+                    caller_id,
+                    team.org_id,
+                )
+                .await?;
 
         if !can_manage {
             return Err(WebError::Forbidden(
@@ -320,8 +360,14 @@ impl IdentityService {
             .await?
             .ok_or_else(|| WebError::NotFound("Team not found".to_string()))?;
 
-        let can_manage = IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?
-            || IdentityPermissionResolver::can_manage_org(self.db.pool(), caller_id, team.org_id).await?;
+        let can_manage =
+            IdentityPermissionResolver::can_manage_team(self.db.pool(), caller_id, team_id).await?
+                || IdentityPermissionResolver::can_manage_org(
+                    self.db.pool(),
+                    caller_id,
+                    team.org_id,
+                )
+                .await?;
 
         if !can_manage {
             return Err(WebError::Forbidden(
@@ -377,7 +423,10 @@ impl IdentityService {
     }
 
     /// Check if user has administrative roles in any organization or team
-    pub async fn is_org_or_team_admin(&self, user_id: Uuid) -> WebResult<bool> {
+    pub async fn is_org_or_team_admin(
+        &self,
+        user_id: Uuid,
+    ) -> WebResult<bool> {
         let result: (bool,) = sqlx::query_as(
             r#"
             SELECT EXISTS (
@@ -395,4 +444,3 @@ impl IdentityService {
         Ok(result.0)
     }
 }
-

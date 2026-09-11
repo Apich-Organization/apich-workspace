@@ -5,9 +5,11 @@
 //! checked, so a verification result reflects trust in that specific registered key alone, never
 //! whatever else happens to be in the local user's ambient keyring.
 
-use crate::error::{Result, VcsError};
+use crate::error::Result;
+use crate::error::VcsError;
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::process::Stdio;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SignatureStatus {
@@ -20,7 +22,10 @@ pub enum SignatureStatus {
 /// Detached-sign `payload` using the local `gpg` keyring. `key_id` selects which local secret key
 /// to sign with (a fingerprint, key ID, or email `gpg` can resolve) -- if `None`, `gpg` falls back
 /// to its own configured default key. Returns the ASCII-armored detached signature.
-pub fn sign_payload(payload: &[u8], key_id: Option<&str>) -> Result<String> {
+pub fn sign_payload(
+    payload: &[u8],
+    key_id: Option<&str>,
+) -> Result<String> {
     sign_payload_with_home(payload, key_id, None)
 }
 
@@ -30,16 +35,25 @@ pub fn sign_payload(payload: &[u8], key_id: Option<&str>) -> Result<String> {
 /// mutating process-global environment state, which isn't safe across Rust's parallel test
 /// execution within one binary (a real bug this crate's own tests hit: two `#[test]`s racing on
 /// `std::env::set_var("GNUPGHOME", ..)` intermittently broke each other).
-pub(crate) fn sign_payload_with_home(payload: &[u8], key_id: Option<&str>, gnupghome: Option<&std::path::Path>) -> Result<String> {
+pub(crate) fn sign_payload_with_home(
+    payload: &[u8],
+    key_id: Option<&str>,
+    gnupghome: Option<&std::path::Path>,
+) -> Result<String> {
     let mut cmd = Command::new("gpg");
-    cmd.arg("--batch").arg("--yes").arg("--detach-sign").arg("--armor");
+    cmd.arg("--batch")
+        .arg("--yes")
+        .arg("--detach-sign")
+        .arg("--armor");
     if let Some(k) = key_id {
         cmd.arg("--local-user").arg(k);
     }
     if let Some(home) = gnupghome {
         cmd.env("GNUPGHOME", home);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(VcsError::Io)?;
     child
@@ -71,7 +85,8 @@ pub fn verify_signature(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(gnupghome, std::fs::Permissions::from_mode(0o700)).map_err(VcsError::Io)?;
+        std::fs::set_permissions(gnupghome, std::fs::Permissions::from_mode(0o700))
+            .map_err(VcsError::Io)?;
     }
 
     let mut import_cmd = Command::new("gpg");
@@ -125,7 +140,9 @@ pub fn verify_signature(
             .to_string();
         Ok(SignatureStatus::Valid { fingerprint })
     } else {
-        Ok(SignatureStatus::Invalid(String::from_utf8_lossy(&verify_out.stderr).into_owned()))
+        Ok(SignatureStatus::Invalid(
+            String::from_utf8_lossy(&verify_out.stderr).into_owned(),
+        ))
     }
 }
 
@@ -154,11 +171,22 @@ Expire-Date: 0
         cmd.env("GNUPGHOME", gnupghome)
             .arg("--batch")
             .arg("--gen-key");
-        cmd.stdin(StdStdio::piped()).stdout(StdStdio::null()).stderr(StdStdio::piped());
+        cmd.stdin(StdStdio::piped())
+            .stdout(StdStdio::null())
+            .stderr(StdStdio::piped());
         let mut child = cmd.spawn().expect("spawn gpg --gen-key");
-        child.stdin.take().unwrap().write_all(batch.as_bytes()).unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(batch.as_bytes())
+            .unwrap();
         let out = child.wait_with_output().unwrap();
-        assert!(out.status.success(), "gpg --gen-key failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "gpg --gen-key failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
 
         let list_out = Command::new("gpg")
             .env("GNUPGHOME", gnupghome)
@@ -193,15 +221,18 @@ Expire-Date: 0
         let (gnupghome_dir, key_id, public_key) = make_test_key();
 
         let payload = b"apich-vcs-snapshot-v1\nmessage:test snapshot\n";
-        let sig = sign_payload_with_home(payload, Some(&key_id), Some(gnupghome_dir.path())).expect("sign_payload");
+        let sig = sign_payload_with_home(payload, Some(&key_id), Some(gnupghome_dir.path()))
+            .expect("sign_payload");
         assert!(sig.contains("BEGIN PGP SIGNATURE"));
 
         let status = verify_signature(payload, &sig, &public_key).expect("verify_signature");
         match status {
-            SignatureStatus::Valid { fingerprint } => {
+            | SignatureStatus::Valid { fingerprint } => {
                 assert_eq!(fingerprint.to_uppercase(), key_id.to_uppercase());
-            }
-            SignatureStatus::Invalid(msg) => panic!("expected valid signature, got invalid: {msg}"),
+            },
+            | SignatureStatus::Invalid(msg) => {
+                panic!("expected valid signature, got invalid: {msg}")
+            },
         }
     }
 
@@ -210,10 +241,14 @@ Expire-Date: 0
         let (gnupghome_dir, key_id, public_key) = make_test_key();
 
         let payload = b"apich-vcs-snapshot-v1\nmessage:original\n";
-        let sig = sign_payload_with_home(payload, Some(&key_id), Some(gnupghome_dir.path())).expect("sign_payload");
+        let sig = sign_payload_with_home(payload, Some(&key_id), Some(gnupghome_dir.path()))
+            .expect("sign_payload");
 
         let tampered = b"apich-vcs-snapshot-v1\nmessage:tampered\n";
         let status = verify_signature(tampered, &sig, &public_key).expect("verify_signature");
-        assert!(matches!(status, SignatureStatus::Invalid(_)), "expected tampered payload to fail verification");
+        assert!(
+            matches!(status, SignatureStatus::Invalid(_)),
+            "expected tampered payload to fail verification"
+        );
     }
 }

@@ -1,6 +1,8 @@
 use super::profile::IgnoreProfile;
 use crate::error::Result;
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::Glob;
+use globset::GlobSet;
+use globset::GlobSetBuilder;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -51,7 +53,10 @@ impl IgnoreFilter {
     }
 
     /// Test if a relative path matches any ignore rule (taking into account whitelist exceptions)
-    pub fn is_ignored(&self, rel_path: &str) -> bool {
+    pub fn is_ignored(
+        &self,
+        rel_path: &str,
+    ) -> bool {
         // Always ignore internal directories
         if rel_path.starts_with(".apich") || rel_path.starts_with(".git") {
             return true;
@@ -67,7 +72,10 @@ impl IgnoreFilter {
         self.glob_set.is_match(clean_path)
     }
 
-    pub fn is_profile_enabled(&self, profile: IgnoreProfile) -> bool {
+    pub fn is_profile_enabled(
+        &self,
+        profile: IgnoreProfile,
+    ) -> bool {
         self.enabled_profiles.contains(&profile)
     }
 
@@ -80,19 +88,28 @@ impl IgnoreFilter {
     }
 
     /// Dynamically enable a profile and recompile
-    pub fn enable_profile(&mut self, profile: IgnoreProfile) -> Result<()> {
+    pub fn enable_profile(
+        &mut self,
+        profile: IgnoreProfile,
+    ) -> Result<()> {
         self.enabled_profiles.insert(profile);
         self.recompile()
     }
 
     /// Dynamically disable a profile and recompile
-    pub fn disable_profile(&mut self, profile: IgnoreProfile) -> Result<()> {
+    pub fn disable_profile(
+        &mut self,
+        profile: IgnoreProfile,
+    ) -> Result<()> {
         self.enabled_profiles.remove(&profile);
         self.recompile()
     }
 
     /// Add a custom ignore or whitelist rule (e.g. "*.tmp" or "!data/sample.csv")
-    pub fn add_rule(&mut self, rule: impl Into<String>) -> Result<()> {
+    pub fn add_rule(
+        &mut self,
+        rule: impl Into<String>,
+    ) -> Result<()> {
         let r = rule.into();
         let trimmed = r.trim();
         if !trimmed.is_empty() && !trimmed.starts_with('#') {
@@ -103,13 +120,19 @@ impl IgnoreFilter {
     }
 
     /// Remove a custom rule
-    pub fn remove_rule(&mut self, rule: &str) -> Result<()> {
+    pub fn remove_rule(
+        &mut self,
+        rule: &str,
+    ) -> Result<()> {
         self.custom_rules.retain(|r| r != rule);
         self.recompile()
     }
 
     /// Load lines from an ignore file into custom rules
-    pub fn load_file(&mut self, path: impl AsRef<Path>) -> Result<()> {
+    pub fn load_file(
+        &mut self,
+        path: impl AsRef<Path>,
+    ) -> Result<()> {
         if let Ok(content) = fs::read_to_string(path.as_ref()) {
             for line in content.lines() {
                 let trimmed = line.trim();
@@ -154,7 +177,10 @@ impl IgnoreFilter {
         Ok(())
     }
 
-    fn add_pattern_to_builder(builder: &mut GlobSetBuilder, pat: &str) {
+    fn add_pattern_to_builder(
+        builder: &mut GlobSetBuilder,
+        pat: &str,
+    ) {
         let trimmed = pat.trim();
         if let Ok(glob) = Glob::new(trimmed) {
             builder.add(glob);
@@ -201,12 +227,18 @@ impl IgnoreFilterBuilder {
         }
     }
 
-    pub fn add_profile(mut self, profile: IgnoreProfile) -> Self {
+    pub fn add_profile(
+        mut self,
+        profile: IgnoreProfile,
+    ) -> Self {
         self.filter.enabled_profiles.insert(profile);
         self
     }
 
-    pub fn add_rule(mut self, rule: impl Into<String>) -> Self {
+    pub fn add_rule(
+        mut self,
+        rule: impl Into<String>,
+    ) -> Self {
         let r = rule.into();
         let trimmed = r.trim();
         if !trimmed.is_empty() && !trimmed.starts_with('#') {
@@ -215,7 +247,10 @@ impl IgnoreFilterBuilder {
         self
     }
 
-    pub fn load_file(mut self, path: impl AsRef<Path>) -> Result<Self> {
+    pub fn load_file(
+        mut self,
+        path: impl AsRef<Path>,
+    ) -> Result<Self> {
         let _ = self.filter.load_file(path);
         Ok(self)
     }

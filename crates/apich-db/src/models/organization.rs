@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -16,10 +18,10 @@ pub enum OrgRole {
 impl OrgRole {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Owner => "owner",
-            Self::Admin => "admin",
-            Self::Member => "member",
-            Self::Guest => "guest",
+            | Self::Owner => "owner",
+            | Self::Admin => "admin",
+            | Self::Member => "member",
+            | Self::Guest => "guest",
         }
     }
 
@@ -33,10 +35,10 @@ impl std::str::FromStr for OrgRole {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "owner" => Self::Owner,
-            "admin" => Self::Admin,
-            "guest" => Self::Guest,
-            _ => Self::Member,
+            | "owner" => Self::Owner,
+            | "admin" => Self::Admin,
+            | "guest" => Self::Guest,
+            | _ => Self::Member,
         })
     }
 }
@@ -90,7 +92,6 @@ pub struct EffectiveHubLinks {
     pub is_team_override: bool,
     pub allow_team_override: bool,
 }
-
 
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

@@ -12,7 +12,8 @@
 //! git's own ref-update hooks.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -30,7 +31,12 @@ pub async fn ensure_git_server_mirror(project_root: &Path) -> io::Result<PathBuf
         return Ok(bare_path);
     }
     tokio::fs::create_dir_all(&apich_dir).await?;
-    let init_out = Command::new("git").arg("init").arg("--bare").arg(&bare_path).output().await?;
+    let init_out = Command::new("git")
+        .arg("init")
+        .arg("--bare")
+        .arg(&bare_path)
+        .output()
+        .await?;
     if !init_out.status.success() {
         return Err(io::Error::other(format!(
             "git init --bare failed: {}",
@@ -57,7 +63,10 @@ pub async fn ensure_git_server_mirror(project_root: &Path) -> io::Result<PathBuf
 /// to a ref that was never pushed and checks out nothing -- a real, live-verified failure mode,
 /// not a hypothetical one. Point the mirror's HEAD at whichever branch the working repo is
 /// actually on so a clone lands on real content.
-async fn point_bare_head_at_working_branch(project_root: &Path, bare_path: &Path) -> io::Result<()> {
+async fn point_bare_head_at_working_branch(
+    project_root: &Path,
+    bare_path: &Path,
+) -> io::Result<()> {
     let branch_out = Command::new("git")
         .arg("-C")
         .arg(project_root)
@@ -65,7 +74,9 @@ async fn point_bare_head_at_working_branch(project_root: &Path, bare_path: &Path
         .arg("--show-current")
         .output()
         .await?;
-    let branch = String::from_utf8_lossy(&branch_out.stdout).trim().to_string();
+    let branch = String::from_utf8_lossy(&branch_out.stdout)
+        .trim()
+        .to_string();
     if branch.is_empty() {
         return Ok(());
     }
@@ -186,7 +197,9 @@ pub async fn run_git_http_backend(
     if let Some(ce) = content_encoding {
         cmd.env("CONTENT_ENCODING", ce);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let mut child = cmd.spawn()?;
     let mut stdin = child.stdin.take().expect("stdin was piped");
@@ -221,7 +234,11 @@ fn parse_cgi_output(raw: &[u8]) -> CgiResponse {
         .or_else(|| raw.windows(2).position(|w| w == b"\n\n").map(|i| (i, 2)));
 
     let Some((split_at, sep_len)) = separator else {
-        return CgiResponse { status: 200, headers: Vec::new(), body: raw.to_vec() };
+        return CgiResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: raw.to_vec(),
+        };
     };
 
     let header_bytes = &raw[..split_at];
@@ -231,7 +248,9 @@ fn parse_cgi_output(raw: &[u8]) -> CgiResponse {
     let mut status = 200u16;
     let mut headers = Vec::new();
     for line in header_text.lines() {
-        let Some((key, value)) = line.split_once(':') else { continue };
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
         let key = key.trim();
         let value = value.trim();
         if key.eq_ignore_ascii_case("Status") {
@@ -245,5 +264,9 @@ fn parse_cgi_output(raw: &[u8]) -> CgiResponse {
         }
     }
 
-    CgiResponse { status, headers, body }
+    CgiResponse {
+        status,
+        headers,
+        body,
+    }
 }

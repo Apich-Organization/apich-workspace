@@ -1,5 +1,8 @@
 mod common;
-use apich_db::{Database, PermissionManager, PostgresConfig, PostgresContainer};
+use apich_db::Database;
+use apich_db::PermissionManager;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
 use common::test_temp_dir;
 use std::time::Duration;
 

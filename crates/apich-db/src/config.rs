@@ -1,5 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use serde::Deserialize;
+use serde::Serialize;
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Performance and resource tuning configuration for PostgreSQL
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -50,9 +52,19 @@ impl PostgresTuningConfig {
             "-c".to_string(),
             format!("random_page_cost={}", self.random_page_cost),
             "-c".to_string(),
-            format!("track_io_timing={}", if self.track_io_timing { "on" } else { "off" }),
+            format!(
+                "track_io_timing={}",
+                if self.track_io_timing {
+                    "on"
+                } else {
+                    "off"
+                }
+            ),
             "-c".to_string(),
-            format!("checkpoint_completion_target={}", self.checkpoint_completion_target),
+            format!(
+                "checkpoint_completion_target={}",
+                self.checkpoint_completion_target
+            ),
         ];
         args
     }
@@ -119,7 +131,10 @@ impl PostgresConfig {
     }
 
     /// Admin connection string (used for administrative tasks, user creation, migrations)
-    pub fn admin_connection_url(&self, host: &str) -> String {
+    pub fn admin_connection_url(
+        &self,
+        host: &str,
+    ) -> String {
         format!(
             "postgres://{}:{}@{}:{}/{}?sslmode={}",
             self.admin_user,
@@ -132,7 +147,10 @@ impl PostgresConfig {
     }
 
     /// Application connection string (used for normal workspace queries with restricted privileges)
-    pub fn app_connection_url(&self, host: &str) -> String {
+    pub fn app_connection_url(
+        &self,
+        host: &str,
+    ) -> String {
         format!(
             "postgres://{}:{}@{}:{}/{}?sslmode={}",
             self.app_user,
@@ -162,7 +180,10 @@ pub struct PostgresConfigBuilder {
 }
 
 impl PostgresConfigBuilder {
-    pub fn new(host_data_dir: impl AsRef<Path>, host_backup_dir: impl AsRef<Path>) -> Self {
+    pub fn new(
+        host_data_dir: impl AsRef<Path>,
+        host_backup_dir: impl AsRef<Path>,
+    ) -> Self {
         Self {
             container_name: "apich-postgres".to_string(),
             image: "docker.io/library/postgres:18-alpine".to_string(),
@@ -180,57 +201,90 @@ impl PostgresConfigBuilder {
         }
     }
 
-    pub fn container_name(mut self, name: impl Into<String>) -> Self {
+    pub fn container_name(
+        mut self,
+        name: impl Into<String>,
+    ) -> Self {
         self.container_name = name.into();
         self
     }
 
-    pub fn image(mut self, image: impl Into<String>) -> Self {
+    pub fn image(
+        mut self,
+        image: impl Into<String>,
+    ) -> Self {
         self.image = image.into();
         self
     }
 
-    pub fn host_port(mut self, port: u16) -> Self {
+    pub fn host_port(
+        mut self,
+        port: u16,
+    ) -> Self {
         self.host_port = port;
         self
     }
 
-    pub fn database(mut self, db: impl Into<String>) -> Self {
+    pub fn database(
+        mut self,
+        db: impl Into<String>,
+    ) -> Self {
         self.database = db.into();
         self
     }
 
-    pub fn admin_user(mut self, user: impl Into<String>) -> Self {
+    pub fn admin_user(
+        mut self,
+        user: impl Into<String>,
+    ) -> Self {
         self.admin_user = user.into();
         self
     }
 
-    pub fn admin_password(mut self, password: impl Into<String>) -> Self {
+    pub fn admin_password(
+        mut self,
+        password: impl Into<String>,
+    ) -> Self {
         self.admin_password = Some(password.into());
         self
     }
 
-    pub fn app_user(mut self, user: impl Into<String>) -> Self {
+    pub fn app_user(
+        mut self,
+        user: impl Into<String>,
+    ) -> Self {
         self.app_user = user.into();
         self
     }
 
-    pub fn app_password(mut self, password: impl Into<String>) -> Self {
+    pub fn app_password(
+        mut self,
+        password: impl Into<String>,
+    ) -> Self {
         self.app_password = Some(password.into());
         self
     }
 
-    pub fn selinux_relabel(mut self, enable: bool) -> Self {
+    pub fn selinux_relabel(
+        mut self,
+        enable: bool,
+    ) -> Self {
         self.selinux_relabel = enable;
         self
     }
 
-    pub fn tuning(mut self, tuning: PostgresTuningConfig) -> Self {
+    pub fn tuning(
+        mut self,
+        tuning: PostgresTuningConfig,
+    ) -> Self {
         self.tuning = tuning;
         self
     }
 
-    pub fn security(mut self, security: PostgresSecurityConfig) -> Self {
+    pub fn security(
+        mut self,
+        security: PostgresSecurityConfig,
+    ) -> Self {
         self.security = security;
         self
     }

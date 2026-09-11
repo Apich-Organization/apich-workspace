@@ -1,5 +1,7 @@
-use crate::error::{WebError, WebResult};
-use serde::{Deserialize, Serialize};
+use crate::error::WebError;
+use crate::error::WebResult;
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiChatRequest {
@@ -24,41 +26,46 @@ pub struct AiAssistantService;
 impl AiAssistantService {
     /// Process AI prompt with user's BYOK provider or intelligent built-in scientific assistant
     pub async fn chat(req: AiChatRequest) -> WebResult<AiChatResponse> {
-        let provider = req
-            .provider
-            .as_deref()
-            .unwrap_or("gemini")
-            .to_lowercase();
+        let provider = req.provider.as_deref().unwrap_or("gemini").to_lowercase();
 
         let api_key = req.api_key.as_deref().unwrap_or("").trim();
 
         // 1. If user supplied Gemini API key or requests Gemini
         if provider == "gemini" && !api_key.is_empty() {
             match Self::call_gemini(&req, api_key).await {
-                Ok(resp) => return Ok(resp),
-                Err(e) => {
-                    tracing::warn!("Gemini API call failed, falling back to scientific engine: {}", e);
-                }
+                | Ok(resp) => return Ok(resp),
+                | Err(e) => {
+                    tracing::warn!(
+                        "Gemini API call failed, falling back to scientific engine: {}",
+                        e
+                    );
+                },
             }
         }
 
         // 2. If user supplied OpenAI key
         if (provider == "openai" || provider == "chatgpt") && !api_key.is_empty() {
             match Self::call_openai(&req, api_key).await {
-                Ok(resp) => return Ok(resp),
-                Err(e) => {
-                    tracing::warn!("OpenAI API call failed, falling back to scientific engine: {}", e);
-                }
+                | Ok(resp) => return Ok(resp),
+                | Err(e) => {
+                    tracing::warn!(
+                        "OpenAI API call failed, falling back to scientific engine: {}",
+                        e
+                    );
+                },
             }
         }
 
         // 3. If Ollama local agent
         if provider == "ollama" {
             match Self::call_ollama(&req).await {
-                Ok(resp) => return Ok(resp),
-                Err(e) => {
-                    tracing::warn!("Ollama call failed, falling back to scientific engine: {}", e);
-                }
+                | Ok(resp) => return Ok(resp),
+                | Err(e) => {
+                    tracing::warn!(
+                        "Ollama call failed, falling back to scientific engine: {}",
+                        e
+                    );
+                },
             }
         }
 
@@ -66,7 +73,10 @@ impl AiAssistantService {
         Ok(Self::builtin_scientific_assistant(&req))
     }
 
-    async fn call_gemini(req: &AiChatRequest, key: &str) -> WebResult<AiChatResponse> {
+    async fn call_gemini(
+        req: &AiChatRequest,
+        key: &str,
+    ) -> WebResult<AiChatResponse> {
         let model = req.model.as_deref().unwrap_or("gemini-2.5-flash");
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
@@ -80,7 +90,11 @@ impl AiAssistantService {
             user_text = format!(
                 "Context file `{}`:\n```\n{}\n```\n\nUser Question:\n{}",
                 filename,
-                if ctx.len() > 12000 { &ctx[..12000] } else { ctx },
+                if ctx.len() > 12000 {
+                    &ctx[..12000]
+                } else {
+                    ctx
+                },
                 req.prompt
             );
         }
@@ -112,7 +126,10 @@ impl AiAssistantService {
         if !res.status().is_success() {
             let status = res.status();
             let err_text = res.text().await.unwrap_or_default();
-            return Err(WebError::Internal(format!("Gemini API error ({}): {}", status, err_text)));
+            return Err(WebError::Internal(format!(
+                "Gemini API error ({}): {}",
+                status, err_text
+            )));
         }
 
         let json: serde_json::Value = res
@@ -134,21 +151,25 @@ impl AiAssistantService {
         })
     }
 
-    async fn call_openai(req: &AiChatRequest, key: &str) -> WebResult<AiChatResponse> {
+    async fn call_openai(
+        req: &AiChatRequest,
+        key: &str,
+    ) -> WebResult<AiChatResponse> {
         let model = req.model.as_deref().unwrap_or("gpt-4o-mini");
         let url = "https://api.openai.com/v1/chat/completions";
 
-        let mut messages = vec![
-            serde_json::json!({
-                "role": "system",
-                "content": "You are APICH Copilot, an elite scientific programming and research assistant."
-            })
-        ];
+        let mut messages = vec![serde_json::json!({
+            "role": "system",
+            "content": "You are APICH Copilot, an elite scientific programming and research assistant."
+        })];
 
         let mut prompt_full = req.prompt.clone();
         if let Some(ref ctx) = req.file_content {
             let filename = req.context_file.as_deref().unwrap_or("file");
-            prompt_full = format!("File `{}`:\n```\n{}\n```\n\nPrompt: {}", filename, ctx, req.prompt);
+            prompt_full = format!(
+                "File `{}`:\n```\n{}\n```\n\nPrompt: {}",
+                filename, ctx, req.prompt
+            );
         }
 
         messages.push(serde_json::json!({
@@ -246,7 +267,11 @@ impl AiAssistantService {
         let is_python = cur_file.ends_with(".py");
         let is_note = cur_file.ends_with(".anote") || cur_file.ends_with(".md");
 
-        if p_lower.contains("formula") || p_lower.contains("equation") || p_lower.contains("math") || p_lower.contains("hamiltonian") {
+        if p_lower.contains("formula")
+            || p_lower.contains("equation")
+            || p_lower.contains("math")
+            || p_lower.contains("hamiltonian")
+        {
             let typst_math = "$ hat(H) = 4 E_C (hat(n) - n_g)^2 - E_J cos(hat(phi)) $";
             let reply = format!(
                 "### 🔬 Scientific Formula Recommendation\n\n\
@@ -268,7 +293,11 @@ impl AiAssistantService {
             };
         }
 
-        if p_lower.contains("plot") || p_lower.contains("script") || p_lower.contains("python") || is_python {
+        if p_lower.contains("plot")
+            || p_lower.contains("script")
+            || p_lower.contains("python")
+            || is_python
+        {
             let code = r#"import matplotlib.pyplot as plt
 import numpy as np
 

@@ -21,7 +21,10 @@ fn test_branch_creation_and_switch() {
 
     // Switch branch
     vcs.branch_switch("experiment").unwrap();
-    assert_eq!(vcs.current_branch().unwrap(), Some("experiment".to_string()));
+    assert_eq!(
+        vcs.current_branch().unwrap(),
+        Some("experiment".to_string())
+    );
 }
 
 #[test]
@@ -53,12 +56,19 @@ fn test_clean_3way_reconcile_without_conflicts() {
     assert!(!temp.path().join("results.txt").exists());
 
     // On main: edit intro.txt
-    fs::write(temp.path().join("intro.txt"), "Introduction\nBackground info\n").unwrap();
+    fs::write(
+        temp.path().join("intro.txt"),
+        "Introduction\nBackground info\n",
+    )
+    .unwrap();
     let s_main = vcs.snapshot("Main work").unwrap();
 
     // Merge feature into main (3-way weave-free reconcile)
     let reconcile = vcs.merge("feature").unwrap();
-    assert!(reconcile.conflicts.is_empty(), "Merge should have 0 conflicts");
+    assert!(
+        reconcile.conflicts.is_empty(),
+        "Merge should have 0 conflicts"
+    );
 
     // Verify all merged files on disk
     assert_eq!(
@@ -125,5 +135,8 @@ fn test_conflicting_merge_with_inline_markers() {
         fs::read_to_string(temp.path().join("abstract.txt")).unwrap(),
         "Joint Consensus Abstract by Reviewers A & B\n"
     );
-    assert_eq!(vcs.head_snapshot().unwrap().unwrap().id, resolved_snapshot.id);
+    assert_eq!(
+        vcs.head_snapshot().unwrap().unwrap().id,
+        resolved_snapshot.id
+    );
 }

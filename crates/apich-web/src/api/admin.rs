@@ -1,17 +1,19 @@
-use crate::{
-    auth::{generate_session_token, RequirePlatformAdmin},
-    error::WebResult,
-    state::AppState,
-};
-use apich_db::{
-    CreateInvitationDto, CreateOAuthClientDto, Invitation, OAuthClient, SystemSettings,
-    UpdateSystemSettingsDto, User,
-};
-use axum::{
-    extract::State,
-    routing::{get, post},
-    Json, Router,
-};
+use crate::auth::generate_session_token;
+use crate::auth::RequirePlatformAdmin;
+use crate::error::WebResult;
+use crate::state::AppState;
+use apich_db::CreateInvitationDto;
+use apich_db::CreateOAuthClientDto;
+use apich_db::Invitation;
+use apich_db::OAuthClient;
+use apich_db::SystemSettings;
+use apich_db::UpdateSystemSettingsDto;
+use apich_db::User;
+use axum::extract::State;
+use axum::routing::get;
+use axum::routing::post;
+use axum::Json;
+use axum::Router;
 use chrono::Utc;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -20,7 +22,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/settings", get(get_settings).put(update_settings))
         .route("/invitations", post(create_invitation))
-        .route("/oauth-clients", get(list_oauth_clients).post(create_oauth_client))
+        .route(
+            "/oauth-clients",
+            get(list_oauth_clients).post(create_oauth_client),
+        )
         .route("/users", get(list_users))
 }
 

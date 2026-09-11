@@ -1,5 +1,7 @@
 mod common;
-use apich_vcs::{IgnoreFilter, IgnoreProfile, ProjectVcs};
+use apich_vcs::IgnoreFilter;
+use apich_vcs::IgnoreProfile;
+use apich_vcs::ProjectVcs;
 use common::test_temp_dir;
 use std::fs;
 

@@ -13,10 +13,10 @@ pub enum LatexEngine {
 impl LatexEngine {
     pub fn binary_name(&self) -> &'static str {
         match self {
-            LatexEngine::PdfLatex => "pdflatex",
-            LatexEngine::XeLatex => "xelatex",
-            LatexEngine::LuaLatex => "lualatex",
-            LatexEngine::Latexmk => "latexmk",
+            | LatexEngine::PdfLatex => "pdflatex",
+            | LatexEngine::XeLatex => "xelatex",
+            | LatexEngine::LuaLatex => "lualatex",
+            | LatexEngine::Latexmk => "latexmk",
         }
     }
 }
@@ -31,7 +31,10 @@ impl<'a> LatexToolchain<'a> {
     }
 
     /// Check engine version
-    pub async fn engine_version(&self, engine: LatexEngine) -> Result<String> {
+    pub async fn engine_version(
+        &self,
+        engine: LatexEngine,
+    ) -> Result<String> {
         let bin = engine.binary_name();
         let res = self.container.exec(&[bin, "--version"]).await?;
         res.ensure_success(self.container.container_name())?;
@@ -48,15 +51,15 @@ impl<'a> LatexToolchain<'a> {
     ) -> Result<ExecResult> {
         let mut cmd = Vec::new();
         match engine {
-            LatexEngine::Latexmk => {
+            | LatexEngine::Latexmk => {
                 cmd.extend(&["latexmk", "-pdf", "-interaction=nonstopmode"]);
                 if let Some(out) = output_dir {
                     cmd.push("-outdir");
                     cmd.push(out);
                 }
                 cmd.push(tex_file);
-            }
-            engine => {
+            },
+            | engine => {
                 let bin = engine.binary_name();
                 cmd.extend(&[bin, "-interaction=nonstopmode"]);
                 if let Some(out) = output_dir {
@@ -64,14 +67,17 @@ impl<'a> LatexToolchain<'a> {
                     cmd.push(out);
                 }
                 cmd.push(tex_file);
-            }
+            },
         }
 
         self.container.exec(&cmd).await
     }
 
     /// Clean auxiliary LaTeX files (*.aux, *.log, *.out, etc.)
-    pub async fn clean_aux_files(&self, output_dir: Option<&str>) -> Result<ExecResult> {
+    pub async fn clean_aux_files(
+        &self,
+        output_dir: Option<&str>,
+    ) -> Result<ExecResult> {
         let dir = output_dir.unwrap_or(".");
         let sh_cmd = format!(
             "rm -f {}/*.aux {}/*.log {}/*.out {}/*.toc {}/*.bbl {}/*.blg {}/*.fls {}/*.fdb_latexmk",

@@ -1,4 +1,7 @@
-use apich_sandbox::{ExecOptions, OutputChunk, SandboxError, SandboxManager};
+use apich_sandbox::ExecOptions;
+use apich_sandbox::OutputChunk;
+use apich_sandbox::SandboxError;
+use apich_sandbox::SandboxManager;
 use std::time::Duration;
 use tempfile::tempdir;
 
@@ -52,9 +55,9 @@ async fn test_exec_stream_and_options() {
 
     while let Some(chunk) = stream.next_chunk().await {
         match chunk {
-            OutputChunk::Stdout(bytes) => stdout_chunks.extend_from_slice(&bytes),
-            OutputChunk::Stderr(bytes) => stderr_chunks.extend_from_slice(&bytes),
-            OutputChunk::Exit(code) => exit_received = Some(code),
+            | OutputChunk::Stdout(bytes) => stdout_chunks.extend_from_slice(&bytes),
+            | OutputChunk::Stderr(bytes) => stderr_chunks.extend_from_slice(&bytes),
+            | OutputChunk::Exit(code) => exit_received = Some(code),
         }
     }
 
@@ -71,10 +74,10 @@ async fn test_exec_stream_and_options() {
     let timeout_opts = ExecOptions::new(["sleep", "3"]).timeout(Duration::from_millis(300));
     let timeout_res = container.exec_with_options(timeout_opts).await;
     match timeout_res {
-        Err(SandboxError::ExecutionTimeout(dur)) => {
+        | Err(SandboxError::ExecutionTimeout(dur)) => {
             assert_eq!(dur, Duration::from_millis(300));
-        }
-        other => panic!("Expected ExecutionTimeout error, got {:?}", other),
+        },
+        | other => panic!("Expected ExecutionTimeout error, got {:?}", other),
     }
 
     // Cleanup
@@ -101,11 +104,7 @@ async fn test_exec_interactive_stdin_round_trip() {
     // A script that prompts, reads one line from stdin, and echoes it back -- mirrors the real
     // shape of `claude auth login`'s "print a prompt, wait for pasted input" behavior closely
     // enough to prove the plumbing without depending on a real OAuth flow in a test.
-    let opts = ExecOptions::new([
-        "sh",
-        "-c",
-        "echo READY; read -r line; echo GOT:$line",
-    ]);
+    let opts = ExecOptions::new(["sh", "-c", "echo READY; read -r line; echo GOT:$line"]);
     let mut session = container.exec_interactive(opts).await.unwrap();
 
     // Wait for the "READY" prompt before writing, same as a real UI would wait for the login
@@ -113,14 +112,14 @@ async fn test_exec_interactive_stdin_round_trip() {
     let mut buf = Vec::new();
     loop {
         match session.stream.next_chunk().await {
-            Some(OutputChunk::Stdout(bytes)) => {
+            | Some(OutputChunk::Stdout(bytes)) => {
                 buf.extend_from_slice(&bytes);
                 if String::from_utf8_lossy(&buf).contains("READY") {
                     break;
                 }
-            }
-            Some(OutputChunk::Exit(_)) | None => panic!("process exited before printing READY"),
-            _ => {}
+            },
+            | Some(OutputChunk::Exit(_)) | None => panic!("process exited before printing READY"),
+            | _ => {},
         }
     }
 
@@ -133,19 +132,25 @@ async fn test_exec_interactive_stdin_round_trip() {
     let mut exit_code = None;
     loop {
         match session.stream.next_chunk().await {
-            Some(OutputChunk::Stdout(bytes)) => buf.extend_from_slice(&bytes),
-            Some(OutputChunk::Exit(code)) => {
+            | Some(OutputChunk::Stdout(bytes)) => buf.extend_from_slice(&bytes),
+            | Some(OutputChunk::Exit(code)) => {
                 exit_code = Some(code);
                 break;
-            }
-            Some(OutputChunk::Stderr(_)) => {}
-            None => break,
+            },
+            | Some(OutputChunk::Stderr(_)) => {},
+            | None => break,
         }
     }
 
     let all = String::from_utf8_lossy(&buf);
-    assert!(all.contains("GOT:pasted-code-123"), "stdin write should have reached the process: {all}");
+    assert!(
+        all.contains("GOT:pasted-code-123"),
+        "stdin write should have reached the process: {all}"
+    );
     assert_eq!(exit_code, Some(0));
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }

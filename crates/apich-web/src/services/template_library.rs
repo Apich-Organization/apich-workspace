@@ -5,9 +5,11 @@
 //! interpreted, so a template's content is never file-backed the way a real project's is: it's
 //! just data, until "apply" writes it into a real project.
 
-use crate::error::{WebError, WebResult};
+use crate::error::WebError;
+use crate::error::WebResult;
 use crate::services::knowledge_sync::KanbanColumnDef;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KanbanTemplateContent {
@@ -15,14 +17,19 @@ pub struct KanbanTemplateContent {
 }
 
 pub fn kanban_content_from_columns(columns: &[KanbanColumnDef]) -> serde_json::Value {
-    serde_json::to_value(KanbanTemplateContent { columns: columns.to_vec() }).unwrap_or_else(|_| serde_json::json!({"columns": []}))
+    serde_json::to_value(KanbanTemplateContent {
+        columns: columns.to_vec(),
+    })
+    .unwrap_or_else(|_| serde_json::json!({"columns": []}))
 }
 
 pub fn kanban_columns_from_content(content: &serde_json::Value) -> WebResult<Vec<KanbanColumnDef>> {
     let parsed: KanbanTemplateContent = serde_json::from_value(content.clone())
         .map_err(|e| WebError::BadRequest(format!("Malformed kanban template content: {e}")))?;
     if parsed.columns.is_empty() {
-        return Err(WebError::BadRequest("Kanban template has no columns".to_string()));
+        return Err(WebError::BadRequest(
+            "Kanban template has no columns".to_string(),
+        ));
     }
     Ok(parsed.columns)
 }
@@ -33,7 +40,10 @@ pub struct NoteTemplateContent {
 }
 
 pub fn note_content_from_body(body: &str) -> serde_json::Value {
-    serde_json::to_value(NoteTemplateContent { body: body.to_string() }).unwrap_or_else(|_| serde_json::json!({"body": ""}))
+    serde_json::to_value(NoteTemplateContent {
+        body: body.to_string(),
+    })
+    .unwrap_or_else(|_| serde_json::json!({"body": ""}))
 }
 
 pub fn note_body_from_content(content: &serde_json::Value) -> WebResult<String> {
@@ -57,7 +67,8 @@ pub struct FilesTemplateContent {
 }
 
 pub fn files_content_from_files(files: Vec<TemplateFile>) -> serde_json::Value {
-    serde_json::to_value(FilesTemplateContent { files }).unwrap_or_else(|_| serde_json::json!({"files": []}))
+    serde_json::to_value(FilesTemplateContent { files })
+        .unwrap_or_else(|_| serde_json::json!({"files": []}))
 }
 
 pub fn files_from_content(content: &serde_json::Value) -> WebResult<Vec<TemplateFile>> {
@@ -73,7 +84,10 @@ pub fn files_from_content(content: &serde_json::Value) -> WebResult<Vec<Template
 /// latex/typst/slides template from their own project) into a `FilesTemplateContent`. Rejects
 /// path traversal and missing files up front rather than silently skipping them, since a
 /// publisher should know immediately if what they asked to publish doesn't exist.
-pub fn read_files_from_project<P: AsRef<std::path::Path>>(project_dir: P, rel_paths: &[String]) -> WebResult<serde_json::Value> {
+pub fn read_files_from_project<P: AsRef<std::path::Path>>(
+    project_dir: P,
+    rel_paths: &[String],
+) -> WebResult<serde_json::Value> {
     let root = project_dir.as_ref();
     let mut files = Vec::with_capacity(rel_paths.len());
     for rel in rel_paths {
@@ -82,11 +96,17 @@ pub fn read_files_from_project<P: AsRef<std::path::Path>>(project_dir: P, rel_pa
             return Err(WebError::BadRequest(format!("Invalid file path: {rel}")));
         }
         let full = root.join(clean);
-        let content = std::fs::read_to_string(&full).map_err(|e| WebError::BadRequest(format!("Failed to read {rel}: {e}")))?;
-        files.push(TemplateFile { path: clean.to_string(), content });
+        let content = std::fs::read_to_string(&full)
+            .map_err(|e| WebError::BadRequest(format!("Failed to read {rel}: {e}")))?;
+        files.push(TemplateFile {
+            path: clean.to_string(),
+            content,
+        });
     }
     if files.is_empty() {
-        return Err(WebError::BadRequest("No files selected to publish".to_string()));
+        return Err(WebError::BadRequest(
+            "No files selected to publish".to_string(),
+        ));
     }
     Ok(files_content_from_files(files))
 }
@@ -103,26 +123,42 @@ pub fn apply_files_content_to_project<P: AsRef<std::path::Path>>(
 ) -> WebResult<Vec<String>> {
     let files = files_from_content(content)?;
     let root = project_dir.as_ref();
-    let clean_subdir = dest_subdir.trim().trim_start_matches('/').trim_end_matches('/');
+    let clean_subdir = dest_subdir
+        .trim()
+        .trim_start_matches('/')
+        .trim_end_matches('/');
     if clean_subdir.contains("..") {
-        return Err(WebError::BadRequest("Invalid destination folder".to_string()));
+        return Err(WebError::BadRequest(
+            "Invalid destination folder".to_string(),
+        ));
     }
 
     let mut written = Vec::with_capacity(files.len());
     for file in &files {
         let clean = file.path.trim().trim_start_matches('/');
         if clean.is_empty() || clean.contains("..") {
-            return Err(WebError::BadRequest(format!("Invalid file path in template: {}", file.path)));
+            return Err(WebError::BadRequest(format!(
+                "Invalid file path in template: {}",
+                file.path
+            )));
         }
-        let rel = if clean_subdir.is_empty() { clean.to_string() } else { format!("{clean_subdir}/{clean}") };
+        let rel = if clean_subdir.is_empty() {
+            clean.to_string()
+        } else {
+            format!("{clean_subdir}/{clean}")
+        };
         let full = root.join(&rel);
         if full.exists() {
-            return Err(WebError::BadRequest(format!("{rel} already exists in this project -- choose a different destination folder")));
+            return Err(WebError::BadRequest(format!(
+                "{rel} already exists in this project -- choose a different destination folder"
+            )));
         }
         if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| WebError::Internal(format!("Failed to create directory: {e}")))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| WebError::Internal(format!("Failed to create directory: {e}")))?;
         }
-        std::fs::write(&full, &file.content).map_err(|e| WebError::Internal(format!("Failed to write {rel}: {e}")))?;
+        std::fs::write(&full, &file.content)
+            .map_err(|e| WebError::Internal(format!("Failed to write {rel}: {e}")))?;
         written.push(rel);
     }
     Ok(written)
@@ -135,8 +171,16 @@ mod tests {
     #[test]
     fn kanban_content_round_trips() {
         let columns = vec![
-            KanbanColumnDef { id: "todo".to_string(), title: "To Do".to_string(), is_done: false },
-            KanbanColumnDef { id: "done".to_string(), title: "Done".to_string(), is_done: true },
+            KanbanColumnDef {
+                id: "todo".to_string(),
+                title: "To Do".to_string(),
+                is_done: false,
+            },
+            KanbanColumnDef {
+                id: "done".to_string(),
+                title: "Done".to_string(),
+                is_done: true,
+            },
         ];
         let content = kanban_content_from_columns(&columns);
         let parsed = kanban_columns_from_content(&content).unwrap();
@@ -152,37 +196,61 @@ mod tests {
     #[test]
     fn note_content_round_trips() {
         let content = note_content_from_body("# Hello\n\nSome text.");
-        assert_eq!(note_body_from_content(&content).unwrap(), "# Hello\n\nSome text.");
+        assert_eq!(
+            note_body_from_content(&content).unwrap(),
+            "# Hello\n\nSome text."
+        );
     }
 
     #[test]
     fn files_content_round_trip_and_apply_writes_real_files() {
         let dir = tempfile::tempdir().unwrap();
         let content = files_content_from_files(vec![
-            TemplateFile { path: "main.typ".to_string(), content: "= Title\n".to_string() },
-            TemplateFile { path: "refs.bib".to_string(), content: "@article{x}".to_string() },
+            TemplateFile {
+                path: "main.typ".to_string(),
+                content: "= Title\n".to_string(),
+            },
+            TemplateFile {
+                path: "refs.bib".to_string(),
+                content: "@article{x}".to_string(),
+            },
         ]);
 
         let written = apply_files_content_to_project(dir.path(), &content, "").unwrap();
         assert_eq!(written.len(), 2);
-        assert_eq!(std::fs::read_to_string(dir.path().join("main.typ")).unwrap(), "= Title\n");
-        assert_eq!(std::fs::read_to_string(dir.path().join("refs.bib")).unwrap(), "@article{x}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("main.typ")).unwrap(),
+            "= Title\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("refs.bib")).unwrap(),
+            "@article{x}"
+        );
     }
 
     #[test]
     fn apply_refuses_to_overwrite_existing_file() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("main.typ"), "existing content").unwrap();
-        let content = files_content_from_files(vec![TemplateFile { path: "main.typ".to_string(), content: "new".to_string() }]);
+        let content = files_content_from_files(vec![TemplateFile {
+            path: "main.typ".to_string(),
+            content: "new".to_string(),
+        }]);
         let result = apply_files_content_to_project(dir.path(), &content, "");
         assert!(result.is_err());
-        assert_eq!(std::fs::read_to_string(dir.path().join("main.typ")).unwrap(), "existing content");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("main.typ")).unwrap(),
+            "existing content"
+        );
     }
 
     #[test]
     fn apply_rejects_path_traversal() {
         let dir = tempfile::tempdir().unwrap();
-        let content = files_content_from_files(vec![TemplateFile { path: "../escape.txt".to_string(), content: "x".to_string() }]);
+        let content = files_content_from_files(vec![TemplateFile {
+            path: "../escape.txt".to_string(),
+            content: "x".to_string(),
+        }]);
         assert!(apply_files_content_to_project(dir.path(), &content, "").is_err());
     }
 

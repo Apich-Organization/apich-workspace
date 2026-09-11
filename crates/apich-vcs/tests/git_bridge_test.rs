@@ -1,5 +1,6 @@
 mod common;
-use apich_vcs::{LfsPolicy, ProjectVcs};
+use apich_vcs::LfsPolicy;
+use apich_vcs::ProjectVcs;
 use common::test_temp_dir;
 use git2::Repository;
 use std::fs;

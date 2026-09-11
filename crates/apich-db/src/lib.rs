@@ -24,15 +24,24 @@ pub mod pool;
 pub mod repo;
 pub mod session;
 
-pub use backup::{BackupFormat, BackupInfo, BackupManager, BackupOptions};
-pub use config::{
-    PostgresConfig, PostgresConfigBuilder, PostgresSecurityConfig, PostgresTuningConfig,
-};
+pub use backup::BackupFormat;
+pub use backup::BackupInfo;
+pub use backup::BackupManager;
+pub use backup::BackupOptions;
+pub use config::PostgresConfig;
+pub use config::PostgresConfigBuilder;
+pub use config::PostgresSecurityConfig;
+pub use config::PostgresTuningConfig;
 pub use container::PostgresContainer;
-pub use error::{DbError, Result};
-pub use migrations::{run_migrations, Migration, MigrationManager, MigrationResult};
+pub use error::DbError;
+pub use error::Result;
+pub use migrations::run_migrations;
+pub use migrations::Migration;
+pub use migrations::MigrationManager;
+pub use migrations::MigrationResult;
 pub use models::*;
-pub use permissions::{IdentityPermissionResolver, PermissionManager};
+pub use permissions::IdentityPermissionResolver;
+pub use permissions::PermissionManager;
 pub use pool::Database;
 pub use repo::Repository;
 pub use session::DbSession;

@@ -22,7 +22,10 @@ impl<'a> GarbageCollector<'a> {
     }
 
     /// Mark-and-sweep physical unreferenced chunks
-    pub fn sweep_unreferenced(&self, referenced_hashes: &HashSet<String>) -> Result<GcStats> {
+    pub fn sweep_unreferenced(
+        &self,
+        referenced_hashes: &HashSet<String>,
+    ) -> Result<GcStats> {
         let mut stats = GcStats::default();
         let chunks_dir = self.cas.root_dir().join("chunks");
         if !chunks_dir.exists() {

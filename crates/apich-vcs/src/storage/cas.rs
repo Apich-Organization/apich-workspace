@@ -1,12 +1,18 @@
-use crate::chunking::{FastCdc, FastCdcConfig};
-use crate::error::{Result, VcsError};
-use crate::model::{ChunkRef, Snapshot, VcsTree};
+use crate::chunking::FastCdc;
+use crate::chunking::FastCdcConfig;
+use crate::error::Result;
+use crate::error::VcsError;
+use crate::model::ChunkRef;
+use crate::model::Snapshot;
+use crate::model::VcsTree;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use std::fs;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 /// Content-Addressable Storage (CAS) for FastCDC-chunked file blocks, trees, and snapshots
@@ -31,18 +37,39 @@ impl ContentAddressableStorage {
 
     // --- Chunk Storage ---
 
-    fn chunk_path(&self, hash: &str) -> PathBuf {
-        let prefix1 = if hash.len() >= 2 { &hash[0..2] } else { "xx" };
-        let prefix2 = if hash.len() >= 4 { &hash[2..4] } else { "yy" };
-        self.root_dir.join("chunks").join(prefix1).join(prefix2).join(format!("{}.chunk", hash))
+    fn chunk_path(
+        &self,
+        hash: &str,
+    ) -> PathBuf {
+        let prefix1 = if hash.len() >= 2 {
+            &hash[0..2]
+        } else {
+            "xx"
+        };
+        let prefix2 = if hash.len() >= 4 {
+            &hash[2..4]
+        } else {
+            "yy"
+        };
+        self.root_dir
+            .join("chunks")
+            .join(prefix1)
+            .join(prefix2)
+            .join(format!("{}.chunk", hash))
     }
 
-    pub fn has_chunk(&self, hash: &str) -> bool {
+    pub fn has_chunk(
+        &self,
+        hash: &str,
+    ) -> bool {
         self.chunk_path(hash).exists()
     }
 
     /// Put raw chunk bytes into CAS (compressed via Gzip). Returns BLAKE3 hex hash.
-    pub fn put_chunk(&self, data: &[u8]) -> Result<String> {
+    pub fn put_chunk(
+        &self,
+        data: &[u8],
+    ) -> Result<String> {
         let hash = blake3::hash(data).to_hex().to_string();
         let path = self.chunk_path(&hash);
 
@@ -64,7 +91,10 @@ impl ContentAddressableStorage {
     }
 
     /// Read raw chunk bytes from CAS (decompressed)
-    pub fn get_chunk(&self, hash: &str) -> Result<Vec<u8>> {
+    pub fn get_chunk(
+        &self,
+        hash: &str,
+    ) -> Result<Vec<u8>> {
         let path = self.chunk_path(hash);
         if !path.exists() {
             return Err(VcsError::ChunkNotFound(hash.to_string()));
@@ -109,7 +139,10 @@ impl ContentAddressableStorage {
     }
 
     /// Reconstruct whole file content from chunk references
-    pub fn read_file_data(&self, chunks: &[ChunkRef]) -> Result<Vec<u8>> {
+    pub fn read_file_data(
+        &self,
+        chunks: &[ChunkRef],
+    ) -> Result<Vec<u8>> {
         let mut buffer = Vec::new();
         for chunk_ref in chunks {
             let chunk_data = self.get_chunk(&chunk_ref.hash)?;
@@ -120,11 +153,19 @@ impl ContentAddressableStorage {
 
     // --- Tree Storage ---
 
-    fn tree_path(&self, tree_hash: &str) -> PathBuf {
-        self.root_dir.join("trees").join(format!("{}.json", tree_hash))
+    fn tree_path(
+        &self,
+        tree_hash: &str,
+    ) -> PathBuf {
+        self.root_dir
+            .join("trees")
+            .join(format!("{}.json", tree_hash))
     }
 
-    pub fn put_tree(&self, tree: &VcsTree) -> Result<()> {
+    pub fn put_tree(
+        &self,
+        tree: &VcsTree,
+    ) -> Result<()> {
         let path = self.tree_path(&tree.tree_hash);
         if !path.exists() {
             let json = serde_json::to_vec(tree)?;
@@ -133,7 +174,10 @@ impl ContentAddressableStorage {
         Ok(())
     }
 
-    pub fn get_tree(&self, tree_hash: &str) -> Result<VcsTree> {
+    pub fn get_tree(
+        &self,
+        tree_hash: &str,
+    ) -> Result<VcsTree> {
         let path = self.tree_path(tree_hash);
         if !path.exists() {
             return Err(VcsError::Internal(format!("Tree not found: {}", tree_hash)));
@@ -145,18 +189,27 @@ impl ContentAddressableStorage {
 
     // --- Snapshot Storage ---
 
-    fn snapshot_path(&self, id: Uuid) -> PathBuf {
+    fn snapshot_path(
+        &self,
+        id: Uuid,
+    ) -> PathBuf {
         self.root_dir.join("snapshots").join(format!("{}.json", id))
     }
 
-    pub fn put_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
+    pub fn put_snapshot(
+        &self,
+        snapshot: &Snapshot,
+    ) -> Result<()> {
         let path = self.snapshot_path(snapshot.id);
         let json = serde_json::to_vec_pretty(snapshot)?;
         fs::write(path, json)?;
         Ok(())
     }
 
-    pub fn get_snapshot(&self, id: Uuid) -> Result<Snapshot> {
+    pub fn get_snapshot(
+        &self,
+        id: Uuid,
+    ) -> Result<Snapshot> {
         let path = self.snapshot_path(id);
         if !path.exists() {
             return Err(VcsError::SnapshotNotFound(id.to_string()));
@@ -190,7 +243,10 @@ impl ContentAddressableStorage {
         Ok(list)
     }
 
-    pub fn remove_snapshot(&self, id: Uuid) -> Result<()> {
+    pub fn remove_snapshot(
+        &self,
+        id: Uuid,
+    ) -> Result<()> {
         let path = self.snapshot_path(id);
         if path.exists() {
             fs::remove_file(path)?;

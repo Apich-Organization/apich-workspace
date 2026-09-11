@@ -17,8 +17,15 @@ pub fn DeleteRowButtonIsland(#[prop(into)] label: String) -> impl IntoView {
 #[cfg(feature = "hydrate")]
 fn confirm_and_delete() {
     use wasm_bindgen::JsCast;
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
-    let Some(val_input) = doc.get_element_by_id("del-row-id-val").and_then(|e| e.dyn_into::<web_sys::HtmlInputElement>().ok()) else { return };
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let Some(val_input) = doc
+        .get_element_by_id("del-row-id-val")
+        .and_then(|e| e.dyn_into::<web_sys::HtmlInputElement>().ok())
+    else {
+        return;
+    };
     let val = val_input.value();
     if val.is_empty() {
         if let Some(win) = web_sys::window() {
@@ -26,11 +33,16 @@ fn confirm_and_delete() {
         }
         return;
     }
-    let confirmed = web_sys::window().and_then(|w| w.confirm_with_message("Delete selected row?").ok()).unwrap_or(false);
+    let confirmed = web_sys::window()
+        .and_then(|w| w.confirm_with_message("Delete selected row?").ok())
+        .unwrap_or(false);
     if !confirmed {
         return;
     }
-    if let Some(form) = doc.get_element_by_id("form-del-row").and_then(|e| e.dyn_into::<web_sys::HtmlFormElement>().ok()) {
+    if let Some(form) = doc
+        .get_element_by_id("form-del-row")
+        .and_then(|e| e.dyn_into::<web_sys::HtmlFormElement>().ok())
+    {
         let _ = form.request_submit();
     }
 }

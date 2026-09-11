@@ -1,9 +1,14 @@
-use crate::app::components::{ActiveNav, AppShell};
+use crate::app::components::ActiveNav;
+use crate::app::components::AppShell;
 use crate::ui::i18n::I18n;
-use apich_db::{
-    IdentityPermissionResolver, Organization, OrgMemberWithUser, Repository, Team,
-    TeamMemberWithUser, TeamTreeNode, User,
-};
+use apich_db::IdentityPermissionResolver;
+use apich_db::OrgMemberWithUser;
+use apich_db::Organization;
+use apich_db::Repository;
+use apich_db::Team;
+use apich_db::TeamMemberWithUser;
+use apich_db::TeamTreeNode;
+use apich_db::User;
 use leptos::prelude::*;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -39,7 +44,10 @@ pub async fn flatten_team_tree(
         let can_manage = IdentityPermissionResolver::can_manage_team(pool, user_id, node.team.id)
             .await
             .unwrap_or(false);
-        let members = repo.list_team_members(node.team.id).await.unwrap_or_default();
+        let members = repo
+            .list_team_members(node.team.id)
+            .await
+            .unwrap_or_default();
         out.push(TeamRow {
             team: node.team.clone(),
             depth,
@@ -65,9 +73,15 @@ pub fn OrgTeamsPage(
     current_path: String,
 ) -> impl IntoView {
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }
+                .into_any()
+        })
     };
 
     let user_options = all_users
@@ -124,7 +138,12 @@ pub fn OrgTeamsPage(
     }
 }
 
-fn render_org_card(card: OrgCard, _user: &User, user_options: &[impl IntoView + Clone + 'static], i18n: &I18n) -> impl IntoView {
+fn render_org_card(
+    card: OrgCard,
+    _user: &User,
+    user_options: &[impl IntoView + Clone + 'static],
+    i18n: &I18n,
+) -> impl IntoView {
     let org = card.org;
     let org_id = org.id;
 
@@ -286,7 +305,12 @@ fn render_org_card(card: OrgCard, _user: &User, user_options: &[impl IntoView + 
     }
 }
 
-fn render_team_row(row: &TeamRow, org_id: &Uuid, user_options: &[impl IntoView + Clone + 'static], i18n: &I18n) -> impl IntoView {
+fn render_team_row(
+    row: &TeamRow,
+    org_id: &Uuid,
+    user_options: &[impl IntoView + Clone + 'static],
+    i18n: &I18n,
+) -> impl IntoView {
     let team_id = row.team.id;
     let indent = format!("{}rem", 1.25 * row.depth as f64);
     let modal_sub_id = format!("modal-subteam-{}", team_id);

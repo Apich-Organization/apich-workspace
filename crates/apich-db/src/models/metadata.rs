@@ -1,4 +1,5 @@
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 /// Trait providing dynamic, strongly-typed extension metadata for entities.
 ///
@@ -9,14 +10,21 @@ pub trait ExtensibleMetadata {
     fn metadata_mut(&mut self) -> &mut serde_json::Value;
 
     /// Retrieve strongly-typed extension data stored under `key`
-    fn get_ext<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
+    fn get_ext<T: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> Option<T> {
         self.metadata()
             .get(key)
             .and_then(|val| serde_json::from_value(val.clone()).ok())
     }
 
     /// Store strongly-typed extension data under `key`
-    fn set_ext<T: Serialize>(&mut self, key: &str, value: T) -> Result<(), serde_json::Error> {
+    fn set_ext<T: Serialize>(
+        &mut self,
+        key: &str,
+        value: T,
+    ) -> Result<(), serde_json::Error> {
         let val = serde_json::to_value(value)?;
         if let Some(map) = self.metadata_mut().as_object_mut() {
             map.insert(key.to_string(), val);

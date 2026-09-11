@@ -1,6 +1,10 @@
 use crate::container::UserContainer;
 use crate::error::Result;
-use crate::exec::{ExecOptions, ExecResult, ExecStream, InteractiveExec, OutputChunk};
+use crate::exec::ExecOptions;
+use crate::exec::ExecResult;
+use crate::exec::ExecStream;
+use crate::exec::InteractiveExec;
+use crate::exec::OutputChunk;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -68,23 +72,23 @@ impl AgentKind {
     /// `apich-agent-status` in `docker/Containerfile.sandbox`.
     pub fn binary(&self) -> &'static str {
         match self {
-            AgentKind::ClaudeCode => "claude",
-            AgentKind::Codex => "codex",
-            AgentKind::OpenCode => "opencode",
-            AgentKind::Aider => "aider",
-            AgentKind::Goose => "goose",
-            AgentKind::Agy => "agy",
+            | AgentKind::ClaudeCode => "claude",
+            | AgentKind::Codex => "codex",
+            | AgentKind::OpenCode => "opencode",
+            | AgentKind::Aider => "aider",
+            | AgentKind::Goose => "goose",
+            | AgentKind::Agy => "agy",
         }
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            AgentKind::ClaudeCode => "Claude Code",
-            AgentKind::Codex => "Codex CLI",
-            AgentKind::OpenCode => "opencode",
-            AgentKind::Aider => "Aider",
-            AgentKind::Goose => "goose",
-            AgentKind::Agy => "Antigravity CLI",
+            | AgentKind::ClaudeCode => "Claude Code",
+            | AgentKind::Codex => "Codex CLI",
+            | AgentKind::OpenCode => "opencode",
+            | AgentKind::Aider => "Aider",
+            | AgentKind::Goose => "goose",
+            | AgentKind::Agy => "Antigravity CLI",
         }
     }
 
@@ -93,22 +97,22 @@ impl AgentKind {
     /// `run`/`run_stream` -- this only tells the caller which env var name the CLI expects.
     pub fn credential_env_var(&self) -> &'static str {
         match self {
-            AgentKind::ClaudeCode => "ANTHROPIC_API_KEY",
-            AgentKind::Codex => "OPENAI_API_KEY",
-            AgentKind::OpenCode => "ANTHROPIC_API_KEY",
-            AgentKind::Aider => "OPENAI_API_KEY",
-            AgentKind::Goose => "ANTHROPIC_API_KEY",
+            | AgentKind::ClaudeCode => "ANTHROPIC_API_KEY",
+            | AgentKind::Codex => "OPENAI_API_KEY",
+            | AgentKind::OpenCode => "ANTHROPIC_API_KEY",
+            | AgentKind::Aider => "OPENAI_API_KEY",
+            | AgentKind::Goose => "ANTHROPIC_API_KEY",
             // Confirmed by a real string baked into the `agy` binary itself ("You are using the
             // Gemini API directly with GEMINI_API_KEY..."), not assumed from agy being framed as
             // a Gemini CLI successor.
-            AgentKind::Agy => "GEMINI_API_KEY",
+            | AgentKind::Agy => "GEMINI_API_KEY",
         }
     }
 
     pub fn login_support(&self) -> LoginSupport {
         match self {
-            AgentKind::ClaudeCode => LoginSupport::PasteCodeBack,
-            AgentKind::Codex => LoginSupport::DeviceCode,
+            | AgentKind::ClaudeCode => LoginSupport::PasteCodeBack,
+            | AgentKind::Codex => LoginSupport::DeviceCode,
             // `agy --help` has no `login`/`auth` subcommand -- but running the bare `agy`
             // command with no stored credentials *does* trigger a real login flow of its own:
             // an interactive menu ("Select login method: 1. Google OAuth / 2. Use a Google
@@ -119,12 +123,12 @@ impl AgentKind {
             // path, then restoring it). Same PasteCodeBack shape as `claude auth login`; see
             // `AgentToolchain::login`'s Agy branch for the extra menu-selection keystroke this
             // one needs before it reaches that stage.
-            AgentKind::Agy => LoginSupport::PasteCodeBack,
+            | AgentKind::Agy => LoginSupport::PasteCodeBack,
             // opencode's `auth login` is a full interactive TUI (arrow-key provider picker, not
             // a single linear prompt) and goose's `configure` is a similar wizard; aider has no
             // account-login concept, it's API-key-only. None of these get a fake "login" button
             // here -- BYOK via `AgentToolchain::run`'s `api_key` is still how they're used.
-            AgentKind::OpenCode | AgentKind::Aider | AgentKind::Goose => LoginSupport::None,
+            | AgentKind::OpenCode | AgentKind::Aider | AgentKind::Goose => LoginSupport::None,
         }
     }
 
@@ -133,23 +137,23 @@ impl AgentKind {
     /// this session can drive.
     fn login_args(&self) -> Option<Vec<String>> {
         match self {
-            AgentKind::ClaudeCode => Some(vec!["auth".to_string(), "login".to_string()]),
-            AgentKind::Codex => Some(vec!["login".to_string(), "--device-auth".to_string()]),
+            | AgentKind::ClaudeCode => Some(vec!["auth".to_string(), "login".to_string()]),
+            | AgentKind::Codex => Some(vec!["login".to_string(), "--device-auth".to_string()]),
             // No subcommand at all -- the bare binary itself is what shows the login menu.
-            AgentKind::Agy => Some(vec![]),
-            AgentKind::OpenCode | AgentKind::Aider | AgentKind::Goose => None,
+            | AgentKind::Agy => Some(vec![]),
+            | AgentKind::OpenCode | AgentKind::Aider | AgentKind::Goose => None,
         }
     }
 
     pub fn parse(name: &str) -> Option<AgentKind> {
         match name {
-            "claude" | "claude-code" => Some(AgentKind::ClaudeCode),
-            "codex" => Some(AgentKind::Codex),
-            "opencode" => Some(AgentKind::OpenCode),
-            "aider" => Some(AgentKind::Aider),
-            "goose" => Some(AgentKind::Goose),
-            "agy" | "antigravity" => Some(AgentKind::Agy),
-            _ => None,
+            | "claude" | "claude-code" => Some(AgentKind::ClaudeCode),
+            | "codex" => Some(AgentKind::Codex),
+            | "opencode" => Some(AgentKind::OpenCode),
+            | "aider" => Some(AgentKind::Aider),
+            | "goose" => Some(AgentKind::Goose),
+            | "agy" | "antigravity" => Some(AgentKind::Agy),
+            | _ => None,
         }
     }
 
@@ -164,40 +168,59 @@ impl AgentKind {
     /// -- `--print` (like its `--prompt` alias) takes the prompt as its own next token, so any
     /// flag placed directly after it gets swallowed as the prompt text instead. Fixed by putting
     /// `--print <prompt>` last; confirmed working afterward with a real (if throwaway) API key.
-    fn non_interactive_args(&self, prompt: &str) -> Vec<String> {
+    fn non_interactive_args(
+        &self,
+        prompt: &str,
+    ) -> Vec<String> {
         match self {
-            AgentKind::ClaudeCode => vec![
-                "--print".to_string(),
-                "--permission-mode".to_string(),
-                "acceptEdits".to_string(),
-                "--output-format".to_string(),
-                "text".to_string(),
-                prompt.to_string(),
-            ],
-            AgentKind::Codex => vec![
-                "exec".to_string(),
-                "--sandbox".to_string(),
-                "workspace-write".to_string(),
-                "--skip-git-repo-check".to_string(),
-                prompt.to_string(),
-            ],
-            AgentKind::OpenCode => vec!["run".to_string(), prompt.to_string(), "--auto".to_string()],
-            AgentKind::Aider => vec!["--yes-always".to_string(), "--message".to_string(), prompt.to_string()],
-            AgentKind::Goose => vec![
-                "run".to_string(),
-                "--text".to_string(),
-                prompt.to_string(),
-                "--no-session".to_string(),
-                "-q".to_string(),
-            ],
-            AgentKind::Agy => vec![
-                "--mode".to_string(),
-                "accept-edits".to_string(),
-                "--output-format".to_string(),
-                "text".to_string(),
-                "--print".to_string(),
-                prompt.to_string(),
-            ],
+            | AgentKind::ClaudeCode => {
+                vec![
+                    "--print".to_string(),
+                    "--permission-mode".to_string(),
+                    "acceptEdits".to_string(),
+                    "--output-format".to_string(),
+                    "text".to_string(),
+                    prompt.to_string(),
+                ]
+            },
+            | AgentKind::Codex => {
+                vec![
+                    "exec".to_string(),
+                    "--sandbox".to_string(),
+                    "workspace-write".to_string(),
+                    "--skip-git-repo-check".to_string(),
+                    prompt.to_string(),
+                ]
+            },
+            | AgentKind::OpenCode => {
+                vec!["run".to_string(), prompt.to_string(), "--auto".to_string()]
+            },
+            | AgentKind::Aider => {
+                vec![
+                    "--yes-always".to_string(),
+                    "--message".to_string(),
+                    prompt.to_string(),
+                ]
+            },
+            | AgentKind::Goose => {
+                vec![
+                    "run".to_string(),
+                    "--text".to_string(),
+                    prompt.to_string(),
+                    "--no-session".to_string(),
+                    "-q".to_string(),
+                ]
+            },
+            | AgentKind::Agy => {
+                vec![
+                    "--mode".to_string(),
+                    "accept-edits".to_string(),
+                    "--output-format".to_string(),
+                    "text".to_string(),
+                    "--print".to_string(),
+                    prompt.to_string(),
+                ]
+            },
         }
     }
 }
@@ -230,7 +253,12 @@ impl<'a> AgentToolchain<'a> {
             .collect())
     }
 
-    fn build_options(&self, kind: AgentKind, prompt: &str, api_key: Option<&str>) -> ExecOptions {
+    fn build_options(
+        &self,
+        kind: AgentKind,
+        prompt: &str,
+        api_key: Option<&str>,
+    ) -> ExecOptions {
         let mut cmd = vec![kind.binary().to_string()];
         cmd.extend(kind.non_interactive_args(prompt));
         let mut opts = ExecOptions::new(cmd).timeout(AGENT_EXEC_TIMEOUT);
@@ -244,7 +272,12 @@ impl<'a> AgentToolchain<'a> {
     /// buffering all output until the process exits. The user's BYOK API key, if given, is
     /// injected as an env var scoped to this single exec call only -- never written to disk
     /// inside the container, never logged.
-    pub async fn run(&self, kind: AgentKind, prompt: &str, api_key: Option<&str>) -> Result<ExecResult> {
+    pub async fn run(
+        &self,
+        kind: AgentKind,
+        prompt: &str,
+        api_key: Option<&str>,
+    ) -> Result<ExecResult> {
         let opts = self.build_options(kind, prompt, api_key);
         self.container.exec_with_options(opts).await
     }
@@ -252,7 +285,12 @@ impl<'a> AgentToolchain<'a> {
     /// Same as `run`, but streams stdout/stderr chunks as the agent produces them instead of
     /// buffering until exit -- for live-updating UI (e.g. a terminal-style island) instead of a
     /// single blocking request.
-    pub async fn run_stream(&self, kind: AgentKind, prompt: &str, api_key: Option<&str>) -> Result<ExecStream> {
+    pub async fn run_stream(
+        &self,
+        kind: AgentKind,
+        prompt: &str,
+        api_key: Option<&str>,
+    ) -> Result<ExecStream> {
         let opts = self.build_options(kind, prompt, api_key);
         self.container.exec_stream(opts).await
     }
@@ -267,7 +305,10 @@ impl<'a> AgentToolchain<'a> {
     /// Returns `None` if this agent has no real login flow (`LoginSupport::None`) -- the caller
     /// should fall back to BYOK (`run`'s `api_key` param) instead of fabricating a login button
     /// for a tool that doesn't have one.
-    pub async fn login(&self, kind: AgentKind) -> Result<Option<InteractiveExec>> {
+    pub async fn login(
+        &self,
+        kind: AgentKind,
+    ) -> Result<Option<InteractiveExec>> {
         let Some(args) = kind.login_args() else {
             return Ok(None);
         };
@@ -288,7 +329,11 @@ impl<'a> AgentToolchain<'a> {
             // a real, valid size from the start) never has this problem. Fix: explicitly `stty` a
             // real size onto the exec's own controlling terminal (the pty that was just allocated
             // for it) before actually starting agy, by wrapping the command in a shell.
-            cmd = vec!["sh".to_string(), "-c".to_string(), "stty rows 40 cols 120 2>/dev/null; exec agy".to_string()];
+            cmd = vec![
+                "sh".to_string(),
+                "-c".to_string(),
+                "stty rows 40 cols 120 2>/dev/null; exec agy".to_string(),
+            ];
         }
         let mut opts = ExecOptions::new(cmd).timeout(AGENT_LOGIN_TIMEOUT);
         if kind == AgentKind::Agy {
@@ -350,14 +395,14 @@ impl<'a> AgentToolchain<'a> {
                     }
                     let next = tokio::time::timeout(remaining, real_stream.next_chunk()).await;
                     let chunk = match next {
-                        Ok(Some(c)) => c,
-                        Ok(None) => break,
-                        Err(_) => {
+                        | Ok(Some(c)) => c,
+                        | Ok(None) => break,
+                        | Err(_) => {
                             if !sent_enter {
                                 let _ = stdin_tx.send(b"\r".to_vec()).await;
                             }
                             break;
-                        }
+                        },
                     };
                     if let OutputChunk::Stdout(bytes) | OutputChunk::Stderr(bytes) = &chunk {
                         // The raw bytes are a real terminal-UI frame (SGR color codes, cursor
@@ -375,7 +420,9 @@ impl<'a> AgentToolchain<'a> {
                     if is_exit {
                         break;
                     }
-                    if !sent_enter && (seen.contains("Select login method") || seen.contains("Google OAuth")) {
+                    if !sent_enter
+                        && (seen.contains("Select login method") || seen.contains("Google OAuth"))
+                    {
                         sent_enter = true;
                         let _ = stdin_tx.send(b"\r".to_vec()).await;
                     }
@@ -408,7 +455,7 @@ fn strip_ansi(input: &str) -> String {
             continue;
         }
         match chars.peek() {
-            Some('[') => {
+            | Some('[') => {
                 // CSI: ESC [ ... <final byte in 0x40..=0x7E>
                 chars.next();
                 for c in chars.by_ref() {
@@ -416,28 +463,28 @@ fn strip_ansi(input: &str) -> String {
                         break;
                     }
                 }
-            }
-            Some(']') => {
+            },
+            | Some(']') => {
                 // OSC: ESC ] ... (BEL or ESC \)
                 chars.next();
                 loop {
                     match chars.next() {
-                        Some('\u{7}') | None => break,
-                        Some('\u{1b}') => {
+                        | Some('\u{7}') | None => break,
+                        | Some('\u{1b}') => {
                             if chars.peek() == Some(&'\\') {
                                 chars.next();
                             }
                             break;
-                        }
-                        _ => {}
+                        },
+                        | _ => {},
                     }
                 }
-            }
-            Some(_) => {
+            },
+            | Some(_) => {
                 // Two-byte escape (e.g. ESC = , ESC > ) -- just consume the next char.
                 chars.next();
-            }
-            None => {}
+            },
+            | None => {},
         }
     }
     out
@@ -451,7 +498,10 @@ mod strip_ansi_tests {
     fn test_strip_ansi_removes_csi_and_leaves_text() {
         let raw = "\u{1b}[?1049h\u{1b}[?25l Welcome to the Antigravity CLI. \u{1b}[1m> 1. Google OAuth\u{1b}[0m";
         let cleaned = strip_ansi(raw);
-        assert_eq!(cleaned, " Welcome to the Antigravity CLI. > 1. Google OAuth");
+        assert_eq!(
+            cleaned,
+            " Welcome to the Antigravity CLI. > 1. Google OAuth"
+        );
     }
 
     #[test]

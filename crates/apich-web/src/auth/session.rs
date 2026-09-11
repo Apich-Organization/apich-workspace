@@ -1,14 +1,15 @@
 use crate::error::WebError;
 use crate::state::AppState;
 use apich_db::User;
-use axum::{
-    async_trait,
-    extract::{FromRef, FromRequestParts},
-    http::{header, request::Parts},
-};
+use axum::async_trait;
+use axum::extract::FromRef;
+use axum::extract::FromRequestParts;
+use axum::http::header;
+use axum::http::request::Parts;
 use base64::prelude::*;
 use rand::RngCore;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use sha2::Sha256;
 
 pub const SESSION_COOKIE_NAME: &str = "apich_session";
 
@@ -27,7 +28,10 @@ pub fn hash_session_token(token: &str) -> String {
 }
 
 /// Helper to format Set-Cookie header for session
-pub fn build_session_cookie(token: &str, max_age_secs: i64) -> String {
+pub fn build_session_cookie(
+    token: &str,
+    max_age_secs: i64,
+) -> String {
     format!(
         "{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
         SESSION_COOKIE_NAME, token, max_age_secs
@@ -54,7 +58,10 @@ where
 {
     type Rejection = WebError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
         let app_state = AppState::from_ref(state);
 
         // 1. Try Authorization header: Bearer <token>
@@ -95,7 +102,9 @@ where
                             if let Some((_username, password)) = decoded_str.split_once(':') {
                                 let token_hash = hash_session_token(password);
                                 let repo = app_state.db.repository();
-                                if let Ok(Some(user)) = repo.get_user_by_active_pat_hash(&token_hash).await {
+                                if let Ok(Some(user)) =
+                                    repo.get_user_by_active_pat_hash(&token_hash).await
+                                {
                                     return Ok(AuthUser(user));
                                 }
                             }
@@ -114,7 +123,9 @@ where
                         if name == SESSION_COOKIE_NAME {
                             let token_hash = hash_session_token(val);
                             let repo = app_state.db.repository();
-                            if let Ok(Some(user)) = repo.get_user_by_session_token_hash(&token_hash).await {
+                            if let Ok(Some(user)) =
+                                repo.get_user_by_session_token_hash(&token_hash).await
+                            {
                                 return Ok(AuthUser(user));
                             }
                         }
@@ -139,12 +150,17 @@ where
 {
     type Rejection = WebError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
         let AuthUser(user) = AuthUser::from_request_parts(parts, state).await?;
         if user.is_platform_admin || user.role == apich_db::UserRole::Admin {
             Ok(RequirePlatformAdmin(user))
         } else {
-            Err(WebError::Forbidden("Platform administrator privileges required".to_string()))
+            Err(WebError::Forbidden(
+                "Platform administrator privileges required".to_string(),
+            ))
         }
     }
 }

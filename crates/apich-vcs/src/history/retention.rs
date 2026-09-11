@@ -1,6 +1,11 @@
 use crate::model::Snapshot;
-use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
-use std::collections::{BTreeMap, HashSet};
+use chrono::DateTime;
+use chrono::Datelike;
+use chrono::Duration;
+use chrono::Timelike;
+use chrono::Utc;
+use std::collections::BTreeMap;
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// Timeline retention policy utilizing exponential decay (Grandfather-Father-Son)
@@ -104,17 +109,11 @@ impl RetentionPolicy {
                 daily_buckets.insert(key, s.id);
             } else if age <= self.weekly_duration {
                 // Tier 4: 30 - 365 days -> 1 per active week
-                let key = (
-                    s.created_at.year(),
-                    s.created_at.iso_week().week(),
-                );
+                let key = (s.created_at.year(), s.created_at.iso_week().week());
                 weekly_buckets.insert(key, s.id);
             } else if self.monthly_beyond {
                 // Tier 5: 1+ years -> 1 per active month forever
-                let key = (
-                    s.created_at.year(),
-                    s.created_at.month(),
-                );
+                let key = (s.created_at.year(), s.created_at.month());
                 monthly_buckets.insert(key, s.id);
             }
         }

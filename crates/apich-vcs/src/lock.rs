@@ -1,9 +1,14 @@
-use crate::error::{Result, VcsError};
-use rustix::fs::{flock, FlockOperation};
+use crate::error::Result;
+use crate::error::VcsError;
+use rustix::fs::flock;
+use rustix::fs::FlockOperation;
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::OnceLock;
 
 struct LockEntry {
     file: File,

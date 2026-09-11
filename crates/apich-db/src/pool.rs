@@ -1,10 +1,13 @@
 use crate::config::PostgresConfig;
 use crate::error::Result;
-use crate::migrations::{run_migrations, MigrationManager, MigrationResult};
+use crate::migrations::run_migrations;
+use crate::migrations::MigrationManager;
+use crate::migrations::MigrationResult;
 use crate::permissions::PermissionManager;
 use crate::repo::Repository;
 use crate::session::DbSession;
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 use tracing::info;
 use uuid::Uuid;
@@ -18,7 +21,10 @@ pub struct Database {
 
 impl Database {
     /// Connect to PostgreSQL using administrator credentials
-    pub async fn connect_admin(config: &PostgresConfig, host: &str) -> Result<Self> {
+    pub async fn connect_admin(
+        config: &PostgresConfig,
+        host: &str,
+    ) -> Result<Self> {
         let admin_url = config.admin_connection_url(host);
         info!(host = %host, port = %config.host_port, "Connecting to PostgreSQL with admin role");
 
@@ -35,7 +41,11 @@ impl Database {
     }
 
     /// Connect or initialize application role connection pool
-    pub async fn init_app_pool(&mut self, config: &PostgresConfig, host: &str) -> Result<()> {
+    pub async fn init_app_pool(
+        &mut self,
+        config: &PostgresConfig,
+        host: &str,
+    ) -> Result<()> {
         let app_url = config.app_connection_url(host);
         info!(host = %host, app_user = %config.app_user, "Connecting to PostgreSQL with app role");
 
@@ -76,12 +86,18 @@ impl Database {
     }
 
     /// Run migrations with an extensible `MigrationManager`
-    pub async fn migrate_with(&self, manager: &MigrationManager) -> Result<Vec<MigrationResult>> {
+    pub async fn migrate_with(
+        &self,
+        manager: &MigrationManager,
+    ) -> Result<Vec<MigrationResult>> {
         manager.migrate(&self.admin_pool).await
     }
 
     /// Configure least-privilege permissions for the application user
-    pub async fn setup_permissions(&self, config: &PostgresConfig) -> Result<()> {
+    pub async fn setup_permissions(
+        &self,
+        config: &PostgresConfig,
+    ) -> Result<()> {
         PermissionManager::setup_least_privilege(&self.admin_pool, config).await
     }
 
@@ -96,7 +112,10 @@ impl Database {
     }
 
     /// Begin a user-scoped session enforcing Row-Level Security (RLS)
-    pub async fn begin_session(&self, user_id: Option<Uuid>) -> Result<DbSession<'_>> {
+    pub async fn begin_session(
+        &self,
+        user_id: Option<Uuid>,
+    ) -> Result<DbSession<'_>> {
         DbSession::begin(self.pool(), user_id).await
     }
 

@@ -10,7 +10,10 @@
 use leptos::prelude::*;
 
 #[island]
-pub fn CopyLinkIsland(#[prop(into)] link: String, #[prop(into)] button_label: String) -> impl IntoView {
+pub fn CopyLinkIsland(
+    #[prop(into)] link: String,
+    #[prop(into)] button_label: String,
+) -> impl IntoView {
     let status = RwSignal::new(button_label.clone());
     let link_for_copy = link.clone();
     let display_link = RwSignal::new(link.clone());
@@ -32,20 +35,30 @@ pub fn CopyLinkIsland(#[prop(into)] link: String, #[prop(into)] button_label: St
 }
 
 #[cfg(feature = "hydrate")]
-fn absolutize_display_link(display_link: RwSignal<String>, path: String) {
+fn absolutize_display_link(
+    display_link: RwSignal<String>,
+    path: String,
+) {
     if let Some(win) = web_sys::window() {
         let origin = win.location().origin().unwrap_or_default();
         display_link.set(format!("{origin}{path}"));
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn absolutize_display_link(_display_link: RwSignal<String>, _path: String) {}
+fn absolutize_display_link(
+    _display_link: RwSignal<String>,
+    _path: String,
+) {
+}
 
 #[cfg(feature = "hydrate")]
 fn copy_to_clipboard(path: &str) {
     if let Some(win) = web_sys::window() {
         let origin = win.location().origin().unwrap_or_default();
-        let _ = win.navigator().clipboard().write_text(&format!("{origin}{path}"));
+        let _ = win
+            .navigator()
+            .clipboard()
+            .write_text(&format!("{origin}{path}"));
     }
 }
 #[cfg(not(feature = "hydrate"))]

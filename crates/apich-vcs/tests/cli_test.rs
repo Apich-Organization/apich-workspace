@@ -126,7 +126,11 @@ fn test_cli_lifecycle_end_to_end() {
     assert!(stdout.contains("Nothing to snapshot"));
 
     // 9. Modify file and test diff & cat
-    fs::write(&paper_file, "#set page(paper: \"a4\")\n= Introduction\n= Experiments\n").unwrap();
+    fs::write(
+        &paper_file,
+        "#set page(paper: \"a4\")\n= Introduction\n= Experiments\n",
+    )
+    .unwrap();
     let output = Command::new(apich_bin)
         .arg("-p")
         .arg(repo_path)

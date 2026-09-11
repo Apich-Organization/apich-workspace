@@ -19,13 +19,19 @@ impl<'a> GitToolchain<'a> {
     }
 
     /// Initialize a git repository
-    pub async fn init(&self, repo_dir: Option<&str>) -> Result<ExecResult> {
+    pub async fn init(
+        &self,
+        repo_dir: Option<&str>,
+    ) -> Result<ExecResult> {
         let dir = repo_dir.unwrap_or(".");
         self.container.exec(&["git", "-C", dir, "init"]).await
     }
 
     /// Run `git status --porcelain`
-    pub async fn status(&self, repo_dir: Option<&str>) -> Result<ExecResult> {
+    pub async fn status(
+        &self,
+        repo_dir: Option<&str>,
+    ) -> Result<ExecResult> {
         let dir = repo_dir.unwrap_or(".");
         self.container
             .exec(&["git", "-C", dir, "status", "--porcelain"])
@@ -33,7 +39,11 @@ impl<'a> GitToolchain<'a> {
     }
 
     /// Run `git add <path>`
-    pub async fn add(&self, repo_dir: Option<&str>, path_spec: &str) -> Result<ExecResult> {
+    pub async fn add(
+        &self,
+        repo_dir: Option<&str>,
+        path_spec: &str,
+    ) -> Result<ExecResult> {
         let dir = repo_dir.unwrap_or(".");
         self.container
             .exec(&["git", "-C", dir, "add", path_spec])
@@ -80,7 +90,11 @@ impl<'a> GitToolchain<'a> {
     }
 
     /// Clone repository into destination
-    pub async fn clone(&self, url: &str, target_dir: &str) -> Result<ExecResult> {
+    pub async fn clone(
+        &self,
+        url: &str,
+        target_dir: &str,
+    ) -> Result<ExecResult> {
         self.container
             .exec(&["git", "clone", url, target_dir])
             .await
@@ -100,7 +114,10 @@ impl<'a> GitToolchain<'a> {
     }
 
     /// Get current branch name
-    pub async fn current_branch(&self, repo_dir: Option<&str>) -> Result<String> {
+    pub async fn current_branch(
+        &self,
+        repo_dir: Option<&str>,
+    ) -> Result<String> {
         let dir = repo_dir.unwrap_or(".");
         let res = self
             .container
@@ -111,7 +128,10 @@ impl<'a> GitToolchain<'a> {
     }
 
     /// Get git diff
-    pub async fn diff(&self, repo_dir: Option<&str>) -> Result<ExecResult> {
+    pub async fn diff(
+        &self,
+        repo_dir: Option<&str>,
+    ) -> Result<ExecResult> {
         let dir = repo_dir.unwrap_or(".");
         self.container.exec(&["git", "-C", dir, "diff"]).await
     }

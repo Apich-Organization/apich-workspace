@@ -4,8 +4,16 @@ use crate::ui::i18n::I18n;
 /// Render standard HTML5 page shell with embedded styling and language tags. Used only by the
 /// 404 fallback now -- every real page is a Leptos component in `app::pages::*`, rendered
 /// directly by its handler in `ui::handlers` via `app::components::render_document`.
-pub fn render_page(title: &str, body_html: &str, i18n: &I18n) -> String {
-    let lang_attr = if i18n.is_zh() { "zh-CN" } else { "en" };
+pub fn render_page(
+    title: &str,
+    body_html: &str,
+    i18n: &I18n,
+) -> String {
+    let lang_attr = if i18n.is_zh() {
+        "zh-CN"
+    } else {
+        "en"
+    };
     format!(
         r#"<!DOCTYPE html>
 <html lang="{}">

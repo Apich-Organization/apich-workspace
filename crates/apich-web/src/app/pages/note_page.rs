@@ -1,9 +1,19 @@
-use crate::app::components::{ActiveNav, AiDrawer, AppShell, FileShareModal};
-use crate::app::pages::knowledge_page::{render_calendar, render_kanban, render_wiki};
-use crate::services::knowledge_sync::{CalendarEvent, KanbanBoard, KnowledgeGraph, NoteHeading, UnifiedNoteMeta};
+use crate::app::components::ActiveNav;
+use crate::app::components::AiDrawer;
+use crate::app::components::AppShell;
+use crate::app::components::FileShareModal;
+use crate::app::pages::knowledge_page::render_calendar;
+use crate::app::pages::knowledge_page::render_kanban;
+use crate::app::pages::knowledge_page::render_wiki;
+use crate::services::knowledge_sync::CalendarEvent;
+use crate::services::knowledge_sync::KanbanBoard;
+use crate::services::knowledge_sync::KnowledgeGraph;
+use crate::services::knowledge_sync::NoteHeading;
+use crate::services::knowledge_sync::UnifiedNoteMeta;
 use crate::services::FileShareInfo;
 use crate::ui::i18n::I18n;
-use apich_db::{Project, User};
+use apich_db::Project;
+use apich_db::User;
 use apich_islands::WhiteboardIsland;
 use leptos::prelude::*;
 
@@ -25,11 +35,11 @@ enum NoteView {
 impl NoteView {
     fn from_str(s: &str) -> Self {
         match s {
-            "whiteboard" => NoteView::Whiteboard,
-            "wiki" => NoteView::Wiki,
-            "calendar" => NoteView::Calendar,
-            "kanban" => NoteView::Kanban,
-            _ => NoteView::Editor,
+            | "whiteboard" => NoteView::Whiteboard,
+            | "wiki" => NoteView::Wiki,
+            | "calendar" => NoteView::Calendar,
+            | "kanban" => NoteView::Kanban,
+            | _ => NoteView::Editor,
         }
     }
 }
@@ -67,21 +77,39 @@ pub fn NotePage(
     let view = NoteView::from_str(&active_view);
 
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                .into_any()
+        })
     };
 
     let share_label = match file_share.as_ref() {
-        Some(s) if s.mode == "public" => format!("🌐 Public ({})", s.role),
-        Some(s) if s.mode == "specific" => format!("👥 Specific ({})", s.role),
-        _ => "🔒 Private".to_string(),
+        | Some(s) if s.mode == "public" => format!("🌐 Public ({})", s.role),
+        | Some(s) if s.mode == "specific" => format!("👥 Specific ({})", s.role),
+        | _ => "🔒 Private".to_string(),
     };
-    let share_mode = file_share.as_ref().map(|s| s.mode.clone()).unwrap_or_else(|| "private".to_string());
-    let share_role = file_share.as_ref().map(|s| s.role.clone()).unwrap_or_else(|| "read".to_string());
-    let share_users = file_share.as_ref().map(|s| s.allowed_users.join(",")).unwrap_or_default();
+    let share_mode = file_share
+        .as_ref()
+        .map(|s| s.mode.clone())
+        .unwrap_or_else(|| "private".to_string());
+    let share_role = file_share
+        .as_ref()
+        .map(|s| s.role.clone())
+        .unwrap_or_else(|| "read".to_string());
+    let share_users = file_share
+        .as_ref()
+        .map(|s| s.allowed_users.join(","))
+        .unwrap_or_default();
     let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
-    let share_onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))", share_detail);
+    let share_onclick = format!(
+        "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))",
+        share_detail
+    );
 
     let file_path_enc = urlencoding::encode(&file_path).to_string();
     let sub_nav = view! {
@@ -108,26 +136,37 @@ pub fn NotePage(
     };
 
     let content = match view {
-        NoteView::Editor => render_editor_view(
-            &project,
-            &file_path,
-            &body_content,
-            &meta,
-            &headings,
-            &backlinks,
-            &rendered_markdown_html,
-            task_count,
-            completed_task_count,
-            i18n.is_zh(),
-            &own_note_templates,
-            &visible_note_templates,
-            i18n,
-        )
-        .into_any(),
-        NoteView::Whiteboard => render_whiteboard_view(project_id, &file_path, &meta).into_any(),
-        NoteView::Wiki => render_wiki(project.id, &graph).into_any(),
-        NoteView::Calendar => render_calendar(&calendar).into_any(),
-        NoteView::Kanban => render_kanban(&project, &kanban, &own_kanban_templates, &visible_kanban_templates, i18n).into_any(),
+        | NoteView::Editor => {
+            render_editor_view(
+                &project,
+                &file_path,
+                &body_content,
+                &meta,
+                &headings,
+                &backlinks,
+                &rendered_markdown_html,
+                task_count,
+                completed_task_count,
+                i18n.is_zh(),
+                &own_note_templates,
+                &visible_note_templates,
+                i18n,
+            )
+            .into_any()
+        },
+        | NoteView::Whiteboard => render_whiteboard_view(project_id, &file_path, &meta).into_any(),
+        | NoteView::Wiki => render_wiki(project.id, &graph).into_any(),
+        | NoteView::Calendar => render_calendar(&calendar).into_any(),
+        | NoteView::Kanban => {
+            render_kanban(
+                &project,
+                &kanban,
+                &own_kanban_templates,
+                &visible_kanban_templates,
+                i18n,
+            )
+            .into_any()
+        },
     };
 
     view! {
@@ -178,17 +217,33 @@ fn render_editor_view(
 ) -> impl IntoView {
     let project_id = project.id;
     let tags_joined = meta.tags.join(", ");
-    let progress_pct = if task_count > 0 { completed_task_count * 100 / task_count } else { 0 };
+    let progress_pct = if task_count > 0 {
+        completed_task_count * 100 / task_count
+    } else {
+        0
+    };
 
     let editor_headings: Vec<apich_islands::NoteHeadingItem> = headings
         .iter()
-        .map(|h| apich_islands::NoteHeadingItem { level: h.level as u8, text: h.text.clone(), line: h.line as u32 })
+        .map(|h| {
+            apich_islands::NoteHeadingItem {
+                level: h.level as u8,
+                text: h.text.clone(),
+                line: h.line as u32,
+            }
+        })
         .collect();
     let task_progress_label = (task_count > 0).then(|| {
         if is_zh {
-            format!("任务进度：{}/{}（{}%）", completed_task_count, task_count, progress_pct)
+            format!(
+                "任务进度：{}/{}（{}%）",
+                completed_task_count, task_count, progress_pct
+            )
         } else {
-            format!("Task Progress: {}/{} ({}%)", completed_task_count, task_count, progress_pct)
+            format!(
+                "Task Progress: {}/{} ({}%)",
+                completed_task_count, task_count, progress_pct
+            )
         }
     });
 
@@ -313,13 +368,18 @@ fn render_note_template_panel(
     }
 }
 
-fn render_whiteboard_view(project_id: uuid::Uuid, file_path: &str, meta: &UnifiedNoteMeta) -> impl IntoView {
+fn render_whiteboard_view(
+    project_id: uuid::Uuid,
+    file_path: &str,
+    meta: &UnifiedNoteMeta,
+) -> impl IntoView {
     let initial_strokes = meta
         .whiteboard
         .as_ref()
         .cloned()
         .unwrap_or_else(|| serde_json::json!({ "strokes": [] }));
-    let strokes_json = serde_json::to_string(&initial_strokes).unwrap_or_else(|_| "{\"strokes\":[]}".to_string());
+    let strokes_json =
+        serde_json::to_string(&initial_strokes).unwrap_or_else(|_| "{\"strokes\":[]}".to_string());
 
     view! {
         <WhiteboardIsland

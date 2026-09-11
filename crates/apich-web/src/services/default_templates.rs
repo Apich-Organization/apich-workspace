@@ -7,8 +7,13 @@
 
 use crate::error::WebResult;
 use crate::services::knowledge_sync::KanbanColumnDef;
-use crate::services::template_library::{files_content_from_files, kanban_content_from_columns, note_content_from_body, TemplateFile};
-use apich_db::{CreateTemplateDto, PublishTemplateVersionDto, Repository};
+use crate::services::template_library::files_content_from_files;
+use crate::services::template_library::kanban_content_from_columns;
+use crate::services::template_library::note_content_from_body;
+use crate::services::template_library::TemplateFile;
+use apich_db::CreateTemplateDto;
+use apich_db::PublishTemplateVersionDto;
+use apich_db::Repository;
 use uuid::Uuid;
 
 struct SeedTemplate {
@@ -22,7 +27,13 @@ struct SeedTemplate {
 fn kanban_cols(cols: &[(&str, &str, bool)]) -> serde_json::Value {
     let defs: Vec<KanbanColumnDef> = cols
         .iter()
-        .map(|(id, title, is_done)| KanbanColumnDef { id: id.to_string(), title: title.to_string(), is_done: *is_done })
+        .map(|(id, title, is_done)| {
+            KanbanColumnDef {
+                id: id.to_string(),
+                title: title.to_string(),
+                is_done: *is_done,
+            }
+        })
         .collect();
     kanban_content_from_columns(&defs)
 }
@@ -31,8 +42,14 @@ fn note(body: &str) -> serde_json::Value {
     note_content_from_body(body)
 }
 
-fn single_file(path: &str, content: &str) -> serde_json::Value {
-    files_content_from_files(vec![TemplateFile { path: path.to_string(), content: content.to_string() }])
+fn single_file(
+    path: &str,
+    content: &str,
+) -> serde_json::Value {
+    files_content_from_files(vec![TemplateFile {
+        path: path.to_string(),
+        content: content.to_string(),
+    }])
 }
 
 fn seed_list() -> Vec<SeedTemplate> {
@@ -447,7 +464,10 @@ Summarize contributions and future work.
 
 /// Publishes each of `seed_list()`'s templates (as version "1.0.0", `public` visibility) under
 /// `owner_user_id` if a template with that reserved slug doesn't already exist for that owner.
-pub async fn seed_default_templates(repo: &Repository<'_>, owner_user_id: Uuid) -> WebResult<()> {
+pub async fn seed_default_templates(
+    repo: &Repository<'_>,
+    owner_user_id: Uuid,
+) -> WebResult<()> {
     let existing = repo.list_templates_owned_by(owner_user_id).await?;
     for seed in seed_list() {
         if existing.iter().any(|t| t.slug == seed.slug) {

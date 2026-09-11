@@ -4,13 +4,16 @@
 //! one-off "what fingerprint is this?" check needs.
 
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::process::Stdio;
 
 /// Parse the primary key fingerprint out of an ASCII-armored GPG public key block.
 pub fn gpg_key_fingerprint(armored: &str) -> Result<String, String> {
     let mut cmd = Command::new("gpg");
     cmd.arg("--with-colons").arg("--show-keys");
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     child
@@ -54,12 +57,27 @@ Expire-Date: 0
 %commit
 ";
         let mut gen_cmd = Command::new("gpg");
-        gen_cmd.env("GNUPGHOME", gnupghome).arg("--batch").arg("--gen-key");
-        gen_cmd.stdin(StdStdio::piped()).stdout(StdStdio::null()).stderr(StdStdio::piped());
+        gen_cmd
+            .env("GNUPGHOME", gnupghome)
+            .arg("--batch")
+            .arg("--gen-key");
+        gen_cmd
+            .stdin(StdStdio::piped())
+            .stdout(StdStdio::null())
+            .stderr(StdStdio::piped());
         let mut child = gen_cmd.spawn().unwrap();
-        child.stdin.take().unwrap().write_all(batch.as_bytes()).unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(batch.as_bytes())
+            .unwrap();
         let out = child.wait_with_output().unwrap();
-        assert!(out.status.success(), "gpg --gen-key failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "gpg --gen-key failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
 
         let export_out = Command::new("gpg")
             .env("GNUPGHOME", gnupghome)

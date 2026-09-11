@@ -11,7 +11,9 @@
 //! compiler-artifact events as they complete (see that crate's `run_cargo_build_with_progress`).
 //! This module just parses that stream and stores the latest values.
 
-use apich_sandbox::{ExecStream, OutputChunk, UserContainer};
+use apich_sandbox::ExecStream;
+use apich_sandbox::OutputChunk;
+use apich_sandbox::UserContainer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -63,7 +65,10 @@ impl SlideBuildRegistry {
         let id = Uuid::new_v4();
         let job = Arc::new(SlideBuildJob {
             owner_user_id,
-            status: Mutex::new(SlideBuildStatus::Running { percent: 0, message: "Queued".to_string() }),
+            status: Mutex::new(SlideBuildStatus::Running {
+                percent: 0,
+                message: "Queued".to_string(),
+            }),
             binary: Mutex::new(None),
         });
         self.jobs.lock().await.insert(id, job.clone());
@@ -76,17 +81,26 @@ impl SlideBuildRegistry {
 
             loop {
                 match stream.next_chunk().await {
-                    Some(OutputChunk::Stdout(bytes)) | Some(OutputChunk::Stderr(bytes)) => {
+                    | Some(OutputChunk::Stdout(bytes)) | Some(OutputChunk::Stderr(bytes)) => {
                         buf.extend_from_slice(&bytes);
                         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
                             let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
                             let line = String::from_utf8_lossy(&line_bytes);
-                            let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+                            let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim())
+                            else {
                                 continue;
                             };
-                            let message = value.get("message").and_then(|m| m.as_str()).map(str::to_string);
-                            let level = value.get("level").and_then(|l| l.as_str()).unwrap_or("info");
-                            if let Some(percent) = value.get("percent").and_then(serde_json::Value::as_u64) {
+                            let message = value
+                                .get("message")
+                                .and_then(|m| m.as_str())
+                                .map(str::to_string);
+                            let level = value
+                                .get("level")
+                                .and_then(|l| l.as_str())
+                                .unwrap_or("info");
+                            if let Some(percent) =
+                                value.get("percent").and_then(serde_json::Value::as_u64)
+                            {
                                 *job.status.lock().await = SlideBuildStatus::Running {
                                     percent: percent.min(100) as u8,
                                     message: message.unwrap_or_else(|| "Building...".to_string()),
@@ -97,17 +111,18 @@ impl SlideBuildRegistry {
                                 }
                             }
                         }
-                    }
-                    Some(OutputChunk::Exit(code)) => {
+                    },
+                    | Some(OutputChunk::Exit(code)) => {
                         exit_code = code;
                         break;
-                    }
-                    None => break,
+                    },
+                    | None => break,
                 }
             }
 
             if exit_code != 0 {
-                let message = last_error.unwrap_or_else(|| format!("Build process exited with code {exit_code}"));
+                let message = last_error
+                    .unwrap_or_else(|| format!("Build process exited with code {exit_code}"));
                 *job.status.lock().await = SlideBuildStatus::Failed { message };
                 tokio::time::sleep(std::time::Duration::from_secs(10 * 60)).await;
                 registry.jobs.lock().await.remove(&id);
@@ -115,15 +130,16 @@ impl SlideBuildRegistry {
             }
 
             match container.read_file(&out_rel_path).await {
-                Ok(bytes) => {
+                | Ok(bytes) => {
                     let size_bytes = bytes.len() as u64;
                     *job.binary.lock().await = Some(bytes);
                     *job.status.lock().await = SlideBuildStatus::Done { filename, size_bytes };
-                }
-                Err(e) => {
-                    *job.status.lock().await =
-                        SlideBuildStatus::Failed { message: format!("Build reported success but no binary was found: {e}") };
-                }
+                },
+                | Err(e) => {
+                    *job.status.lock().await = SlideBuildStatus::Failed {
+                        message: format!("Build reported success but no binary was found: {e}"),
+                    };
+                },
             }
             let _ = container.exec(["rm", "-f", &out_rel_path]).await;
 
@@ -137,13 +153,19 @@ impl SlideBuildRegistry {
         id
     }
 
-    pub async fn get(&self, id: Uuid) -> Option<Arc<SlideBuildJob>> {
+    pub async fn get(
+        &self,
+        id: Uuid,
+    ) -> Option<Arc<SlideBuildJob>> {
         self.jobs.lock().await.get(&id).cloned()
     }
 
     /// The finished binary's bytes, if the job has reached `Done` -- does not remove the job
     /// record, so a status poll after downloading still reports `Done` rather than "not found".
-    pub async fn binary(&self, id: Uuid) -> Option<Vec<u8>> {
+    pub async fn binary(
+        &self,
+        id: Uuid,
+    ) -> Option<Vec<u8>> {
         let job = self.get(id).await?;
         let bytes = job.binary.lock().await.clone();
         bytes

@@ -60,7 +60,11 @@ fn test_vcs_milestones() {
     let temp = test_temp_dir();
     let vcs = ProjectVcs::open_or_init(temp.path()).unwrap();
 
-    fs::write(temp.path().join("thesis.typ"), "= Master Thesis\nChapter 1\n").unwrap();
+    fs::write(
+        temp.path().join("thesis.typ"),
+        "= Master Thesis\nChapter 1\n",
+    )
+    .unwrap();
     vcs.snapshot("Draft chapter 1").unwrap();
 
     fs::write(
@@ -74,10 +78,7 @@ fn test_vcs_milestones() {
         .unwrap();
 
     assert!(milestone.is_milestone);
-    assert_eq!(
-        milestone.milestone_name.as_deref(),
-        Some("v1.0-submission")
-    );
+    assert_eq!(milestone.milestone_name.as_deref(), Some("v1.0-submission"));
     assert_eq!(milestone.message, "Submitted to Committee");
 
     let milestones = vcs.list_milestones().unwrap();
@@ -219,13 +220,19 @@ fn test_vcs_redo_cycle() {
     let r1 = vcs.redo().unwrap();
     assert_eq!(r1, Some(s2.id));
     assert_eq!(vcs.head_snapshot().unwrap().unwrap().id, s2.id);
-    assert_eq!(fs::read_to_string(temp.path().join("code.py")).unwrap(), "x = 20\n");
+    assert_eq!(
+        fs::read_to_string(temp.path().join("code.py")).unwrap(),
+        "x = 20\n"
+    );
 
     // Redo to s3
     let r2 = vcs.redo().unwrap();
     assert_eq!(r2, Some(s3.id));
     assert_eq!(vcs.head_snapshot().unwrap().unwrap().id, s3.id);
-    assert_eq!(fs::read_to_string(temp.path().join("code.py")).unwrap(), "x = 30\n");
+    assert_eq!(
+        fs::read_to_string(temp.path().join("code.py")).unwrap(),
+        "x = 30\n"
+    );
 
     // Redo again when nothing to redo
     let r3 = vcs.redo().unwrap();

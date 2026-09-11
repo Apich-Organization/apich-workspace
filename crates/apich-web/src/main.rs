@@ -2,18 +2,28 @@
 
 pub use apich_web::app::EMBEDDED_CSS;
 
-use apich_db::{
-    CreateOrganizationDto, CreateProjectDto, CreateTeamDto, CreateUserDto, Database,
-    PostgresConfig, PostgresContainer, UserRole,
-};
+use apich_db::CreateOrganizationDto;
+use apich_db::CreateProjectDto;
+use apich_db::CreateTeamDto;
+use apich_db::CreateUserDto;
+use apich_db::Database;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::UserRole;
 use apich_sandbox::SandboxManager;
 use apich_vcs::api::ProjectVcs;
 use apich_web::AppState;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::info;
 
 /// Top-level full HTML page shell wrapper
-pub fn render_html_page(title: &str, content_html: &str) -> String {
+pub fn render_html_page(
+    title: &str,
+    content_html: &str,
+) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -44,9 +54,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "8080".to_string())
         .parse()?;
 
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| format!("http://localhost:{}", port));
-    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "apich_development_secret_key_change_in_production".to_string());
-    let workspace_dir = PathBuf::from(std::env::var("APICH_STORAGE_DIR").unwrap_or_else(|_| "./scratch/workspace".to_string()));
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| format!("http://localhost:{}", port));
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .unwrap_or_else(|_| "apich_development_secret_key_change_in_production".to_string());
+    let workspace_dir = PathBuf::from(
+        std::env::var("APICH_STORAGE_DIR").unwrap_or_else(|_| "./scratch/workspace".to_string()),
+    );
 
     tokio::fs::create_dir_all(&workspace_dir).await?;
 
@@ -153,15 +167,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // per owner, see `default_templates::seed_default_templates`) and needs to backfill an
     // already-populated database too, not just a brand-new one.
     let template_owner_id = match bootstrap_admin_id {
-        Some(id) => Some(id),
-        None => {
+        | Some(id) => Some(id),
+        | None => {
             let users = repo.list_users().await?;
             users
                 .iter()
                 .find(|u| u.is_platform_admin)
                 .or_else(|| users.first())
                 .map(|u| u.id)
-        }
+        },
     };
     if let Some(owner_id) = template_owner_id {
         apich_web::services::default_templates::seed_default_templates(&repo, owner_id).await?;
@@ -170,13 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox_image = std::env::var("APICH_SANDBOX_IMAGE")
         .unwrap_or_else(|_| "docker.io/library/alpine:latest".to_string());
     let sandbox_manager = Arc::new(SandboxManager::new(&workspace_dir, &sandbox_image));
-    let state = AppState::new(
-        db,
-        sandbox_manager,
-        workspace_dir,
-        base_url,
-        jwt_secret,
-    );
+    let state = AppState::new(db, sandbox_manager, workspace_dir, base_url, jwt_secret);
 
     // Idle sandbox reaper: the other half of "containers are never something the user has to
     // manage themselves" (see terminal_page.rs's comment on the auto-start half). Runs
@@ -192,15 +200,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Check on a cadence proportional to the timeout (never less than 1 minute, never more
         // than 10) rather than a fixed interval, so a short dev-testing timeout isn't stuck
         // waiting on a check cadence built for the 60-minute default.
-        let check_every = std::time::Duration::from_secs(((idle_timeout_minutes / 6).clamp(1, 10) * 60) as u64);
+        let check_every =
+            std::time::Duration::from_secs(((idle_timeout_minutes / 6).clamp(1, 10) * 60) as u64);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(check_every);
             loop {
                 interval.tick().await;
-                match reaper_project_manager.reap_idle_sandboxes(idle_timeout).await {
-                    Ok(0) => {}
-                    Ok(n) => info!(count = n, "Idle sandbox reaper stopped {} sandbox(es)", n),
-                    Err(e) => tracing::warn!(error = %e, "Idle sandbox reaper failed"),
+                match reaper_project_manager
+                    .reap_idle_sandboxes(idle_timeout)
+                    .await
+                {
+                    | Ok(0) => {},
+                    | Ok(n) => info!(count = n, "Idle sandbox reaper stopped {} sandbox(es)", n),
+                    | Err(e) => tracing::warn!(error = %e, "Idle sandbox reaper failed"),
                 }
             }
         });
@@ -226,15 +238,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut interval = tokio::time::interval(check_every);
             loop {
                 interval.tick().await;
-                match removal_project_manager.reap_stopped_sandboxes(stopped_grace).await {
-                    Ok(0) => {}
-                    Ok(n) => info!(count = n, "Container removal reaper removed {} stale stopped sandbox(es)", n),
-                    Err(e) => tracing::warn!(error = %e, "Container removal reaper (stopped sandboxes) failed"),
+                match removal_project_manager
+                    .reap_stopped_sandboxes(stopped_grace)
+                    .await
+                {
+                    | Ok(0) => {},
+                    | Ok(n) => {
+                        info!(
+                            count = n,
+                            "Container removal reaper removed {} stale stopped sandbox(es)", n
+                        )
+                    },
+                    | Err(e) => {
+                        tracing::warn!(error = %e, "Container removal reaper (stopped sandboxes) failed")
+                    },
                 }
                 match removal_project_manager.reap_orphaned_containers().await {
-                    Ok(0) => {}
-                    Ok(n) => info!(count = n, "Container removal reaper removed {} orphaned container(s)", n),
-                    Err(e) => tracing::warn!(error = %e, "Container removal reaper (orphans) failed"),
+                    | Ok(0) => {},
+                    | Ok(n) => {
+                        info!(
+                            count = n,
+                            "Container removal reaper removed {} orphaned container(s)", n
+                        )
+                    },
+                    | Err(e) => {
+                        tracing::warn!(error = %e, "Container removal reaper (orphans) failed")
+                    },
                 }
             }
         });

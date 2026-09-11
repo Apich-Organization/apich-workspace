@@ -1,8 +1,12 @@
-use crate::error::{WebError, WebResult};
+use crate::error::WebError;
+use crate::error::WebResult;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use serde::Deserialize;
+use serde::Serialize;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MarkdownTask {
@@ -135,11 +139,27 @@ impl KnowledgeSyncService {
     /// no stored columns yet, so there's nothing else to translate) without baking a fixed
     /// language into the data itself the way a stored custom title inevitably does once a team
     /// renames or adds columns.
-    pub fn default_kanban_columns(todo_title: &str, in_progress_title: &str, done_title: &str) -> Vec<KanbanColumnDef> {
+    pub fn default_kanban_columns(
+        todo_title: &str,
+        in_progress_title: &str,
+        done_title: &str,
+    ) -> Vec<KanbanColumnDef> {
         vec![
-            KanbanColumnDef { id: "todo".to_string(), title: todo_title.to_string(), is_done: false },
-            KanbanColumnDef { id: "in_progress".to_string(), title: in_progress_title.to_string(), is_done: false },
-            KanbanColumnDef { id: "done".to_string(), title: done_title.to_string(), is_done: true },
+            KanbanColumnDef {
+                id: "todo".to_string(),
+                title: todo_title.to_string(),
+                is_done: false,
+            },
+            KanbanColumnDef {
+                id: "in_progress".to_string(),
+                title: in_progress_title.to_string(),
+                is_done: false,
+            },
+            KanbanColumnDef {
+                id: "done".to_string(),
+                title: done_title.to_string(),
+                is_done: true,
+            },
         ]
     }
 
@@ -147,7 +167,10 @@ impl KnowledgeSyncService {
     /// project's board is ever viewed (before anyone has customized it, there's nothing to read).
     /// A malformed/foreign-shaped value (hand-edited settings JSON, a future schema change) falls
     /// back the same way rather than erroring the whole board out.
-    pub fn parse_kanban_columns(settings: &serde_json::Value, defaults: Vec<KanbanColumnDef>) -> Vec<KanbanColumnDef> {
+    pub fn parse_kanban_columns(
+        settings: &serde_json::Value,
+        defaults: Vec<KanbanColumnDef>,
+    ) -> Vec<KanbanColumnDef> {
         settings
             .get("kanban_columns")
             .and_then(|v| serde_json::from_value::<Vec<KanbanColumnDef>>(v.clone()).ok())
@@ -162,12 +185,21 @@ impl KnowledgeSyncService {
     /// Turns a user-typed column title into a stable id (`"In Review"` -> `"in-review"`),
     /// disambiguated against `existing` ids by appending `-2`, `-3`, ... on collision -- the same
     /// approach file/slug generation already uses elsewhere in this app.
-    pub fn slugify_kanban_column_id(title: &str, existing: &[KanbanColumnDef]) -> String {
+    pub fn slugify_kanban_column_id(
+        title: &str,
+        existing: &[KanbanColumnDef],
+    ) -> String {
         let mut slug: String = title
             .trim()
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .split('-')
             .filter(|s| !s.is_empty())
@@ -197,7 +229,13 @@ impl KnowledgeSyncService {
             .trim()
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .split('-')
             .filter(|s| !s.is_empty())
@@ -219,10 +257,13 @@ impl KnowledgeSyncService {
             return md_files;
         }
 
-        fn walk(dir: &Path, acc: &mut Vec<PathBuf>) {
+        fn walk(
+            dir: &Path,
+            acc: &mut Vec<PathBuf>,
+        ) {
             let entries = match std::fs::read_dir(dir) {
-                Ok(e) => e,
-                Err(_) => return,
+                | Ok(e) => e,
+                | Err(_) => return,
             };
 
             for entry in entries.flatten() {
@@ -230,7 +271,10 @@ impl KnowledgeSyncService {
                 let file_name = entry.file_name().to_string_lossy().to_string();
 
                 if path.is_dir() {
-                    if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" {
+                    if file_name.starts_with('.')
+                        || file_name == "target"
+                        || file_name == "node_modules"
+                    {
                         continue;
                     }
                     walk(&path, acc);
@@ -263,10 +307,10 @@ impl KnowledgeSyncService {
         // Group 2: remaining line content
         let task_regex = Regex::new(r"^\s*[-*]\s+\[([ xX/])\]\s+(.*)$")
             .map_err(|e| WebError::Internal(e.to_string()))?;
-        let tag_regex = Regex::new(r"#([a-zA-Z0-9_\-]+)")
-            .map_err(|e| WebError::Internal(e.to_string()))?;
-        let date_regex = Regex::new(r"@(\d{4}-\d{2}-\d{2})")
-            .map_err(|e| WebError::Internal(e.to_string()))?;
+        let tag_regex =
+            Regex::new(r"#([a-zA-Z0-9_\-]+)").map_err(|e| WebError::Internal(e.to_string()))?;
+        let date_regex =
+            Regex::new(r"@(\d{4}-\d{2}-\d{2})").map_err(|e| WebError::Internal(e.to_string()))?;
         // Overrides the checkbox-derived 3-state status for custom Kanban columns (a
         // `[ ]`/`[/]`/`[x]` checkbox alone can't distinguish more than 3 board positions) --
         // written/removed by `update_task_status`, see its own comment. Matched and stripped
@@ -283,8 +327,8 @@ impl KnowledgeSyncService {
                 .replace('\\', "/");
 
             let content = match std::fs::read_to_string(&file) {
-                Ok(c) => c,
-                Err(_) => continue,
+                | Ok(c) => c,
+                | Err(_) => continue,
             };
 
             for (idx, line) in content.lines().enumerate() {
@@ -309,7 +353,9 @@ impl KnowledgeSyncService {
                     let status_override = status_tag_regex
                         .captures(raw_body)
                         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
-                    let status = status_override.clone().unwrap_or_else(|| checkbox_status.to_string());
+                    let status = status_override
+                        .clone()
+                        .unwrap_or_else(|| checkbox_status.to_string());
                     let without_status_tag = status_tag_regex.replace_all(raw_body, "").to_string();
 
                     // Extract tags
@@ -324,7 +370,8 @@ impl KnowledgeSyncService {
                         .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
 
                     // Clean title: strip #tags, #status:, and @date for display
-                    let mut clean_title = tag_regex.replace_all(&without_status_tag, "").to_string();
+                    let mut clean_title =
+                        tag_regex.replace_all(&without_status_tag, "").to_string();
                     clean_title = date_regex.replace_all(&clean_title, "").to_string();
                     let title = clean_title.trim().to_string();
 
@@ -335,7 +382,11 @@ impl KnowledgeSyncService {
                         file_path: rel_path.clone(),
                         line_number,
                         raw_line: line.to_string(),
-                        title: if title.is_empty() { raw_body.to_string() } else { title },
+                        title: if title.is_empty() {
+                            raw_body.to_string()
+                        } else {
+                            title
+                        },
                         completed,
                         status,
                         tags,
@@ -369,18 +420,22 @@ impl KnowledgeSyncService {
 
         let mut columns: Vec<KanbanColumn> = column_defs
             .iter()
-            .map(|def| KanbanColumn {
-                id: def.id.clone(),
-                title: def.title.clone(),
-                tasks: buckets.remove(&def.id).unwrap_or_default(),
-                is_done: def.is_done,
+            .map(|def| {
+                KanbanColumn {
+                    id: def.id.clone(),
+                    title: def.title.clone(),
+                    tasks: buckets.remove(&def.id).unwrap_or_default(),
+                    is_done: def.is_done,
+                }
             })
             .collect();
 
         // Whatever's left in `buckets` belongs to no configured column -- surface it instead of
         // silently dropping those tasks off the board.
         let mut unsorted: Vec<MarkdownTask> = buckets.into_values().flatten().collect();
-        unsorted.sort_by(|a, b| (a.file_path.as_str(), a.line_number).cmp(&(b.file_path.as_str(), b.line_number)));
+        unsorted.sort_by(|a, b| {
+            (a.file_path.as_str(), a.line_number).cmp(&(b.file_path.as_str(), b.line_number))
+        });
         columns.push(KanbanColumn {
             id: KANBAN_UNSORTED_COLUMN_ID.to_string(),
             title: unsorted_title.to_string(),
@@ -428,7 +483,10 @@ impl KnowledgeSyncService {
             .map_err(|e| WebError::Internal(e.to_string()))?;
 
         // 1. Direct file line match
-        let mut target_idx = if line_number > 0 && line_number <= lines.len() && task_regex.is_match(&lines[line_number - 1]) {
+        let mut target_idx = if line_number > 0
+            && line_number <= lines.len()
+            && task_regex.is_match(&lines[line_number - 1])
+        {
             Some(line_number - 1)
         } else {
             None
@@ -441,7 +499,10 @@ impl KnowledgeSyncService {
                 if let Some(body_start) = content.find(&body) {
                     let prefix_lines = content[..body_start].lines().count();
                     let candidate = line_number + prefix_lines;
-                    if candidate > 0 && candidate <= lines.len() && task_regex.is_match(&lines[candidate - 1]) {
+                    if candidate > 0
+                        && candidate <= lines.len()
+                        && task_regex.is_match(&lines[candidate - 1])
+                    {
                         target_idx = Some(candidate - 1);
                     }
                 }
@@ -452,7 +513,10 @@ impl KnowledgeSyncService {
         if target_idx.is_none() {
             for delta in [-1isize, 1, -2, 2] {
                 let test_idx = (line_number as isize - 1) + delta;
-                if test_idx >= 0 && (test_idx as usize) < lines.len() && task_regex.is_match(&lines[test_idx as usize]) {
+                if test_idx >= 0
+                    && (test_idx as usize) < lines.len()
+                    && task_regex.is_match(&lines[test_idx as usize])
+                {
                     target_idx = Some(test_idx as usize);
                     break;
                 }
@@ -460,8 +524,8 @@ impl KnowledgeSyncService {
         }
 
         let idx = match target_idx {
-            Some(i) => i,
-            None => {
+            | Some(i) => i,
+            | None => {
                 if line_number == 0 || line_number > lines.len() {
                     return Err(WebError::BadRequest(format!(
                         "Line number {} out of bounds (file has {} lines)",
@@ -471,10 +535,11 @@ impl KnowledgeSyncService {
                 } else {
                     return Err(WebError::BadRequest(format!(
                         "Line {} is not a recognized markdown task: {}",
-                        line_number, lines[line_number - 1]
+                        line_number,
+                        lines[line_number - 1]
                     )));
                 }
-            }
+            },
         };
 
         let line = &lines[idx];
@@ -506,7 +571,12 @@ impl KnowledgeSyncService {
             lines[idx] = format!("{prefix}[{mark}]{new_suffix}");
         }
 
-        let new_content = lines.join("\n") + if content.ends_with('\n') { "\n" } else { "" };
+        let new_content = lines.join("\n")
+            + if content.ends_with('\n') {
+                "\n"
+            } else {
+                ""
+            };
         std::fs::write(&full_path, new_content.as_bytes())
             .map_err(|e| WebError::Internal(format!("Failed to write updated file: {}", e)))?;
 
@@ -539,8 +609,12 @@ impl KnowledgeSyncService {
                 .unwrap_or_else(|| rel_path.clone());
 
             let task_count = match std::fs::read_to_string(file) {
-                Ok(c) => c.lines().filter(|l| l.contains("- [ ]") || l.contains("- [x]")).count(),
-                Err(_) => 0,
+                | Ok(c) => {
+                    c.lines()
+                        .filter(|l| l.contains("- [ ]") || l.contains("- [x]"))
+                        .count()
+                },
+                | Err(_) => 0,
             };
 
             node_set.insert(
@@ -564,8 +638,8 @@ impl KnowledgeSyncService {
                 .unwrap_or_default();
 
             let content = match std::fs::read_to_string(file) {
-                Ok(c) => c,
-                Err(_) => continue,
+                | Ok(c) => c,
+                | Err(_) => continue,
             };
 
             for caps in wiki_regex.captures_iter(&content) {
@@ -592,7 +666,10 @@ impl KnowledgeSyncService {
                     );
                 }
 
-                let target_id = node_set.get(&target_key).map(|n| n.id.clone()).unwrap_or_else(|| target_raw.to_string());
+                let target_id = node_set
+                    .get(&target_key)
+                    .map(|n| n.id.clone())
+                    .unwrap_or_else(|| target_raw.to_string());
 
                 edges.push(GraphEdge {
                     source: source_base.clone(),
@@ -600,7 +677,10 @@ impl KnowledgeSyncService {
                     label: display,
                 });
 
-                backlinks.entry(target_key).or_default().insert(source_base.clone());
+                backlinks
+                    .entry(target_key)
+                    .or_default()
+                    .insert(source_base.clone());
             }
         }
 
@@ -618,7 +698,9 @@ impl KnowledgeSyncService {
     }
 
     /// Extract calendar events from tasks (@YYYY-MM-DD) and file dates
-    pub fn extract_calendar_events<P: AsRef<Path>>(project_dir: P) -> WebResult<Vec<CalendarEvent>> {
+    pub fn extract_calendar_events<P: AsRef<Path>>(
+        project_dir: P
+    ) -> WebResult<Vec<CalendarEvent>> {
         let root = project_dir.as_ref();
         let files = Self::discover_markdown_files(root);
         let mut events = Vec::new();
@@ -644,10 +726,19 @@ impl KnowledgeSyncService {
 
         // 2. Events from files named like 2026-09-15-meeting-notes.md
         for file in files {
-            let file_stem = file.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let file_stem = file
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
             if let Some(caps) = date_prefix_regex.captures(&file_stem) {
-                let date = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-                let topic = caps.get(2).map(|m| m.as_str().replace('-', " ")).unwrap_or_default();
+                let date = caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
+                let topic = caps
+                    .get(2)
+                    .map(|m| m.as_str().replace('-', " "))
+                    .unwrap_or_default();
 
                 let rel_path = file
                     .strip_prefix(root)
@@ -686,30 +777,37 @@ impl KnowledgeSyncService {
                         let k = k.trim();
                         let v = v.trim().trim_matches('"').trim_matches('\'');
                         match k {
-                            "title" => meta.title = v.to_string(),
-                            "created_at" => meta.created_at = Some(v.to_string()),
-                            "updated_at" => meta.updated_at = Some(v.to_string()),
-                            "author" => meta.author = Some(v.to_string()),
-                            "tags" => {
+                            | "title" => meta.title = v.to_string(),
+                            | "created_at" => meta.created_at = Some(v.to_string()),
+                            | "updated_at" => meta.updated_at = Some(v.to_string()),
+                            | "author" => meta.author = Some(v.to_string()),
+                            | "tags" => {
                                 let clean = v.trim_matches('[').trim_matches(']');
                                 meta.tags = clean
                                     .split(',')
-                                    .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                                    .map(|s| {
+                                        s.trim().trim_matches('"').trim_matches('\'').to_string()
+                                    })
                                     .filter(|s| !s.is_empty())
                                     .collect();
-                            }
-                            "whiteboard" => {
+                            },
+                            | "whiteboard" => {
                                 // Base64-encoded JSON, so it survives this naive line-based
                                 // parser regardless of quotes/colons/brackets inside the JSON.
-                                if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, v) {
+                                if let Ok(bytes) = base64::Engine::decode(
+                                    &base64::engine::general_purpose::STANDARD,
+                                    v,
+                                ) {
                                     if let Ok(json_str) = String::from_utf8(bytes) {
-                                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                        if let Ok(val) =
+                                            serde_json::from_str::<serde_json::Value>(&json_str)
+                                        {
                                             meta.whiteboard = Some(val);
                                         }
                                     }
                                 }
-                            }
-                            _ => {}
+                            },
+                            | _ => {},
                         }
                     }
                 }
@@ -723,7 +821,11 @@ impl KnowledgeSyncService {
         let title = first_line.trim_start_matches('#').trim().to_string();
         (
             UnifiedNoteMeta {
-                title: if title.is_empty() { "Untitled Note".to_string() } else { title },
+                title: if title.is_empty() {
+                    "Untitled Note".to_string()
+                } else {
+                    title
+                },
                 created_at: None,
                 updated_at: None,
                 tags: Vec::new(),
@@ -735,7 +837,10 @@ impl KnowledgeSyncService {
     }
 
     /// Serialize unified note format back to string with YAML frontmatter
-    pub fn serialize_unified_note(meta: &UnifiedNoteMeta, body: &str) -> String {
+    pub fn serialize_unified_note(
+        meta: &UnifiedNoteMeta,
+        body: &str,
+    ) -> String {
         let tags_str = meta
             .tags
             .iter()
@@ -756,7 +861,8 @@ impl KnowledgeSyncService {
         out.push_str(&format!("tags: [{}]\n", tags_str));
         if let Some(ref wb) = meta.whiteboard {
             let json = serde_json::to_string(wb).unwrap_or_default();
-            let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes());
+            let b64 =
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes());
             out.push_str(&format!("whiteboard: \"{}\"\n", b64));
         }
         out.push_str("---\n\n");
@@ -793,21 +899,36 @@ impl KnowledgeSyncService {
     /// `#slide(title: "...")` / `#title-slide(title: "...")` call's title.
     pub fn extract_headings_typst(content: &str) -> Vec<NoteHeading> {
         let heading_re = Regex::new(r"^(=+)\s+(.+)$").unwrap();
-        let slide_title_re = Regex::new(r#"^#(?:title-slide|slide)\s*\([^)]*?title:\s*"([^"]+)""#).unwrap();
+        let slide_title_re =
+            Regex::new(r#"^#(?:title-slide|slide)\s*\([^)]*?title:\s*"([^"]+)""#).unwrap();
 
         let mut headings = Vec::new();
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             if let Some(caps) = heading_re.captures(trimmed) {
                 let level = caps.get(1).map(|m| m.as_str().len()).unwrap_or(1).min(4);
-                let text = caps.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                let text = caps
+                    .get(2)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default();
                 if !text.is_empty() {
-                    headings.push(NoteHeading { level, text, line: i + 1 });
+                    headings.push(NoteHeading {
+                        level,
+                        text,
+                        line: i + 1,
+                    });
                 }
             } else if let Some(caps) = slide_title_re.captures(trimmed) {
-                let text = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let text = caps
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
                 if !text.is_empty() {
-                    headings.push(NoteHeading { level: 1, text, line: i + 1 });
+                    headings.push(NoteHeading {
+                        level: 1,
+                        text,
+                        line: i + 1,
+                    });
                 }
             }
         }
@@ -819,22 +940,30 @@ impl KnowledgeSyncService {
     /// broader than `\subsection`, etc.) -- `extract_headings`'s `#`-based logic finds nothing at
     /// all in a `.tex` file, since LaTeX commands start with `\`, not `#`.
     pub fn extract_headings_latex(content: &str) -> Vec<NoteHeading> {
-        let re = Regex::new(r"^\\(part|chapter|section|subsection|subsubsection)\*?\{([^}]*)\}").unwrap();
+        let re = Regex::new(r"^\\(part|chapter|section|subsection|subsubsection)\*?\{([^}]*)\}")
+            .unwrap();
         let mut headings = Vec::new();
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             if let Some(caps) = re.captures(trimmed) {
                 let kind = caps.get(1).map(|m| m.as_str()).unwrap_or("section");
                 let level = match kind {
-                    "part" => 1,
-                    "chapter" => 1,
-                    "section" => 2,
-                    "subsection" => 3,
-                    _ => 4,
+                    | "part" => 1,
+                    | "chapter" => 1,
+                    | "section" => 2,
+                    | "subsection" => 3,
+                    | _ => 4,
                 };
-                let text = caps.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                let text = caps
+                    .get(2)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default();
                 if !text.is_empty() {
-                    headings.push(NoteHeading { level, text, line: i + 1 });
+                    headings.push(NoteHeading {
+                        level,
+                        text,
+                        line: i + 1,
+                    });
                 }
             }
         }
@@ -845,14 +974,19 @@ impl KnowledgeSyncService {
     /// "jump to a named section" purpose an outline is for -- without this, `extract_headings`'s
     /// `#`-based logic picked up every `#`-prefixed *comment* line in a Python/R/Bash script as a
     /// fake heading, which is a real mess on any script with a normal amount of commenting.
-    pub fn extract_headings_script(content: &str, ext: &str) -> Vec<NoteHeading> {
+    pub fn extract_headings_script(
+        content: &str,
+        ext: &str,
+    ) -> Vec<NoteHeading> {
         let re = match ext {
-            "py" => Regex::new(r"^(def|class)\s+(\w+)").unwrap(),
-            "r" => Regex::new(r"^(\w+)\s*(?:<-|=)\s*function\s*\(").unwrap(),
-            "rs" => Regex::new(r"^(?:pub\s+)?(fn|struct|enum|trait|impl)\s+(\w+)").unwrap(),
-            "js" | "ts" => Regex::new(r"^(?:export\s+)?(?:async\s+)?(function|class)\s+(\w+)").unwrap(),
-            "sh" | "bash" => Regex::new(r"^(?:function\s+)?(\w+)\s*\(\)\s*\{?").unwrap(),
-            _ => return Vec::new(),
+            | "py" => Regex::new(r"^(def|class)\s+(\w+)").unwrap(),
+            | "r" => Regex::new(r"^(\w+)\s*(?:<-|=)\s*function\s*\(").unwrap(),
+            | "rs" => Regex::new(r"^(?:pub\s+)?(fn|struct|enum|trait|impl)\s+(\w+)").unwrap(),
+            | "js" | "ts" => {
+                Regex::new(r"^(?:export\s+)?(?:async\s+)?(function|class)\s+(\w+)").unwrap()
+            },
+            | "sh" | "bash" => Regex::new(r"^(?:function\s+)?(\w+)\s*\(\)\s*\{?").unwrap(),
+            | _ => return Vec::new(),
         };
 
         let mut headings = Vec::new();
@@ -861,9 +995,17 @@ impl KnowledgeSyncService {
             if let Some(caps) = re.captures(trimmed) {
                 // R and shell each only have one capture group of interest (the name); the
                 // others have the keyword in group 1 and the name in group 2.
-                let text = caps.get(2).or_else(|| caps.get(1)).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let text = caps
+                    .get(2)
+                    .or_else(|| caps.get(1))
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
                 if !text.is_empty() {
-                    headings.push(NoteHeading { level: 1, text, line: i + 1 });
+                    headings.push(NoteHeading {
+                        level: 1,
+                        text,
+                        line: i + 1,
+                    });
                 }
             }
         }
@@ -873,17 +1015,22 @@ impl KnowledgeSyncService {
     /// Dispatches to the right outline extractor for a file's actual language, based on its
     /// extension -- the single call site every editor page should use instead of assuming every
     /// file is Markdown.
-    pub fn extract_headings_for_file(content: &str, file_path: &str) -> Vec<NoteHeading> {
+    pub fn extract_headings_for_file(
+        content: &str,
+        file_path: &str,
+    ) -> Vec<NoteHeading> {
         let ext = std::path::Path::new(file_path)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
         match ext.as_str() {
-            "typ" => Self::extract_headings_typst(content),
-            "tex" | "latex" => Self::extract_headings_latex(content),
-            "py" | "r" | "rs" | "js" | "ts" | "sh" | "bash" => Self::extract_headings_script(content, &ext),
-            _ => Self::extract_headings(content),
+            | "typ" => Self::extract_headings_typst(content),
+            | "tex" | "latex" => Self::extract_headings_latex(content),
+            | "py" | "r" | "rs" | "js" | "ts" | "sh" | "bash" => {
+                Self::extract_headings_script(content, &ext)
+            },
+            | _ => Self::extract_headings(content),
         }
     }
 }
@@ -926,18 +1073,27 @@ Backlink to [[Quantum Algorithms]].
         let tasks = KnowledgeSyncService::extract_all_tasks(dir.path()).unwrap();
         assert_eq!(tasks.len(), 4);
 
-        let qft_task = tasks.iter().find(|t| t.title.contains("Implement quantum Fourier transform")).unwrap();
+        let qft_task = tasks
+            .iter()
+            .find(|t| t.title.contains("Implement quantum Fourier transform"))
+            .unwrap();
         assert_eq!(qft_task.status, "todo");
         assert_eq!(qft_task.tags, vec!["quantum", "code"]);
         assert_eq!(qft_task.due_date, Some("2026-10-01".to_string()));
 
-        let nielsen_task = tasks.iter().find(|t| t.title.contains("Review Nielsen & Chuang")).unwrap();
+        let nielsen_task = tasks
+            .iter()
+            .find(|t| t.title.contains("Review Nielsen & Chuang"))
+            .unwrap();
         assert!(nielsen_task.completed);
         assert_eq!(nielsen_task.status, "done");
 
         // 2. Test Kanban Board (default 3-column layout)
-        let default_columns = KnowledgeSyncService::default_kanban_columns("To Do", "In Progress", "Completed");
-        let kanban = KnowledgeSyncService::build_kanban_board(dir.path(), &default_columns, "Unsorted").unwrap();
+        let default_columns =
+            KnowledgeSyncService::default_kanban_columns("To Do", "In Progress", "Completed");
+        let kanban =
+            KnowledgeSyncService::build_kanban_board(dir.path(), &default_columns, "Unsorted")
+                .unwrap();
         assert_eq!(kanban.total_tasks, 4);
         assert_eq!(kanban.completed_tasks, 1);
         assert_eq!(kanban.columns[0].tasks.len(), 2); // todo
@@ -964,11 +1120,19 @@ Backlink to [[Quantum Algorithms]].
         let graph = KnowledgeSyncService::build_knowledge_graph(dir.path()).unwrap();
         assert_eq!(graph.edges.len(), 3); // doc1 -> Error Correction, doc1 -> Hardware Specs, doc2 -> Quantum Algorithms
 
-        let err_corr_node = graph.nodes.iter().find(|n| n.label.eq_ignore_ascii_case("Error Correction")).unwrap();
+        let err_corr_node = graph
+            .nodes
+            .iter()
+            .find(|n| n.label.eq_ignore_ascii_case("Error Correction"))
+            .unwrap();
         assert!(err_corr_node.exists);
         assert_eq!(err_corr_node.backlink_count, 1);
 
-        let hw_node = graph.nodes.iter().find(|n| n.label.eq_ignore_ascii_case("Hardware Specs")).unwrap();
+        let hw_node = graph
+            .nodes
+            .iter()
+            .find(|n| n.label.eq_ignore_ascii_case("Hardware Specs"))
+            .unwrap();
         assert!(!hw_node.exists); // placeholder node created from [[Hardware Specs|...]]
 
         // 5. Test Calendar Events
@@ -992,47 +1156,128 @@ Backlink to [[Quantum Algorithms]].
         // A team-defined 4-column workflow beyond the default 3 -- "review" has no matching
         // checkbox state, so it can only exist via the `#status:` tag.
         let columns = vec![
-            KanbanColumnDef { id: "backlog".to_string(), title: "Backlog".to_string(), is_done: false },
-            KanbanColumnDef { id: "review".to_string(), title: "In Review".to_string(), is_done: false },
-            KanbanColumnDef { id: "shipped".to_string(), title: "Shipped".to_string(), is_done: true },
+            KanbanColumnDef {
+                id: "backlog".to_string(),
+                title: "Backlog".to_string(),
+                is_done: false,
+            },
+            KanbanColumnDef {
+                id: "review".to_string(),
+                title: "In Review".to_string(),
+                is_done: false,
+            },
+            KanbanColumnDef {
+                id: "shipped".to_string(),
+                title: "Shipped".to_string(),
+                is_done: true,
+            },
         ];
 
         let tasks = KnowledgeSyncService::extract_all_tasks(dir.path()).unwrap();
         let triage_task = tasks.iter().find(|t| t.title.contains("Triage")).unwrap();
         // Neither task has been tagged for any of this custom layout's columns yet -- both must
         // land in the Unsorted catch-all rather than vanish or force themselves into "backlog".
-        let board = KnowledgeSyncService::build_kanban_board(dir.path(), &columns, "Unsorted").unwrap();
-        assert_eq!(board.columns.iter().find(|c| c.id == "backlog").unwrap().tasks.len(), 0);
-        assert_eq!(board.columns.iter().find(|c| c.id == KANBAN_UNSORTED_COLUMN_ID).unwrap().tasks.len(), 2);
+        let board =
+            KnowledgeSyncService::build_kanban_board(dir.path(), &columns, "Unsorted").unwrap();
+        assert_eq!(
+            board
+                .columns
+                .iter()
+                .find(|c| c.id == "backlog")
+                .unwrap()
+                .tasks
+                .len(),
+            0
+        );
+        assert_eq!(
+            board
+                .columns
+                .iter()
+                .find(|c| c.id == KANBAN_UNSORTED_COLUMN_ID)
+                .unwrap()
+                .tasks
+                .len(),
+            2
+        );
 
         // Move the triage task into "review" (not done) -- must write a #status: tag since the
         // checkbox alone can't represent it, and must NOT mark the box done.
-        KnowledgeSyncService::update_task_status(dir.path(), "notes/backlog.md", triage_task.line_number, "review", false).unwrap();
+        KnowledgeSyncService::update_task_status(
+            dir.path(),
+            "notes/backlog.md",
+            triage_task.line_number,
+            "review",
+            false,
+        )
+        .unwrap();
         let after_review = std::fs::read_to_string(&doc_path).unwrap();
-        assert!(after_review.contains("- [/] Triage new bug reports #status:review"), "expected in-progress bracket + status tag: {after_review}");
+        assert!(
+            after_review.contains("- [/] Triage new bug reports #status:review"),
+            "expected in-progress bracket + status tag: {after_review}"
+        );
 
         let tasks2 = KnowledgeSyncService::extract_all_tasks(dir.path()).unwrap();
         let triage2 = tasks2.iter().find(|t| t.title.contains("Triage")).unwrap();
         assert_eq!(triage2.status, "review");
         assert!(!triage2.completed);
-        assert!(triage2.tags.is_empty(), "the status tag must not also appear as a plain tag: {:?}", triage2.tags);
+        assert!(
+            triage2.tags.is_empty(),
+            "the status tag must not also appear as a plain tag: {:?}",
+            triage2.tags
+        );
 
-        let board2 = KnowledgeSyncService::build_kanban_board(dir.path(), &columns, "Unsorted").unwrap();
-        assert_eq!(board2.columns.iter().find(|c| c.id == "review").unwrap().tasks.len(), 1);
-        assert_eq!(board2.columns.iter().find(|c| c.id == KANBAN_UNSORTED_COLUMN_ID).unwrap().tasks.len(), 1);
+        let board2 =
+            KnowledgeSyncService::build_kanban_board(dir.path(), &columns, "Unsorted").unwrap();
+        assert_eq!(
+            board2
+                .columns
+                .iter()
+                .find(|c| c.id == "review")
+                .unwrap()
+                .tasks
+                .len(),
+            1
+        );
+        assert_eq!(
+            board2
+                .columns
+                .iter()
+                .find(|c| c.id == KANBAN_UNSORTED_COLUMN_ID)
+                .unwrap()
+                .tasks
+                .len(),
+            1
+        );
 
         // Move it on to "shipped" (a done column) -- checkbox must flip to [x], and the old
         // #status:review tag must be replaced, not left stacked alongside the new one.
-        KnowledgeSyncService::update_task_status(dir.path(), "notes/backlog.md", triage_task.line_number, "shipped", true).unwrap();
+        KnowledgeSyncService::update_task_status(
+            dir.path(),
+            "notes/backlog.md",
+            triage_task.line_number,
+            "shipped",
+            true,
+        )
+        .unwrap();
         let after_shipped = std::fs::read_to_string(&doc_path).unwrap();
         assert!(after_shipped.contains("- [x] Triage new bug reports #status:shipped"));
         assert!(!after_shipped.contains("status:review"));
 
         // Finally, back to the built-in "todo" id -- the tag must be fully removed, restoring the
         // plain, untagged representation every pre-custom-columns board already relied on.
-        KnowledgeSyncService::update_task_status(dir.path(), "notes/backlog.md", triage_task.line_number, "todo", false).unwrap();
+        KnowledgeSyncService::update_task_status(
+            dir.path(),
+            "notes/backlog.md",
+            triage_task.line_number,
+            "todo",
+            false,
+        )
+        .unwrap();
         let after_todo = std::fs::read_to_string(&doc_path).unwrap();
-        assert!(after_todo.contains("- [ ] Triage new bug reports\n"), "expected a clean, untagged line: {after_todo}");
+        assert!(
+            after_todo.contains("- [ ] Triage new bug reports\n"),
+            "expected a clean, untagged line: {after_todo}"
+        );
     }
 
     #[test]
@@ -1057,7 +1302,14 @@ Backlink to [[Quantum Algorithms]].
         assert_eq!(parsed_body.trim(), "# Body content");
         assert_eq!(parsed_meta.title, "Sketch Notes");
         assert_eq!(parsed_meta.tags, vec!["diagram".to_string()]);
-        let strokes = parsed_meta.whiteboard.as_ref().unwrap().get("strokes").unwrap().as_array().unwrap();
+        let strokes = parsed_meta
+            .whiteboard
+            .as_ref()
+            .unwrap()
+            .get("strokes")
+            .unwrap()
+            .as_array()
+            .unwrap();
         assert_eq!(strokes.len(), 1);
         assert_eq!(strokes[0]["color"], "#ff0000");
         assert_eq!(strokes[0]["points"][1][0], 20);
@@ -1093,11 +1345,21 @@ Some body text.
 "#;
         let headings = KnowledgeSyncService::extract_headings_typst(content);
         let texts: Vec<&str> = headings.iter().map(|h| h.text.as_str()).collect();
-        assert_eq!(texts, vec!["Opening Slide", "Section One", "Architecture Overview", "Subsection"]);
+        assert_eq!(
+            texts,
+            vec![
+                "Opening Slide",
+                "Section One",
+                "Architecture Overview",
+                "Subsection"
+            ]
+        );
         assert_eq!(headings[1].level, 1); // "= Section One"
         assert_eq!(headings[3].level, 2); // "== Subsection"
-        // None of the plain `#`-invocation lines (#import, #show) leaked in as fake headings.
-        assert!(!texts.iter().any(|t| t.contains("import") || t.contains("slide-theme")));
+                                          // None of the plain `#`-invocation lines (#import, #show) leaked in as fake headings.
+        assert!(!texts
+            .iter()
+            .any(|t| t.contains("import") || t.contains("slide-theme")));
     }
 
     /// LaTeX's real sectioning commands (`\part`/`\chapter`/`\section`/...) start with `\`, not
@@ -1145,9 +1407,27 @@ class Analyzer:
 
     #[test]
     fn test_extract_headings_for_file_dispatches_by_extension() {
-        assert_eq!(KnowledgeSyncService::extract_headings_for_file("= Heading\n", "paper.typ")[0].text, "Heading");
-        assert_eq!(KnowledgeSyncService::extract_headings_for_file("\\section{Intro}\n", "report.tex")[0].text, "Intro");
-        assert_eq!(KnowledgeSyncService::extract_headings_for_file("def foo():\n    pass\n", "analysis.py")[0].text, "foo");
-        assert_eq!(KnowledgeSyncService::extract_headings_for_file("# A Note Heading\n", "notes.md")[0].text, "A Note Heading");
+        assert_eq!(
+            KnowledgeSyncService::extract_headings_for_file("= Heading\n", "paper.typ")[0].text,
+            "Heading"
+        );
+        assert_eq!(
+            KnowledgeSyncService::extract_headings_for_file("\\section{Intro}\n", "report.tex")[0]
+                .text,
+            "Intro"
+        );
+        assert_eq!(
+            KnowledgeSyncService::extract_headings_for_file(
+                "def foo():\n    pass\n",
+                "analysis.py"
+            )[0]
+            .text,
+            "foo"
+        );
+        assert_eq!(
+            KnowledgeSyncService::extract_headings_for_file("# A Note Heading\n", "notes.md")[0]
+                .text,
+            "A Note Heading"
+        );
     }
 }

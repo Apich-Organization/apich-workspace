@@ -1,5 +1,7 @@
 mod common;
-use apich_vcs::{FastCdcConfig, IgnoreProfile, ProjectVcs};
+use apich_vcs::FastCdcConfig;
+use apich_vcs::IgnoreProfile;
+use apich_vcs::ProjectVcs;
 use chrono::Duration;
 use common::test_temp_dir;
 use std::fs;
@@ -60,7 +62,10 @@ debounce_ms = 3000
     assert_eq!(vcs.cdc_config().max_size, 1024 * 1024);
 
     // Verify Retention policy adopted the custom durations
-    assert_eq!(vcs.retention_policy().keep_all_duration, Duration::hours(48));
+    assert_eq!(
+        vcs.retention_policy().keep_all_duration,
+        Duration::hours(48)
+    );
     assert_eq!(vcs.retention_policy().hourly_duration, Duration::days(14));
 
     // Verify Smart Ignore:
@@ -75,10 +80,14 @@ debounce_ms = 3000
     // Custom rules and wildcard support
     assert!(vcs.ignore_filter().is_ignored("temp.custom_cache"));
     assert!(vcs.ignore_filter().is_ignored("secret_models/weights.bin"));
-    assert!(vcs.ignore_filter().is_ignored("secret_models/subfolder/weights.bin"));
+    assert!(vcs
+        .ignore_filter()
+        .is_ignored("secret_models/subfolder/weights.bin"));
 
     // Negative exception rule (!secret_models/allowed_demo.bin)
-    assert!(!vcs.ignore_filter().is_ignored("secret_models/allowed_demo.bin"));
+    assert!(!vcs
+        .ignore_filter()
+        .is_ignored("secret_models/allowed_demo.bin"));
 }
 
 #[test]
@@ -104,12 +113,20 @@ fn test_wildcard_lfs_and_gitattributes_loading() {
 
     // Test wildcard matches:
     // 1. From .gitattributes
-    assert!(vcs.lfs_policy().is_lfs_file("weights/transformer/base.pt", 500));
-    assert!(vcs.lfs_policy().is_lfs_file("checkpoints/epoch_10.ckpt", 500));
-    assert!(vcs.lfs_policy().is_lfs_file("data/embeddings/train.parquet", 500));
+    assert!(vcs
+        .lfs_policy()
+        .is_lfs_file("weights/transformer/base.pt", 500));
+    assert!(vcs
+        .lfs_policy()
+        .is_lfs_file("checkpoints/epoch_10.ckpt", 500));
+    assert!(vcs
+        .lfs_policy()
+        .is_lfs_file("data/embeddings/train.parquet", 500));
 
     // 2. From programmatic pattern
-    assert!(vcs.lfs_policy().is_lfs_file("deep_models/vision/resnet.onnx", 100));
+    assert!(vcs
+        .lfs_policy()
+        .is_lfs_file("deep_models/vision/resnet.onnx", 100));
 
     // 3. Default patterns
     assert!(vcs.lfs_policy().is_lfs_file("measurements.sqlite", 100));
@@ -120,7 +137,9 @@ fn test_wildcard_lfs_and_gitattributes_loading() {
     assert!(!vcs.lfs_policy().is_lfs_file("paper.typ", 5000));
 
     // 5. File exceeding size threshold (25 MB > 20 MB)
-    assert!(vcs.lfs_policy().is_lfs_file("huge_dump.txt", 25 * 1024 * 1024));
+    assert!(vcs
+        .lfs_policy()
+        .is_lfs_file("huge_dump.txt", 25 * 1024 * 1024));
 }
 
 #[test]
@@ -139,7 +158,9 @@ fn test_programmatic_configuration_and_dynamic_customization() {
 
     // 2. Dynamically add custom ignore rule with wildcards
     vcs.add_ignore_rule("generated_assets/**/*.tmp").unwrap();
-    assert!(vcs.ignore_filter().is_ignored("generated_assets/svg/chart.tmp"));
+    assert!(vcs
+        .ignore_filter()
+        .is_ignored("generated_assets/svg/chart.tmp"));
 
     // 3. Dynamically set custom FastCDC chunking bounds
     vcs.set_cdc_config(FastCdcConfig {
@@ -156,5 +177,7 @@ fn test_programmatic_configuration_and_dynamic_customization() {
     // 5. Reload from disk and verify persistence
     vcs.reload_config().unwrap();
     assert!(!vcs.ignore_filter().is_ignored("paper.aux"));
-    assert!(vcs.ignore_filter().is_ignored("generated_assets/svg/chart.tmp"));
+    assert!(vcs
+        .ignore_filter()
+        .is_ignored("generated_assets/svg/chart.tmp"));
 }

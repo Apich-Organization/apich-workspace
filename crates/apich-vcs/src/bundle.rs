@@ -1,15 +1,24 @@
 use crate::api::ProjectVcs;
-use crate::error::{Result, VcsError};
+use crate::error::Result;
+use crate::error::VcsError;
 use crate::model::Branch;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use chrono::Utc;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::io::{Read, Write};
+use serde::Deserialize;
+use serde::Serialize;
+use std::fs::File;
+use std::fs::{
+    self,
+};
+use std::io::Read;
+use std::io::Write;
 use std::path::Path;
-use tar::{Archive, Builder, Header};
+use tar::Archive;
+use tar::Builder;
+use tar::Header;
 use uuid::Uuid;
 
 /// Result of accepting an uploaded bundle as a "push" (or, symmetrically, of accepting a
@@ -54,7 +63,11 @@ pub struct ProjectBundle;
 
 impl ProjectBundle {
     /// Export the entire VCS repository (.apich directory and metadata) to a compressed stream
-    pub fn export<W: Write>(vcs: &ProjectVcs, writer: W, options: BundleOptions) -> Result<()> {
+    pub fn export<W: Write>(
+        vcs: &ProjectVcs,
+        writer: W,
+        options: BundleOptions,
+    ) -> Result<()> {
         if options.auto_snapshot_before_export {
             let _ = vcs.snapshot("Pre-export bundle auto-save");
         }
@@ -105,7 +118,10 @@ impl ProjectBundle {
 
     /// Import a project bundle from a stream into a destination folder, fully materializing
     /// all historical snapshots, branches, OpLog, and working copy files
-    pub fn import<R: Read>(reader: R, target_dir: impl AsRef<Path>) -> Result<ProjectVcs> {
+    pub fn import<R: Read>(
+        reader: R,
+        target_dir: impl AsRef<Path>,
+    ) -> Result<ProjectVcs> {
         let target = target_dir.as_ref();
         fs::create_dir_all(target)?;
 
@@ -144,7 +160,10 @@ impl ProjectBundle {
     /// for that branch is an ancestor of the incoming HEAD (a fast-forward) or the branch doesn't
     /// exist here yet; anything else is left untouched and reported back, mirroring how a real
     /// Git server rejects a non-fast-forward push rather than silently discarding history.
-    pub fn accept_push<R: Read>(vcs: &ProjectVcs, reader: R) -> Result<PushOutcome> {
+    pub fn accept_push<R: Read>(
+        vcs: &ProjectVcs,
+        reader: R,
+    ) -> Result<PushOutcome> {
         let tmp = tempfile::tempdir().map_err(VcsError::Io)?;
         let decoder = GzDecoder::new(reader);
         let mut archive = Archive::new(decoder);
@@ -152,7 +171,9 @@ impl ProjectBundle {
 
         let incoming_apich = tmp.path().join(".apich");
         if !incoming_apich.exists() {
-            return Err(VcsError::Internal("Uploaded bundle has no .apich directory".to_string()));
+            return Err(VcsError::Internal(
+                "Uploaded bundle has no .apich directory".to_string(),
+            ));
         }
 
         let local_apich = vcs.project_root().join(".apich");
@@ -173,22 +194,29 @@ impl ProjectBundle {
                 }
                 let incoming_branch: Branch = serde_json::from_slice(&fs::read(&path)?)?;
 
-                let is_current_branch = vcs.current_branch()?.as_deref() == Some(incoming_branch.name.as_str());
+                let is_current_branch =
+                    vcs.current_branch()?.as_deref() == Some(incoming_branch.name.as_str());
 
                 match vcs.get_branch(&incoming_branch.name)? {
-                    None => {
+                    | None => {
                         let new_head = incoming_branch.head_snapshot_id;
                         vcs.save_branch(&incoming_branch)?;
                         outcome.accepted_branches.push(incoming_branch.name);
                         if is_current_branch {
                             vcs.checkout_tree(new_head)?;
                         }
-                    }
-                    Some(local_branch) if local_branch.head_snapshot_id == incoming_branch.head_snapshot_id => {
+                    },
+                    | Some(local_branch)
+                        if local_branch.head_snapshot_id == incoming_branch.head_snapshot_id =>
+                    {
                         outcome.accepted_branches.push(incoming_branch.name);
-                    }
-                    Some(local_branch) => {
-                        if Self::is_ancestor(vcs, local_branch.head_snapshot_id, incoming_branch.head_snapshot_id) {
+                    },
+                    | Some(local_branch) => {
+                        if Self::is_ancestor(
+                            vcs,
+                            local_branch.head_snapshot_id,
+                            incoming_branch.head_snapshot_id,
+                        ) {
                             let new_head = incoming_branch.head_snapshot_id;
                             vcs.save_branch(&incoming_branch)?;
                             outcome.accepted_branches.push(incoming_branch.name);
@@ -202,10 +230,11 @@ impl ProjectBundle {
                         } else {
                             outcome.rejected_branches.push((
                                 incoming_branch.name,
-                                "not a fast-forward of the current history -- pull before pushing".to_string(),
+                                "not a fast-forward of the current history -- pull before pushing"
+                                    .to_string(),
                             ));
                         }
-                    }
+                    },
                 }
             }
         }
@@ -214,13 +243,21 @@ impl ProjectBundle {
     }
 
     /// Walk `descendant_id`'s parent chain looking for `ancestor_id`.
-    fn is_ancestor(vcs: &ProjectVcs, ancestor_id: Uuid, descendant_id: Uuid) -> bool {
+    fn is_ancestor(
+        vcs: &ProjectVcs,
+        ancestor_id: Uuid,
+        descendant_id: Uuid,
+    ) -> bool {
         let mut curr = Some(descendant_id);
         while let Some(id) = curr {
             if id == ancestor_id {
                 return true;
             }
-            curr = vcs.cas().get_snapshot(id).ok().and_then(|s| s.parent_snapshot_id);
+            curr = vcs
+                .cas()
+                .get_snapshot(id)
+                .ok()
+                .and_then(|s| s.parent_snapshot_id);
         }
         false
     }
@@ -228,7 +265,10 @@ impl ProjectBundle {
     /// Recursively copy files from `src` into `dest`, skipping any path that already exists at
     /// the destination -- correct here specifically because every file under `.apich/cas/` is
     /// named by the content hash of its own bytes, so "already exists" means "already identical".
-    fn merge_copy_dir(src: &Path, dest: &Path) -> Result<()> {
+    fn merge_copy_dir(
+        src: &Path,
+        dest: &Path,
+    ) -> Result<()> {
         fs::create_dir_all(dest)?;
         for entry in fs::read_dir(src)? {
             let entry = entry?;
@@ -261,7 +301,11 @@ impl ProjectBundle {
             let mut header = Header::new_gnu();
             header.set_path(rel_path)?;
             header.set_size(data.len() as u64);
-            header.set_mode(if entry.is_executable { 0o755 } else { 0o644 });
+            header.set_mode(if entry.is_executable {
+                0o755
+            } else {
+                0o644
+            });
             header.set_cksum();
             tar_builder.append(&header, &data[..])?;
         }

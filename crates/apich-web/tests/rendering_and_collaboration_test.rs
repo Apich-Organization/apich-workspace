@@ -1,9 +1,17 @@
-use apich_db::{CreateUserDto, Database, PostgresConfig, PostgresContainer, UserRole};
+use apich_db::CreateUserDto;
+use apich_db::Database;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::UserRole;
 use apich_sandbox::SandboxManager;
-use apich_web::{create_app, AppState};
+use apich_web::create_app;
+use apich_web::AppState;
 use reqwest::StatusCode;
-use serde_json::{json, Value};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use serde_json::json;
+use serde_json::Value;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 
 fn test_temp_dir() -> TempDir {
@@ -51,9 +59,11 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
     let _ = db.run_migrations().await;
     let repo = db.repository();
 
-    let _ = sqlx::query("TRUNCATE TABLE users, organizations, oauth_clients, system_settings, invitations CASCADE")
-        .execute(db.pool())
-        .await;
+    let _ = sqlx::query(
+        "TRUNCATE TABLE users, organizations, oauth_clients, system_settings, invitations CASCADE",
+    )
+    .execute(db.pool())
+    .await;
 
     let _admin = repo
         .create_user(CreateUserDto {
@@ -77,7 +87,10 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Failed to bind ephemeral port");
-    let server_port = listener.local_addr().expect("Failed to get local port").port();
+    let server_port = listener
+        .local_addr()
+        .expect("Failed to get local port")
+        .port();
     let base_url = format!("http://127.0.0.1:{}", server_port);
 
     let state = AppState::new(
@@ -105,20 +118,32 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
     // Login as admin
     let login_res = client
         .post(format!("{}/login", base_url))
-        .form(&[
-            ("login", "dr_alice"),
-            ("password", "SuperSecretPass123!"),
-        ])
+        .form(&[("login", "dr_alice"), ("password", "SuperSecretPass123!")])
         .send()
         .await
         .unwrap();
     assert_eq!(login_res.status(), StatusCode::SEE_OTHER);
 
     // Create Showcase Demo Project
-    let create_demo_res = client.post(format!("{}/projects/demo/create", base_url)).send().await.unwrap();
+    let create_demo_res = client
+        .post(format!("{}/projects/demo/create", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(create_demo_res.status(), StatusCode::SEE_OTHER);
-    let demo_proj_loc = create_demo_res.headers().get("location").unwrap().to_str().unwrap();
-    let proj_id = demo_proj_loc.split('/').nth(2).unwrap().split('?').next().unwrap();
+    let demo_proj_loc = create_demo_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let proj_id = demo_proj_loc
+        .split('/')
+        .nth(2)
+        .unwrap()
+        .split('?')
+        .next()
+        .unwrap();
 
     // ========================================================================
     // TEST 1: Real Typst SVG Compilation & Dev-mode Reverse Search Links
@@ -128,17 +153,17 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
 
     let save_res = client
         .post(format!("{}/projects/{}/editor/save", base_url, proj_id))
-        .form(&[
-            ("file", "quantum_report.typ"),
-            ("content", typst_source),
-        ])
+        .form(&[("file", "quantum_report.typ"), ("content", typst_source)])
         .send()
         .await
         .unwrap();
     assert_eq!(save_res.status(), StatusCode::SEE_OTHER);
 
     let editor_res = client
-        .get(format!("{}/projects/{}/editor?file=quantum_report.typ", base_url, proj_id))
+        .get(format!(
+            "{}/projects/{}/editor?file=quantum_report.typ",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -146,7 +171,10 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
     let editor_html = editor_res.text().await.unwrap();
 
     // Verify SVG was generated and contains reverse-search hyperlink anchors
-    assert!(editor_html.contains("<svg"), "Page must contain rendered SVG output");
+    assert!(
+        editor_html.contains("<svg"),
+        "Page must contain rendered SVG output"
+    );
     assert!(
         editor_html.contains("sync:line:") || editor_html.contains("Quantum Calibration"),
         "SVG must contain reverse search sync:line hyperlink or compiled content"
@@ -160,10 +188,7 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
 
     let _ = client
         .post(format!("{}/projects/{}/editor/save", base_url, proj_id))
-        .form(&[
-            ("file", "telemetry_analysis.py"),
-            ("content", script_code),
-        ])
+        .form(&[("file", "telemetry_analysis.py"), ("content", script_code)])
         .send()
         .await
         .unwrap();
@@ -182,7 +207,10 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
     let run_json: Value = run_res.json().await.unwrap();
     assert_eq!(run_json["success"], true);
     assert_eq!(run_json["exit_code"], 0);
-    assert!(run_json["stdout"].as_str().unwrap().contains("APICH Script Runner Initialized"));
+    assert!(run_json["stdout"]
+        .as_str()
+        .unwrap()
+        .contains("APICH Script Runner Initialized"));
     assert!(run_json["execution_time_ms"].is_number());
 
     // ========================================================================
@@ -193,16 +221,16 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
 
     let _ = client
         .post(format!("{}/projects/{}/editor/save", base_url, proj_id))
-        .form(&[
-            ("file", "cavity_experiment.anote"),
-            ("content", note_raw),
-        ])
+        .form(&[("file", "cavity_experiment.anote"), ("content", note_raw)])
         .send()
         .await
         .unwrap();
 
     let note_page_res = client
-        .get(format!("{}/projects/{}/note?file=cavity_experiment.anote&view=editor", base_url, proj_id))
+        .get(format!(
+            "{}/projects/{}/note?file=cavity_experiment.anote&view=editor",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -210,17 +238,41 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
     let note_page_html = note_page_res.text().await.unwrap();
 
     // Verify 3-column layout & components
-    assert!(note_page_html.contains("editor-studio-grid"), "Must use 3-column grid");
-    assert!(note_page_html.contains("outline-panel"), "Must have outline panel");
-    assert!(note_page_html.contains("code-panel"), "Must have code editor panel");
-    assert!(note_page_html.contains("preview-panel"), "Must have live preview panel");
-    assert!(note_page_html.contains("task-live-checkbox"), "Live preview must have interactive checkboxes");
-    assert!(note_page_html.contains("Task Progress"), "Must show tasks progress");
-    assert!(note_page_html.contains("KaTeX Math"), "Must indicate KaTeX support");
+    assert!(
+        note_page_html.contains("editor-studio-grid"),
+        "Must use 3-column grid"
+    );
+    assert!(
+        note_page_html.contains("outline-panel"),
+        "Must have outline panel"
+    );
+    assert!(
+        note_page_html.contains("code-panel"),
+        "Must have code editor panel"
+    );
+    assert!(
+        note_page_html.contains("preview-panel"),
+        "Must have live preview panel"
+    );
+    assert!(
+        note_page_html.contains("task-live-checkbox"),
+        "Live preview must have interactive checkboxes"
+    );
+    assert!(
+        note_page_html.contains("Task Progress"),
+        "Must show tasks progress"
+    );
+    assert!(
+        note_page_html.contains("KaTeX Math"),
+        "Must indicate KaTeX support"
+    );
 
     // Toggle task line 11 (Calibrate pulse envelope) via AJAX endpoint
     let toggle_ajax_res = client
-        .post(format!("{}/projects/{}/knowledge/toggle-task-ajax", base_url, proj_id))
+        .post(format!(
+            "{}/projects/{}/knowledge/toggle-task-ajax",
+            base_url, proj_id
+        ))
         .form(&[
             ("file", "cavity_experiment.anote"),
             ("line_number", "11"),
@@ -241,7 +293,10 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
 
     // Verify file on disk is also updated
     let reloaded_file_res = client
-        .get(format!("{}/projects/{}/editor?file=cavity_experiment.anote", base_url, proj_id))
+        .get(format!(
+            "{}/projects/{}/editor?file=cavity_experiment.anote",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -274,15 +329,15 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
         .await
         .unwrap();
     let files_tab_html = files_tab_res.text().await.unwrap();
-    assert!(files_tab_html.contains("Public (read_only)") || files_tab_html.contains("share-badge-public"));
+    assert!(
+        files_tab_html.contains("Public (read_only)")
+            || files_tab_html.contains("share-badge-public")
+    );
 
     // Update Project Sharing Configuration
     let proj_share_res = client
         .post(format!("{}/projects/{}/sharing/update", base_url, proj_id))
-        .form(&[
-            ("is_public", "true"),
-            ("default_role", "read_and_review"),
-        ])
+        .form(&[("is_public", "true"), ("default_role", "read_and_review")])
         .send()
         .await
         .unwrap();
@@ -308,7 +363,8 @@ async fn test_rendering_notes_sharing_and_ai_copilot() {
     let ai_json: Value = ai_req_res.json().await.unwrap();
     assert_eq!(ai_json["success"], true);
     assert!(
-        ai_json["reply"].as_str().unwrap().contains("Hamiltonian") || ai_json["reply"].as_str().unwrap().contains("omega"),
+        ai_json["reply"].as_str().unwrap().contains("Hamiltonian")
+            || ai_json["reply"].as_str().unwrap().contains("omega"),
         "AI response must contain formulated scientific content"
     );
     assert!(ai_json["suggested_code"].as_str().is_some());

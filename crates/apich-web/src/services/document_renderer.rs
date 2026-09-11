@@ -1,8 +1,11 @@
-use crate::error::{WebError, WebResult};
+use crate::error::WebError;
+use crate::error::WebResult;
 use crate::services::knowledge_sync::MarkdownTask;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use serde::Deserialize;
+use serde::Serialize;
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,8 +44,15 @@ impl DocumentRenderer {
     /// Check if file is an executable script (.py, .sh, .bash, .r, .rs, .js, .ts)
     pub fn is_script(path: &str) -> bool {
         let p = Path::new(path);
-        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-        matches!(ext.as_str(), "py" | "sh" | "bash" | "r" | "rs" | "js" | "ts")
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        matches!(
+            ext.as_str(),
+            "py" | "sh" | "bash" | "r" | "rs" | "js" | "ts"
+        )
     }
 
     /// Compile Typst or cargo-slide presentation to SVGs with line-level reverse search hyperlinks
@@ -91,7 +101,10 @@ impl DocumentRenderer {
         // links never existed for any file that imports another file (which is every real
         // cargo-slide/Typst document, including the demo project's own `slides.typ`). Reproduced
         // live: compiling the annotated copy from `.typst_dev_tmp/` threw exactly that error.
-        let annotated_dir = target_file.parent().map(Path::to_path_buf).unwrap_or_else(|| root.to_path_buf());
+        let annotated_dir = target_file
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| root.to_path_buf());
         let mut annotated_path: Option<PathBuf> = None;
         let mut zero_content_calls: Vec<u32> = Vec::new();
 
@@ -126,8 +139,8 @@ impl DocumentRenderer {
             .arg(&out_pattern);
 
         let output = match cmd.output().await {
-            Ok(o) => o,
-            Err(e) => {
+            | Ok(o) => o,
+            | Err(e) => {
                 if let Some(ref p) = annotated_path {
                     let _ = std::fs::remove_file(p);
                 }
@@ -138,7 +151,7 @@ impl DocumentRenderer {
                     total_pages: 0,
                     error_message: Some(format!("Failed to execute typst binary: {}", e)),
                 };
-            }
+            },
         };
 
         if !output.status.success() {
@@ -217,7 +230,10 @@ impl DocumentRenderer {
     /// which produces per-page SVGs for the live in-browser preview). Runs on this dev host, same
     /// as `compile_typst` -- `typst` is a small static binary, unlike the LaTeX toolchain, which
     /// only exists inside the project's sandbox container.
-    pub async fn compile_typst_pdf<P: AsRef<Path>>(project_root: P, rel_path: &str) -> Result<Vec<u8>, String> {
+    pub async fn compile_typst_pdf<P: AsRef<Path>>(
+        project_root: P,
+        rel_path: &str,
+    ) -> Result<Vec<u8>, String> {
         let root = project_root.as_ref();
         let target_file = root.join(rel_path);
         if !target_file.exists() {
@@ -247,12 +263,16 @@ impl DocumentRenderer {
             .arg(&target_file)
             .arg(&out_path);
 
-        let output = cmd.output().await.map_err(|e| format!("Failed to execute typst binary: {}", e))?;
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| format!("Failed to execute typst binary: {}", e))?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
 
-        let bytes = std::fs::read(&out_path).map_err(|e| format!("typst reported success but no PDF was found: {}", e))?;
+        let bytes = std::fs::read(&out_path)
+            .map_err(|e| format!("typst reported success but no PDF was found: {}", e))?;
         let _ = std::fs::remove_file(&out_path);
         Ok(bytes)
     }
@@ -366,15 +386,15 @@ impl DocumentRenderer {
                     continue;
                 }
                 match c {
-                    '"' => in_string = true,
-                    '/' if chars.peek() == Some(&'/') => break, // rest of line is a comment
-                    '(' | '{' | '[' => stack.push(c),
-                    ')' | '}' | ']' => {
+                    | '"' => in_string = true,
+                    | '/' if chars.peek() == Some(&'/') => break, // rest of line is a comment
+                    | '(' | '{' | '[' => stack.push(c),
+                    | ')' | '}' | ']' => {
                         if stack.pop().is_none() {
                             balanced = false;
                         }
-                    }
-                    _ => {}
+                    },
+                    | _ => {},
                 }
             }
             let stack_unchanged = balanced && stack.len() == stack_len_before;
@@ -423,7 +443,10 @@ impl DocumentRenderer {
     /// relative order, since Typst renders pages in source order). The click handler
     /// (`REVERSE_SEARCH_CLICK_JS`) reads this attribute when a click doesn't land on any
     /// finer-grained `sync:line:` link.
-    fn inject_fallback_lines(pages: Vec<String>, zero_content_calls: &[u32]) -> Vec<String> {
+    fn inject_fallback_lines(
+        pages: Vec<String>,
+        zero_content_calls: &[u32],
+    ) -> Vec<String> {
         let mut calls = zero_content_calls.iter();
         pages
             .into_iter()
@@ -456,7 +479,10 @@ impl DocumentRenderer {
         let script_file = root.join(rel_path);
 
         if !script_file.exists() {
-            return Err(WebError::NotFound(format!("Script not found: {}", rel_path)));
+            return Err(WebError::NotFound(format!(
+                "Script not found: {}",
+                rel_path
+            )));
         }
 
         let ext = script_file
@@ -482,20 +508,25 @@ impl DocumentRenderer {
         let run_id = uuid::Uuid::new_v4().simple().to_string();
         let rust_bin_path = format!("/home/user/tmp/apich_run_{}", run_id);
         let (interpreter, base_args): (&str, Vec<String>) = match ext.as_str() {
-            "py" => ("python3", vec![rel_path.to_string()]),
-            "sh" | "bash" => ("bash", vec![rel_path.to_string()]),
-            "r" => ("Rscript", vec![rel_path.to_string()]),
-            "rs" => (
-                "bash",
-                vec![
-                    "-c".to_string(),
-                    format!(r#"rustc -O "$1" -o "{bin}" && "{bin}" "${{@:2}}""#, bin = rust_bin_path),
-                    "bash".to_string(),
-                    rel_path.to_string(),
-                ],
-            ),
-            "js" | "ts" => ("node", vec![rel_path.to_string()]),
-            _ => ("bash", vec![rel_path.to_string()]),
+            | "py" => ("python3", vec![rel_path.to_string()]),
+            | "sh" | "bash" => ("bash", vec![rel_path.to_string()]),
+            | "r" => ("Rscript", vec![rel_path.to_string()]),
+            | "rs" => {
+                (
+                    "bash",
+                    vec![
+                        "-c".to_string(),
+                        format!(
+                            r#"rustc -O "$1" -o "{bin}" && "{bin}" "${{@:2}}""#,
+                            bin = rust_bin_path
+                        ),
+                        "bash".to_string(),
+                        rel_path.to_string(),
+                    ],
+                )
+            },
+            | "js" | "ts" => ("node", vec![rel_path.to_string()]),
+            | _ => ("bash", vec![rel_path.to_string()]),
         };
 
         // Snapshot existing image timestamps before run
@@ -520,7 +551,9 @@ impl DocumentRenderer {
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| WebError::Internal(format!("Failed to spawn script process: {}", e)))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| WebError::Internal(format!("Failed to spawn script process: {}", e)))?;
 
         if let Some(input) = stdin_input {
             if let Some(mut stdin) = child.stdin.take() {
@@ -550,8 +583,8 @@ impl DocumentRenderer {
 
         for (img_path, mtime) in &after_images {
             let is_new_or_modified = match before_images.get(img_path) {
-                Some(old_mtime) => mtime > old_mtime,
-                None => true,
+                | Some(old_mtime) => mtime > old_mtime,
+                | None => true,
             };
 
             if is_new_or_modified {
@@ -562,11 +595,12 @@ impl DocumentRenderer {
                         .unwrap_or("png")
                         .to_lowercase();
                     let mime = match ext.as_str() {
-                        "svg" => "image/svg+xml",
-                        "jpg" | "jpeg" => "image/jpeg",
-                        _ => "image/png",
+                        | "svg" => "image/svg+xml",
+                        | "jpg" | "jpeg" => "image/jpeg",
+                        | _ => "image/png",
                     };
-                    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+                    let b64 =
+                        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
                     let data_uri = format!("data:{};base64,{}", mime, b64);
                     let name = img_path
                         .file_name()
@@ -593,9 +627,14 @@ impl DocumentRenderer {
     /// before/after diffing this host-based `run_script` uses, for a script that actually ran
     /// inside the sandbox container instead -- the container's `/workspace` is the same
     /// bind-mounted directory as this host path, so any file it writes is visible here too.
-    pub(crate) fn scan_images(dir: &Path) -> std::collections::HashMap<PathBuf, std::time::SystemTime> {
+    pub(crate) fn scan_images(
+        dir: &Path
+    ) -> std::collections::HashMap<PathBuf, std::time::SystemTime> {
         let mut map = std::collections::HashMap::new();
-        fn walk(p: &Path, map: &mut std::collections::HashMap<PathBuf, std::time::SystemTime>) {
+        fn walk(
+            p: &Path,
+            map: &mut std::collections::HashMap<PathBuf, std::time::SystemTime>,
+        ) {
             if let Ok(entries) = std::fs::read_dir(p) {
                 for e in entries.flatten() {
                     let path = e.path();
@@ -605,7 +644,11 @@ impl DocumentRenderer {
                             walk(&path, map);
                         }
                     } else if path.is_file() {
-                        let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
+                        let ext = path
+                            .extension()
+                            .and_then(|x| x.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
                         if matches!(ext.as_str(), "png" | "svg" | "jpg" | "jpeg") {
                             if let Ok(meta) = path.metadata() {
                                 if let Ok(modified) = meta.modified() {
@@ -695,7 +738,13 @@ impl DocumentRenderer {
                 let mark = caps.get(1).map(|m| m.as_str()).unwrap_or(" ");
                 let raw_body = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
                 let completed = mark == "x" || mark == "X";
-                let status = if completed { "done" } else if mark == "/" { "in_progress" } else { "todo" };
+                let status = if completed {
+                    "done"
+                } else if mark == "/" {
+                    "in_progress"
+                } else {
+                    "todo"
+                };
 
                 let tags: Vec<String> = tag_regex
                     .find_iter(raw_body)
@@ -715,7 +764,11 @@ impl DocumentRenderer {
                     file_path: file_path.to_string(),
                     line_number: line_num,
                     raw_line: line.to_string(),
-                    title: if title.is_empty() { raw_body.to_string() } else { title },
+                    title: if title.is_empty() {
+                        raw_body.to_string()
+                    } else {
+                        title
+                    },
                     completed,
                     status: status.to_string(),
                     tags,
@@ -723,7 +776,13 @@ impl DocumentRenderer {
                 });
 
                 let checked_attr = if completed { "checked" } else { "" };
-                let class_extra = if completed { "task-completed" } else if mark == "/" { "task-in-progress" } else { "" };
+                let class_extra = if completed {
+                    "task-completed"
+                } else if mark == "/" {
+                    "task-in-progress"
+                } else {
+                    ""
+                };
 
                 let mut badges = String::new();
                 for t in tag_regex.find_iter(raw_body) {
@@ -797,8 +856,7 @@ impl DocumentRenderer {
             let p_formatted = Self::format_inline_markdown(trimmed, project_id);
             html.push_str(&format!(
                 "<p class=\"doc-paragraph\" data-line=\"{}\">{}</p>\n",
-                line_num,
-                p_formatted
+                line_num, p_formatted
             ));
         }
 
@@ -817,7 +875,10 @@ impl DocumentRenderer {
     }
 
     /// Format inline Markdown elements: `code`, **bold**, *italic*, $inline math$, and [[WikiLinks]]
-    fn format_inline_markdown(input: &str, project_id: uuid::Uuid) -> String {
+    fn format_inline_markdown(
+        input: &str,
+        project_id: uuid::Uuid,
+    ) -> String {
         let mut out = html_escape(input);
 
         // Wiki links: [[Target|Display]] or [[Target]] -- one pass, one regex. This used to be two
@@ -852,7 +913,10 @@ impl DocumentRenderer {
         out = inline_math
             .replace_all(&out, |caps: &regex::Captures| {
                 let math = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                format!("<span class=\"math-inline\" data-math=\"{}\">${}$</span>", math, math)
+                format!(
+                    "<span class=\"math-inline\" data-math=\"{}\">${}$</span>",
+                    math, math
+                )
             })
             .to_string();
 
@@ -860,7 +924,10 @@ impl DocumentRenderer {
         let bold = Regex::new(r"\*\*([^\*]+)\*\*").unwrap();
         out = bold
             .replace_all(&out, |caps: &regex::Captures| {
-                format!("<strong>{}</strong>", caps.get(1).map(|m| m.as_str()).unwrap_or(""))
+                format!(
+                    "<strong>{}</strong>",
+                    caps.get(1).map(|m| m.as_str()).unwrap_or("")
+                )
             })
             .to_string();
 
@@ -868,7 +935,10 @@ impl DocumentRenderer {
         let code = Regex::new(r"`([^`]+)`").unwrap();
         out = code
             .replace_all(&out, |caps: &regex::Captures| {
-                format!("<code class=\"inline-code\">{}</code>", caps.get(1).map(|m| m.as_str()).unwrap_or(""))
+                format!(
+                    "<code class=\"inline-code\">{}</code>",
+                    caps.get(1).map(|m| m.as_str()).unwrap_or("")
+                )
             })
             .to_string();
 
@@ -899,7 +969,8 @@ The transmon frequency is 5.0 GHz.
 
 $ H = h bar omega $
 "#;
-        let (annotated, zero_content_calls) = DocumentRenderer::annotate_typst_lines_for_reverse_search(typst_code);
+        let (annotated, zero_content_calls) =
+            DocumentRenderer::annotate_typst_lines_for_reverse_search(typst_code);
         assert!(annotated.contains("#link(\"sync:line:4\")[= Section 1: Overview]"));
         assert!(annotated.contains("#link(\"sync:line:5\")[The transmon frequency is 5.0 GHz.]"));
         // Directives should not be wrapped
@@ -919,7 +990,8 @@ $ H = h bar omega $
   Some real visible text on this slide.
 ]
 "#;
-        let (_annotated, zero_content_calls) = DocumentRenderer::annotate_typst_lines_for_reverse_search(typst_code);
+        let (_annotated, zero_content_calls) =
+            DocumentRenderer::annotate_typst_lines_for_reverse_search(typst_code);
         // `#title-slide(...)` has only named-argument lines (code mode, never wrapped) -- it
         // should be reported as a zero-content call starting at line 1.
         assert_eq!(zero_content_calls, vec![1]);
@@ -941,10 +1013,23 @@ $ H = h bar omega $
             .expect("seed demo files");
 
         let result = DocumentRenderer::compile_typst(dir.path(), "slides.typ", true).await;
-        assert!(result.success, "typst compile failed: {:?}", result.error_message);
-        assert!(!result.pages_svg.is_empty(), "expected at least one rendered page");
-        let has_sync_link = result.pages_svg.iter().any(|svg| svg.contains("sync:line:"));
-        assert!(has_sync_link, "expected at least one sync:line: reverse-search link in the compiled SVG output");
+        assert!(
+            result.success,
+            "typst compile failed: {:?}",
+            result.error_message
+        );
+        assert!(
+            !result.pages_svg.is_empty(),
+            "expected at least one rendered page"
+        );
+        let has_sync_link = result
+            .pages_svg
+            .iter()
+            .any(|svg| svg.contains("sync:line:"));
+        assert!(
+            has_sync_link,
+            "expected at least one sync:line: reverse-search link in the compiled SVG output"
+        );
     }
 
     #[tokio::test]
@@ -954,15 +1039,26 @@ $ H = h bar omega $
             .await
             .expect("seed demo files");
 
-        let pdf_bytes = DocumentRenderer::compile_typst_pdf(dir.path(), "slides.typ").await.expect("typst pdf compile failed");
-        assert!(pdf_bytes.starts_with(b"%PDF-"), "output should be a real PDF (starts with %PDF- magic bytes)");
-        assert!(pdf_bytes.len() > 100, "expected a non-trivial PDF, got {} bytes", pdf_bytes.len());
+        let pdf_bytes = DocumentRenderer::compile_typst_pdf(dir.path(), "slides.typ")
+            .await
+            .expect("typst pdf compile failed");
+        assert!(
+            pdf_bytes.starts_with(b"%PDF-"),
+            "output should be a real PDF (starts with %PDF- magic bytes)"
+        );
+        assert!(
+            pdf_bytes.len() > 100,
+            "expected a non-trivial PDF, got {} bytes",
+            pdf_bytes.len()
+        );
     }
 
     #[tokio::test]
     async fn test_compile_typst_pdf_reports_missing_file() {
         let dir = tempdir().unwrap();
-        let err = DocumentRenderer::compile_typst_pdf(dir.path(), "does_not_exist.typ").await.unwrap_err();
+        let err = DocumentRenderer::compile_typst_pdf(dir.path(), "does_not_exist.typ")
+            .await
+            .unwrap_err();
         assert!(err.contains("not found"));
     }
 
@@ -972,7 +1068,9 @@ $ H = h bar omega $
         let script = dir.path().join("test_run.py");
         std::fs::write(&script, b"print('APICH Quantum Execution OK')\n").unwrap();
 
-        let res = DocumentRenderer::run_script(dir.path(), "test_run.py", "", None).await.unwrap();
+        let res = DocumentRenderer::run_script(dir.path(), "test_run.py", "", None)
+            .await
+            .unwrap();
         assert!(res.success);
         assert_eq!(res.exit_code, Some(0));
         assert!(res.stdout.contains("APICH Quantum Execution OK"));

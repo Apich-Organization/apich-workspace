@@ -1,7 +1,14 @@
-use crate::app::components::{ActiveNav, AppShell};
-use crate::services::sqlite_table::{ColumnViewConfig, DatabaseFileInfo, DatabaseSchema, NotebookCell, SqlExecutionResult, TableDataPage};
+use crate::app::components::ActiveNav;
+use crate::app::components::AppShell;
+use crate::services::sqlite_table::ColumnViewConfig;
+use crate::services::sqlite_table::DatabaseFileInfo;
+use crate::services::sqlite_table::DatabaseSchema;
+use crate::services::sqlite_table::NotebookCell;
+use crate::services::sqlite_table::SqlExecutionResult;
+use crate::services::sqlite_table::TableDataPage;
 use crate::ui::i18n::I18n;
-use apich_db::{Project, User};
+use apich_db::Project;
+use apich_db::User;
 use apich_islands::SpreadsheetIsland;
 use leptos::prelude::*;
 
@@ -31,12 +38,20 @@ pub fn TablePage(
     let project_id = project.id;
 
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                .into_any()
+        })
     };
 
-    let cur_file = selected_file.clone().unwrap_or_else(|| "data.db".to_string());
+    let cur_file = selected_file
+        .clone()
+        .unwrap_or_else(|| "data.db".to_string());
 
     let db_selector = if databases.is_empty() {
         view! {
@@ -47,7 +62,8 @@ pub fn TablePage(
                     <button type="submit" class="btn btn-primary">{i18n.table_init_first()}</button>
                 </form>
             </div>
-        }.into_any()
+        }
+        .into_any()
     } else {
         let pills: Vec<_> = databases
             .iter()
@@ -75,8 +91,25 @@ pub fn TablePage(
     };
 
     let main_view = match &schema {
-        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &column_view, &query_history, &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells, i18n.is_zh()).into_any(),
-        None => view! { <div></div> }.into_any(),
+        | Some(s) => {
+            render_schema_view(
+                &project,
+                s,
+                selected_table.as_deref(),
+                table_data.as_ref(),
+                &column_view,
+                &query_history,
+                &cur_file,
+                &sql_query,
+                sql_result.as_ref(),
+                &mode,
+                search.as_deref(),
+                notebook_cells,
+                i18n.is_zh(),
+            )
+            .into_any()
+        },
+        | None => view! { <div></div> }.into_any(),
     };
 
     view! {
@@ -141,7 +174,17 @@ fn render_schema_view(
         .and_then(|t| schema.tables.iter().find(|table| table.name == t))
         .and_then(|t| t.columns.first())
         .map(|c| c.name.clone());
-    let sql_console = render_sql_console(project_id, cur_file, sql_table_name, sql_query, sql_result, mode, sql_first_column, query_history, is_zh);
+    let sql_console = render_sql_console(
+        project_id,
+        cur_file,
+        sql_table_name,
+        sql_query,
+        sql_result,
+        mode,
+        sql_first_column,
+        query_history,
+        is_zh,
+    );
 
     let grid = match table_data {
         Some(td) => render_grid(project, td, schema, column_view, cur_file, mode, search, is_zh).into_any(),
@@ -188,7 +231,14 @@ fn render_schema_view(
 /// nudge a visible column left/right, or reset back to the table's real schema order -- all
 /// plain server-rendered forms (no island needed; each just POSTs and redirects back to the same
 /// view), matching the same all-server pattern the rest of the ribbon toolbar already uses.
-fn render_column_panel(project_id: uuid::Uuid, cur_file: &str, table_name: &str, mode: &str, all_columns: &[String], column_view: &ColumnViewConfig) -> impl IntoView {
+fn render_column_panel(
+    project_id: uuid::Uuid,
+    cur_file: &str,
+    table_name: &str,
+    mode: &str,
+    all_columns: &[String],
+    column_view: &ColumnViewConfig,
+) -> impl IntoView {
     let action = format!("/projects/{}/table/column-view", project_id);
     let visible = column_view.apply(all_columns);
     let n_visible = visible.len();
@@ -252,7 +302,13 @@ fn render_column_panel(project_id: uuid::Uuid, cur_file: &str, table_name: &str,
     });
 
     let has_customization = !column_view.order.is_empty() || !column_view.hidden.is_empty();
-    let reset_btn = has_customization.then(|| row_form("↺ Reset to default order".to_string(), String::new(), vec![("action", "reset".to_string())]));
+    let reset_btn = has_customization.then(|| {
+        row_form(
+            "↺ Reset to default order".to_string(),
+            String::new(),
+            vec![("action", "reset".to_string())],
+        )
+    });
 
     view! {
         <div class="dropdown-menu-wrap" style="position:relative; display:inline-block;">
@@ -269,14 +325,28 @@ fn render_column_panel(project_id: uuid::Uuid, cur_file: &str, table_name: &str,
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, column_view: &ColumnViewConfig, cur_file: &str, mode: &str, search: Option<&str>, is_zh: bool) -> impl IntoView {
+fn render_grid(
+    project: &Project,
+    td: &TableDataPage,
+    schema: &DatabaseSchema,
+    column_view: &ColumnViewConfig,
+    cur_file: &str,
+    mode: &str,
+    search: Option<&str>,
+    is_zh: bool,
+) -> impl IntoView {
     let project_id = project.id;
     let cur_tbl_schema = schema.tables.iter().find(|t| t.name == td.table_name);
 
     // `td.columns` is every real column, in schema order (see `get_table_data`'s `SELECT *`).
     // `visible_order` applies the saved hide/reorder preferences on top of that -- purely a
     // display-time transform, never touching the actual query or schema.
-    let orig_index: std::collections::HashMap<&str, usize> = td.columns.iter().enumerate().map(|(i, c)| (c.as_str(), i)).collect();
+    let orig_index: std::collections::HashMap<&str, usize> = td
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.as_str(), i))
+        .collect();
     let visible_order = column_view.apply(&td.columns);
 
     let column_types: Vec<String> = visible_order
@@ -306,9 +376,9 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
                 .map(|col| {
                     let idx = orig_index.get(col.as_str()).copied().unwrap_or(0);
                     match row.get(idx) {
-                        Some(serde_json::Value::Null) | None => String::new(),
-                        Some(serde_json::Value::String(s)) => s.clone(),
-                        Some(other) => other.to_string(),
+                        | Some(serde_json::Value::Null) | None => String::new(),
+                        | Some(serde_json::Value::String(s)) => s.clone(),
+                        | Some(other) => other.to_string(),
                     }
                 })
                 .collect()
@@ -335,10 +405,34 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
         .collect();
 
     let cur_search = search.unwrap_or("").to_string();
-    let prev_page = if td.page > 1 { td.page - 1 } else { 1 };
-    let next_page = if td.page < td.total_pages { td.page + 1 } else { td.total_pages };
-    let prev_url = format!("/projects/{}/table?file={}&table={}&page={}&search={}&mode={}", project_id, urlencoding::encode(cur_file), urlencoding::encode(&td.table_name), prev_page, urlencoding::encode(&cur_search), mode);
-    let next_url = format!("/projects/{}/table?file={}&table={}&page={}&search={}&mode={}", project_id, urlencoding::encode(cur_file), urlencoding::encode(&td.table_name), next_page, urlencoding::encode(&cur_search), mode);
+    let prev_page = if td.page > 1 {
+        td.page - 1
+    } else {
+        1
+    };
+    let next_page = if td.page < td.total_pages {
+        td.page + 1
+    } else {
+        td.total_pages
+    };
+    let prev_url = format!(
+        "/projects/{}/table?file={}&table={}&page={}&search={}&mode={}",
+        project_id,
+        urlencoding::encode(cur_file),
+        urlencoding::encode(&td.table_name),
+        prev_page,
+        urlencoding::encode(&cur_search),
+        mode
+    );
+    let next_url = format!(
+        "/projects/{}/table?file={}&table={}&page={}&search={}&mode={}",
+        project_id,
+        urlencoding::encode(cur_file),
+        urlencoding::encode(&td.table_name),
+        next_page,
+        urlencoding::encode(&cur_search),
+        mode
+    );
 
     view! {
         <div class="spreadsheet-box">

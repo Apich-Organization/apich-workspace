@@ -19,19 +19,29 @@ impl<'a> PythonToolchain<'a> {
     }
 
     /// Execute inline Python code string
-    pub async fn run_code(&self, code: &str) -> Result<ExecResult> {
+    pub async fn run_code(
+        &self,
+        code: &str,
+    ) -> Result<ExecResult> {
         self.container.exec(&["python3", "-c", code]).await
     }
 
     /// Run a python script file with arguments
-    pub async fn run_file(&self, script_path: &str, args: &[&str]) -> Result<ExecResult> {
+    pub async fn run_file(
+        &self,
+        script_path: &str,
+        args: &[&str],
+    ) -> Result<ExecResult> {
         let mut cmd = vec!["python3", script_path];
         cmd.extend(args);
         self.container.exec(&cmd).await
     }
 
     /// Install packages using pip
-    pub async fn pip_install(&self, packages: &[&str]) -> Result<ExecResult> {
+    pub async fn pip_install(
+        &self,
+        packages: &[&str],
+    ) -> Result<ExecResult> {
         let mut cmd = vec!["pip", "install", "--break-system-packages"];
         cmd.extend(packages);
         self.container.exec(&cmd).await

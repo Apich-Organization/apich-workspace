@@ -1,10 +1,16 @@
 mod common;
 
-use apich_db::{
-    CreateInvitationDto, CreateOAuthClientDto, CreateOrganizationDto, CreateProjectDto,
-    CreateTeamDto, CreateUserDto, Database, IdentityPermissionResolver, PostgresConfig,
-    PostgresContainer, UserRole,
-};
+use apich_db::CreateInvitationDto;
+use apich_db::CreateOAuthClientDto;
+use apich_db::CreateOrganizationDto;
+use apich_db::CreateProjectDto;
+use apich_db::CreateTeamDto;
+use apich_db::CreateUserDto;
+use apich_db::Database;
+use apich_db::IdentityPermissionResolver;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::UserRole;
 use common::test_temp_dir;
 use std::time::Duration;
 
@@ -36,9 +42,7 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
         .await
         .expect("Failed to connect admin");
 
-    db.run_migrations()
-        .await
-        .expect("Failed to run migrations");
+    db.run_migrations().await.expect("Failed to run migrations");
 
     let pool = db.pool();
     let repo = db.repository();
@@ -205,29 +209,93 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
 
     // 4. Test Hierarchical Permission Delegation Rules
     // Rule A: Platform Admin (Alice) has omnipotent management rights
-    assert!(IdentityPermissionResolver::is_platform_admin(pool, user_alice.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_org(pool, user_alice.id, org.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_alice.id, team_theory.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_alice.id, team_surface.id).await.unwrap());
+    assert!(
+        IdentityPermissionResolver::is_platform_admin(pool, user_alice.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_org(pool, user_alice.id, org.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_alice.id, team_theory.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_alice.id, team_surface.id)
+            .await
+            .unwrap()
+    );
 
     // Rule B: Org Owner (Bob) can manage Org and ALL descendant teams at any depth
-    assert!(IdentityPermissionResolver::can_manage_org(pool, user_bob.id, org.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_bob.id, team_theory.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_bob.id, team_qec.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_bob.id, team_surface.id).await.unwrap());
+    assert!(
+        IdentityPermissionResolver::can_manage_org(pool, user_bob.id, org.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_bob.id, team_theory.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_bob.id, team_qec.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_bob.id, team_surface.id)
+            .await
+            .unwrap()
+    );
 
     // Rule C: Team Admin (Carol) can manage her team and ALL descendant subteams
-    assert!(!IdentityPermissionResolver::can_manage_org(pool, user_carol.id, org.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_theory.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_qec.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_surface.id).await.unwrap());
+    assert!(
+        !IdentityPermissionResolver::can_manage_org(pool, user_carol.id, org.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_theory.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_qec.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_surface.id)
+            .await
+            .unwrap()
+    );
     // But Carol CANNOT manage Outreach team (sibling branch)
-    assert!(!IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_outreach.id).await.unwrap());
+    assert!(
+        !IdentityPermissionResolver::can_manage_team(pool, user_carol.id, team_outreach.id)
+            .await
+            .unwrap()
+    );
 
     // Rule D: Member (Dave) can manage Outreach (where he is admin), but CANNOT manage parent teams
-    assert!(IdentityPermissionResolver::can_manage_team(pool, user_dave.id, team_outreach.id).await.unwrap());
-    assert!(!IdentityPermissionResolver::can_manage_team(pool, user_dave.id, team_surface.id).await.unwrap());
-    assert!(!IdentityPermissionResolver::can_manage_team(pool, user_dave.id, team_theory.id).await.unwrap());
+    assert!(
+        IdentityPermissionResolver::can_manage_team(pool, user_dave.id, team_outreach.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !IdentityPermissionResolver::can_manage_team(pool, user_dave.id, team_surface.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !IdentityPermissionResolver::can_manage_team(pool, user_dave.id, team_theory.id)
+            .await
+            .unwrap()
+    );
 
     // 5. Project Lifecycle & Access Resolution
     let proj = repo
@@ -245,16 +313,40 @@ async fn test_identity_tree_hierarchy_permissions_and_lifecycle() {
         .expect("Failed to create project");
 
     // Dave owns the project -> can manage and access
-    assert!(IdentityPermissionResolver::can_manage_project(pool, user_dave.id, proj.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_access_project(pool, user_dave.id, proj.id).await.unwrap());
+    assert!(
+        IdentityPermissionResolver::can_manage_project(pool, user_dave.id, proj.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_access_project(pool, user_dave.id, proj.id)
+            .await
+            .unwrap()
+    );
 
     // Carol is ancestor admin of Surface Codes team -> can manage and access project!
-    assert!(IdentityPermissionResolver::can_manage_project(pool, user_carol.id, proj.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_access_project(pool, user_carol.id, proj.id).await.unwrap());
+    assert!(
+        IdentityPermissionResolver::can_manage_project(pool, user_carol.id, proj.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_access_project(pool, user_carol.id, proj.id)
+            .await
+            .unwrap()
+    );
 
     // Bob is Org Owner -> can manage and access project!
-    assert!(IdentityPermissionResolver::can_manage_project(pool, user_bob.id, proj.id).await.unwrap());
-    assert!(IdentityPermissionResolver::can_access_project(pool, user_bob.id, proj.id).await.unwrap());
+    assert!(
+        IdentityPermissionResolver::can_manage_project(pool, user_bob.id, proj.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        IdentityPermissionResolver::can_access_project(pool, user_bob.id, proj.id)
+            .await
+            .unwrap()
+    );
 
     // 6. Project Container Sandbox Mapping (1 Project + 1 User)
     let container_name = format!("sbx-{}-{}", proj.slug, user_dave.username);

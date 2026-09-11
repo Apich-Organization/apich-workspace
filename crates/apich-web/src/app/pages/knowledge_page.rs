@@ -5,7 +5,10 @@
 //! whiteboard, calendar, and kanban, so these are tabs on the note page now; the old page route
 //! redirects there for any bookmarked links (see `ui::handlers::project_knowledge_page`).
 
-use crate::services::knowledge_sync::{CalendarEvent, KanbanBoard, KnowledgeGraph, KANBAN_UNSORTED_COLUMN_ID};
+use crate::services::knowledge_sync::CalendarEvent;
+use crate::services::knowledge_sync::KanbanBoard;
+use crate::services::knowledge_sync::KnowledgeGraph;
+use crate::services::knowledge_sync::KANBAN_UNSORTED_COLUMN_ID;
 use crate::ui::i18n::I18n;
 use apich_db::Project;
 use leptos::prelude::*;
@@ -18,12 +21,20 @@ pub(crate) fn render_kanban(
     i18n: I18n,
 ) -> impl IntoView {
     let project_id = project.id;
-    let percent = if kanban.total_tasks > 0 { kanban.completed_tasks * 100 / kanban.total_tasks } else { 0 };
+    let percent = if kanban.total_tasks > 0 {
+        kanban.completed_tasks * 100 / kanban.total_tasks
+    } else {
+        0
+    };
 
     // Cycling only ever walks the board's own *real* configured columns (never lands a card back
     // in the synthetic Unsorted bucket) -- a card sitting in Unsorted, when clicked, "claims" it
     // into the first real column instead.
-    let real_columns: Vec<_> = kanban.columns.iter().filter(|c| c.id != KANBAN_UNSORTED_COLUMN_ID).collect();
+    let real_columns: Vec<_> = kanban
+        .columns
+        .iter()
+        .filter(|c| c.id != KANBAN_UNSORTED_COLUMN_ID)
+        .collect();
 
     let cols: Vec<_> = kanban
         .columns
@@ -89,7 +100,12 @@ pub(crate) fn render_kanban(
         .collect();
 
     let customize_panel = render_kanban_column_settings(project_id, &real_columns, i18n);
-    let template_panel = render_kanban_template_panel(project_id, own_kanban_templates, visible_kanban_templates, i18n);
+    let template_panel = render_kanban_template_panel(
+        project_id,
+        own_kanban_templates,
+        visible_kanban_templates,
+        i18n,
+    );
 
     view! {
         <div style="margin-bottom:1.25rem;">
@@ -110,7 +126,11 @@ pub(crate) fn render_kanban(
 /// quick, per-project setting (stored in `project.settings["kanban_columns"]`, see
 /// `KnowledgeSyncService::parse_kanban_columns`) -- independent of the separate template-library
 /// publish/apply flow that shares the same underlying column data.
-fn render_kanban_column_settings(project_id: uuid::Uuid, columns: &[&crate::services::knowledge_sync::KanbanColumn], i18n: I18n) -> impl IntoView {
+fn render_kanban_column_settings(
+    project_id: uuid::Uuid,
+    columns: &[&crate::services::knowledge_sync::KanbanColumn],
+    i18n: I18n,
+) -> impl IntoView {
     let base = format!("/projects/{}/knowledge/kanban/columns", project_id);
     let rows: Vec<_> = columns
         .iter()
@@ -241,7 +261,10 @@ fn render_kanban_template_panel(
     }
 }
 
-pub(crate) fn render_wiki(project_id: uuid::Uuid, graph: &KnowledgeGraph) -> impl IntoView {
+pub(crate) fn render_wiki(
+    project_id: uuid::Uuid,
+    graph: &KnowledgeGraph,
+) -> impl IntoView {
     let nodes: Vec<_> = graph
         .nodes
         .iter()
@@ -337,8 +360,8 @@ pub(crate) fn render_calendar(events: &[CalendarEvent]) -> impl IntoView {
     let mut days: Vec<(String, Vec<&CalendarEvent>)> = Vec::new();
     for ev in events {
         match days.last_mut() {
-            Some((date, list)) if *date == ev.date => list.push(ev),
-            _ => days.push((ev.date.clone(), vec![ev])),
+            | Some((date, list)) if *date == ev.date => list.push(ev),
+            | _ => days.push((ev.date.clone(), vec![ev])),
         }
     }
 

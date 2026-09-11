@@ -1,12 +1,16 @@
-use crate::error::{WebError, WebResult};
+use crate::error::WebError;
+use crate::error::WebResult;
 use apich_db::SystemSettings;
-use lettre::{
-    message::header::ContentType,
-    transport::smtp::authentication::Credentials,
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-};
-use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use lettre::message::header::ContentType;
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::AsyncSmtpTransport;
+use lettre::AsyncTransport;
+use lettre::Message;
+use lettre::Tokio1Executor;
+use serde::Deserialize;
+use serde::Serialize;
+use std::sync::Arc;
+use std::sync::Mutex;
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,7 +122,8 @@ impl MailerService {
                 .body(body.to_string())
                 .map_err(|e| WebError::Internal(format!("Failed to build email message: {}", e)))?;
 
-            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
+            let mut builder =
+                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
 
             if let (Some(user), Some(pwd)) = (&settings.smtp_username, &settings.smtp_password) {
                 if !user.is_empty() && !pwd.is_empty() {
@@ -193,9 +198,12 @@ impl MailerService {
                 .body(body.clone())
                 .map_err(|e| WebError::Internal(format!("Failed to build email message: {}", e)))?;
 
-            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
+            let mut builder =
+                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
 
-            if let (Some(ref user), Some(ref pwd)) = (&settings.smtp_username, &settings.smtp_password) {
+            if let (Some(ref user), Some(ref pwd)) =
+                (&settings.smtp_username, &settings.smtp_password)
+            {
                 if !user.is_empty() && !pwd.is_empty() {
                     builder = builder.credentials(Credentials::new(user.clone(), pwd.clone()));
                 }
@@ -218,4 +226,3 @@ impl MailerService {
         Ok(())
     }
 }
-

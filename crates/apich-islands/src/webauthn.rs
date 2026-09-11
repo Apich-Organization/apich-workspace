@@ -5,7 +5,8 @@
 //! protocol.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Deserialize)]
 struct AuthStartResponse {
@@ -121,7 +122,11 @@ pub fn PasskeyEnrollIsland(#[prop(into)] register_button_label: String) -> impl 
 }
 
 #[cfg(feature = "hydrate")]
-fn run_passkey_login(status: RwSignal<String>, busy: RwSignal<bool>, return_to: String) {
+fn run_passkey_login(
+    status: RwSignal<String>,
+    busy: RwSignal<bool>,
+    return_to: String,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         let result = passkey_login_ceremony(return_to).await;
         if let Err(e) = result {
@@ -132,37 +137,56 @@ fn run_passkey_login(status: RwSignal<String>, busy: RwSignal<bool>, return_to: 
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn run_passkey_login(_status: RwSignal<String>, _busy: RwSignal<bool>, _return_to: String) {}
+fn run_passkey_login(
+    _status: RwSignal<String>,
+    _busy: RwSignal<bool>,
+    _return_to: String,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-fn run_passkey_enroll(status: RwSignal<String>, is_error: RwSignal<bool>, busy: RwSignal<bool>) {
+fn run_passkey_enroll(
+    status: RwSignal<String>,
+    is_error: RwSignal<bool>,
+    busy: RwSignal<bool>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         match passkey_enroll_ceremony().await {
-            Ok(()) => {
+            | Ok(()) => {
                 // Matches the original script's behavior: reload so the new passkey shows up
                 // in the enrolled-credentials list rendered server-side.
                 if let Some(win) = web_sys::window() {
                     let _ = win.location().reload();
                 }
-            }
-            Err(e) => {
+            },
+            | Err(e) => {
                 is_error.set(true);
                 status.set(e);
-            }
+            },
         }
         busy.set(false);
     });
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn run_passkey_enroll(_status: RwSignal<String>, _is_error: RwSignal<bool>, _busy: RwSignal<bool>) {}
+fn run_passkey_enroll(
+    _status: RwSignal<String>,
+    _is_error: RwSignal<bool>,
+    _busy: RwSignal<bool>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
 async fn passkey_login_ceremony(return_to: String) -> Result<(), String> {
     use wasm_bindgen::JsCast;
 
-    if web_sys::window().and_then(|w| js_sys::Reflect::get(&w, &"PublicKeyCredential".into()).ok()).is_none() {
-        return Err("WebAuthn is not supported in this browser. Please use Password login.".to_string());
+    if web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"PublicKeyCredential".into()).ok())
+        .is_none()
+    {
+        return Err(
+            "WebAuthn is not supported in this browser. Please use Password login.".to_string(),
+        );
     }
 
     let start: AuthStartResponse = gloo_net::http::Request::post("/api/auth/passkey/auth/start")
@@ -173,12 +197,15 @@ async fn passkey_login_ceremony(return_to: String) -> Result<(), String> {
         .await
         .map_err(|e| format!("Could not retrieve login challenge: {e}"))?;
 
-    let challenge_bytes = b64url_decode(&start.challenge).map_err(|e| format!("Bad challenge from server: {e}"))?;
+    let challenge_bytes =
+        b64url_decode(&start.challenge).map_err(|e| format!("Bad challenge from server: {e}"))?;
     let challenge_array = js_sys::Uint8Array::from(challenge_bytes.as_slice());
 
     let req_opts = web_sys::PublicKeyCredentialRequestOptions::new(&challenge_array);
     req_opts.set_timeout(start.timeout.unwrap_or(60000) as u32);
-    let hostname = web_sys::window().and_then(|w| w.location().hostname().ok()).unwrap_or_default();
+    let hostname = web_sys::window()
+        .and_then(|w| w.location().hostname().ok())
+        .unwrap_or_default();
     req_opts.set_rp_id(&hostname);
 
     let cred_opts = web_sys::CredentialRequestOptions::new();
@@ -238,7 +265,11 @@ async fn passkey_login_ceremony(return_to: String) -> Result<(), String> {
             .json::<serde_json::Value>()
             .await
             .ok()
-            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+            .and_then(|v| {
+                v.get("error")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_else(|| "Passkey verification failed. Please try password.".to_string());
         Err(msg)
     }
@@ -248,25 +279,36 @@ async fn passkey_login_ceremony(return_to: String) -> Result<(), String> {
 async fn passkey_enroll_ceremony() -> Result<(), String> {
     use wasm_bindgen::JsCast;
 
-    if web_sys::window().and_then(|w| js_sys::Reflect::get(&w, &"PublicKeyCredential".into()).ok()).is_none() {
+    if web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"PublicKeyCredential".into()).ok())
+        .is_none()
+    {
         return Err("WebAuthn is not supported in this browser.".to_string());
     }
 
-    let start: RegisterStartResponse = gloo_net::http::Request::post("/api/auth/passkey/register/start")
-        .send()
-        .await
-        .map_err(|e| format!("Could not start passkey registration: {e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("Could not start passkey registration: {e}"))?;
+    let start: RegisterStartResponse =
+        gloo_net::http::Request::post("/api/auth/passkey/register/start")
+            .send()
+            .await
+            .map_err(|e| format!("Could not start passkey registration: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("Could not start passkey registration: {e}"))?;
 
     let device_name = web_sys::window()
-        .and_then(|w| w.prompt_with_message_and_default("Name this passkey (e.g. \"YubiKey\", \"Touch ID\"):", "Security Key").ok())
+        .and_then(|w| {
+            w.prompt_with_message_and_default(
+                "Name this passkey (e.g. \"YubiKey\", \"Touch ID\"):",
+                "Security Key",
+            )
+            .ok()
+        })
         .flatten()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "Security Key".to_string());
 
-    let challenge_bytes = b64url_decode(&start.challenge).map_err(|e| format!("Bad challenge from server: {e}"))?;
+    let challenge_bytes =
+        b64url_decode(&start.challenge).map_err(|e| format!("Bad challenge from server: {e}"))?;
     let challenge_array = js_sys::Uint8Array::from(challenge_bytes.as_slice());
 
     let rp = web_sys::PublicKeyCredentialRpEntity::new(&start.rp.name);
@@ -274,13 +316,21 @@ async fn passkey_enroll_ceremony() -> Result<(), String> {
 
     let user_id_bytes = start.user.id.as_bytes();
     let user_id_array = js_sys::Uint8Array::from(user_id_bytes);
-    let user = web_sys::PublicKeyCredentialUserEntity::new_with_u8_array(&start.user.name, &start.user.display_name, &user_id_array);
+    let user = web_sys::PublicKeyCredentialUserEntity::new_with_u8_array(
+        &start.user.name,
+        &start.user.display_name,
+        &user_id_array,
+    );
 
-    let pub_key_param = web_sys::PublicKeyCredentialParameters::new(-7, web_sys::PublicKeyCredentialType::PublicKey);
+    let pub_key_param = web_sys::PublicKeyCredentialParameters::new(
+        -7,
+        web_sys::PublicKeyCredentialType::PublicKey,
+    );
     let params = js_sys::Array::new();
     params.push(&pub_key_param);
 
-    let create_opts = web_sys::PublicKeyCredentialCreationOptions::new(&challenge_array, &params, &rp, &user);
+    let create_opts =
+        web_sys::PublicKeyCredentialCreationOptions::new(&challenge_array, &params, &rp, &user);
     create_opts.set_timeout(60000);
 
     let cred_opts = web_sys::CredentialCreationOptions::new();
@@ -332,7 +382,11 @@ async fn passkey_enroll_ceremony() -> Result<(), String> {
             .json::<serde_json::Value>()
             .await
             .ok()
-            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+            .and_then(|v| {
+                v.get("error")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_else(|| "Passkey enrollment failed.".to_string());
         Err(msg)
     }
@@ -361,6 +415,10 @@ fn b64url_decode(s: &str) -> Result<Vec<u8>, String> {
 #[cfg(feature = "hydrate")]
 fn js_error_string(e: &wasm_bindgen::JsValue) -> String {
     e.as_string()
-        .or_else(|| js_sys::Reflect::get(e, &"message".into()).ok().and_then(|v| v.as_string()))
+        .or_else(|| {
+            js_sys::Reflect::get(e, &"message".into())
+                .ok()
+                .and_then(|v| v.as_string())
+        })
         .unwrap_or_else(|| "Unknown error".to_string())
 }

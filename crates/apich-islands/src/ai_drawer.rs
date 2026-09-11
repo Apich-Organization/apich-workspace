@@ -9,7 +9,8 @@
 //! the document by id, so it doesn't need to be anywhere near this island's own output.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone)]
 struct ChatMessage {
@@ -35,7 +36,10 @@ struct AgentRunRequest<'a> {
 }
 
 #[island]
-pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String>) -> impl IntoView {
+pub fn AiDrawerIsland(
+    #[prop(into)] project_id: String,
+    file_path: Option<String>,
+) -> impl IntoView {
     let mode = RwSignal::new("chat".to_string());
 
     // --- Chat state ---
@@ -61,7 +65,8 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
     let selected_agent = RwSignal::new(String::new());
     let agent_api_key = RwSignal::new(String::new());
     let agent_prompt = RwSignal::new(String::new());
-    let agent_output = RwSignal::new("Pick an agent and describe what you want done in this project.".to_string());
+    let agent_output =
+        RwSignal::new("Pick an agent and describe what you want done in this project.".to_string());
     let agent_busy = RwSignal::new(false);
 
     // --- Agent-login state ---
@@ -75,7 +80,13 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
 
     let selected_login_support = move || {
         let sel = selected_agent.get();
-        agents.with(|list| list.iter().find(|a| a.id == sel).map(|a| a.login_support.clone())).unwrap_or_else(|| "none".to_string())
+        agents
+            .with(|list| {
+                list.iter()
+                    .find(|a| a.id == sel)
+                    .map(|a| a.login_support.clone())
+            })
+            .unwrap_or_else(|| "none".to_string())
     };
 
     let load_agents = {
@@ -107,10 +118,25 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
             if text.is_empty() || chat_busy.get_untracked() {
                 return;
             }
-            messages.update(|m| m.push(ChatMessage { is_user: true, text: text.clone(), provider_label: None, suggested_code: None }));
+            messages.update(|m| {
+                m.push(ChatMessage {
+                    is_user: true,
+                    text: text.clone(),
+                    provider_label: None,
+                    suggested_code: None,
+                })
+            });
             prompt.set(String::new());
             chat_busy.set(true);
-            send_chat_request(project_id.clone(), file_path.clone(), text, provider.get_untracked(), api_key.get_untracked(), messages, chat_busy);
+            send_chat_request(
+                project_id.clone(),
+                file_path.clone(),
+                text,
+                provider.get_untracked(),
+                api_key.get_untracked(),
+                messages,
+                chat_busy,
+            );
         }
     };
 
@@ -125,7 +151,18 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
             agent_busy.set(true);
             agent_output.set(format!("Running {agent}..."));
             let key = agent_api_key.get_untracked();
-            run_agent_request(project_id.clone(), agent, text, if key.trim().is_empty() { None } else { Some(key) }, agent_output, agent_busy);
+            run_agent_request(
+                project_id.clone(),
+                agent,
+                text,
+                if key.trim().is_empty() {
+                    None
+                } else {
+                    Some(key)
+                },
+                agent_output,
+                agent_busy,
+            );
         }
     };
 
@@ -139,14 +176,22 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
             login_visible.set(true);
             login_code_visible.set(false);
             login_output.set("Starting login...".to_string());
-            start_agent_login_request(project_id.clone(), agent, login_session, login_output, login_code_visible);
+            start_agent_login_request(
+                project_id.clone(),
+                agent,
+                login_session,
+                login_output,
+                login_code_visible,
+            );
         }
     };
 
     let submit_code = {
         let project_id = project_id.clone();
         move || {
-            let Some(session_id) = login_session.get_untracked() else { return };
+            let Some(session_id) = login_session.get_untracked() else {
+                return;
+            };
             let code = login_code.get_untracked().trim().to_string();
             if code.is_empty() {
                 return;
@@ -375,17 +420,24 @@ fn save_key_to_storage(_val: &str) {}
 #[cfg(feature = "hydrate")]
 fn insert_at_editor_cursor(text: &str) {
     use wasm_bindgen::JsCast;
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
-    let el = doc.get_element_by_id("code-editor-input").or_else(|| doc.get_element_by_id("note-body-editor"));
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let el = doc
+        .get_element_by_id("code-editor-input")
+        .or_else(|| doc.get_element_by_id("note-body-editor"));
     let Some(el) = el else { return };
-    let Ok(ta) = el.dyn_into::<web_sys::HtmlTextAreaElement>() else { return };
+    let Ok(ta) = el.dyn_into::<web_sys::HtmlTextAreaElement>() else {
+        return;
+    };
     let start = ta.selection_start().ok().flatten().unwrap_or(0);
     let end = ta.selection_end().ok().flatten().unwrap_or(0);
     let val = ta.value();
     let chars: Vec<char> = val.chars().collect();
     let start = (start as usize).min(chars.len());
     let end = (end as usize).min(chars.len());
-    let new_val: String = chars[..start].iter().collect::<String>() + text + &chars[end..].iter().collect::<String>();
+    let new_val: String =
+        chars[..start].iter().collect::<String>() + text + &chars[end..].iter().collect::<String>();
     ta.set_value(&new_val);
     let _ = ta.focus();
     let new_pos = (start + text.chars().count()) as u32;
@@ -415,10 +467,17 @@ fn sanitize_term_output(text: &str) -> String {
             if i + 1 < bytes.len() && bytes[i + 1] == ']' {
                 // OSC: ESC ] ... (BEL | ESC \)
                 let mut j = i + 2;
-                while j < bytes.len() && bytes[j] != '\u{7}' && !(bytes[j] == '\u{1b}' && j + 1 < bytes.len() && bytes[j + 1] == '\\') {
+                while j < bytes.len()
+                    && bytes[j] != '\u{7}'
+                    && !(bytes[j] == '\u{1b}' && j + 1 < bytes.len() && bytes[j + 1] == '\\')
+                {
                     j += 1;
                 }
-                i = if j < bytes.len() && bytes[j] == '\u{7}' { j + 1 } else { j + 2 };
+                i = if j < bytes.len() && bytes[j] == '\u{7}' {
+                    j + 1
+                } else {
+                    j + 2
+                };
                 continue;
             } else if i + 1 < bytes.len() && bytes[i + 1] == '[' {
                 // CSI: ESC [ ... letter
@@ -453,7 +512,9 @@ fn linkify(text: &str) -> String {
             rest = &from_http[4..];
             continue;
         }
-        let end = from_http.find(|c: char| c.is_whitespace() || c == '<').unwrap_or(from_http.len());
+        let end = from_http
+            .find(|c: char| c.is_whitespace() || c == '<')
+            .unwrap_or(from_http.len());
         let (url, remainder) = from_http.split_at(end);
         out.push_str(&format!(r#"<a href="{url}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); text-decoration:underline;">{url}</a>"#));
         rest = remainder;
@@ -479,7 +540,9 @@ fn first_url(text: &str) -> Option<String> {
         let start = idx + pos;
         let candidate = &text[start..];
         if candidate.starts_with("https://") || candidate.starts_with("http://") {
-            let end = candidate.find(|c: char| c.is_whitespace() || c == '<').unwrap_or(candidate.len());
+            let end = candidate
+                .find(|c: char| c.is_whitespace() || c == '<')
+                .unwrap_or(candidate.len());
             return Some(candidate[..end].to_string());
         }
         idx = start + 4;
@@ -511,7 +574,8 @@ fn extract_osc8_url(raw: &str) -> Option<String> {
     let bytes: Vec<char> = raw.chars().collect();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == '\u{1b}' && i + 2 < bytes.len() && bytes[i + 1] == ']' && bytes[i + 2] == '8' {
+        if bytes[i] == '\u{1b}' && i + 2 < bytes.len() && bytes[i + 1] == ']' && bytes[i + 2] == '8'
+        {
             // ESC ] 8 ; params ; URI (BEL | ESC \)
             let mut j = i + 3;
             if j < bytes.len() && bytes[j] == ';' {
@@ -523,7 +587,10 @@ fn extract_osc8_url(raw: &str) -> Option<String> {
                 if j < bytes.len() && bytes[j] == ';' {
                     j += 1;
                     let uri_start = j;
-                    while j < bytes.len() && bytes[j] != '\u{7}' && !(bytes[j] == '\u{1b}' && j + 1 < bytes.len() && bytes[j + 1] == '\\') {
+                    while j < bytes.len()
+                        && bytes[j] != '\u{7}'
+                        && !(bytes[j] == '\u{1b}' && j + 1 < bytes.len() && bytes[j + 1] == '\\')
+                    {
                         j += 1;
                     }
                     let uri: String = bytes[uri_start..j].iter().collect();
@@ -542,13 +609,23 @@ fn extract_osc8_url(raw: &str) -> Option<String> {
 
 #[cfg(feature = "hydrate")]
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 #[cfg(feature = "hydrate")]
-fn fetch_agent_list(project_id: String, agents: RwSignal<Vec<AgentInfo>>, selected_agent: RwSignal<String>) {
+fn fetch_agent_list(
+    project_id: String,
+    agents: RwSignal<Vec<AgentInfo>>,
+    selected_agent: RwSignal<String>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
-        let result = gloo_net::http::Request::get(&format!("/projects/{}/agent/status", project_id)).send().await;
+        let result =
+            gloo_net::http::Request::get(&format!("/projects/{}/agent/status", project_id))
+                .send()
+                .await;
         if let Ok(resp) = result {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 if data.get("success").and_then(|v| v.as_bool()) == Some(true) {
@@ -560,7 +637,11 @@ fn fetch_agent_list(project_id: String, agents: RwSignal<Vec<AgentInfo>>, select
                                     id: a.get("id")?.as_str()?.to_string(),
                                     name: a.get("name")?.as_str()?.to_string(),
                                     available: a.get("available")?.as_bool()?,
-                                    login_support: a.get("login_support").and_then(|v| v.as_str()).unwrap_or("none").to_string(),
+                                    login_support: a
+                                        .get("login_support")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("none")
+                                        .to_string(),
                                 })
                             })
                             .collect();
@@ -577,7 +658,12 @@ fn fetch_agent_list(project_id: String, agents: RwSignal<Vec<AgentInfo>>, select
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn fetch_agent_list(_project_id: String, _agents: RwSignal<Vec<AgentInfo>>, _selected_agent: RwSignal<String>) {}
+fn fetch_agent_list(
+    _project_id: String,
+    _agents: RwSignal<Vec<AgentInfo>>,
+    _selected_agent: RwSignal<String>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
 fn send_chat_request(
@@ -604,16 +690,54 @@ fn send_chat_request(
             .send()
             .await;
         match result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(data) => {
-                    let reply = data.get("reply").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                    let provider_label = data.get("provider").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let suggested_code = data.get("suggested_code").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
-                    messages.update(|m| m.push(ChatMessage { is_user: false, text: reply, provider_label, suggested_code }));
+            | Ok(resp) => {
+                match resp.json::<serde_json::Value>().await {
+                    | Ok(data) => {
+                        let reply = data
+                            .get("reply")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        let provider_label = data
+                            .get("provider")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let suggested_code = data
+                            .get("suggested_code")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string());
+                        messages.update(|m| {
+                            m.push(ChatMessage {
+                                is_user: false,
+                                text: reply,
+                                provider_label,
+                                suggested_code,
+                            })
+                        });
+                    },
+                    | Err(e) => {
+                        messages.update(|m| {
+                            m.push(ChatMessage {
+                                is_user: false,
+                                text: format!("Error parsing response: {e}"),
+                                provider_label: None,
+                                suggested_code: None,
+                            })
+                        })
+                    },
                 }
-                Err(e) => messages.update(|m| m.push(ChatMessage { is_user: false, text: format!("Error parsing response: {e}"), provider_label: None, suggested_code: None })),
             },
-            Err(e) => messages.update(|m| m.push(ChatMessage { is_user: false, text: format!("Error calling AI Assistant: {e}"), provider_label: None, suggested_code: None })),
+            | Err(e) => {
+                messages.update(|m| {
+                    m.push(ChatMessage {
+                        is_user: false,
+                        text: format!("Error calling AI Assistant: {e}"),
+                        provider_label: None,
+                        suggested_code: None,
+                    })
+                })
+            },
         }
         busy.set(false);
     });
@@ -634,88 +758,162 @@ fn send_chat_request(
 #[cfg(feature = "hydrate")]
 fn current_editor_content() -> String {
     use wasm_bindgen::JsCast;
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return String::new() };
-    let el = doc.get_element_by_id("code-editor-input").or_else(|| doc.get_element_by_id("note-body-editor"));
-    el.and_then(|e| e.dyn_into::<web_sys::HtmlTextAreaElement>().ok()).map(|ta| ta.value()).unwrap_or_default()
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return String::new();
+    };
+    let el = doc
+        .get_element_by_id("code-editor-input")
+        .or_else(|| doc.get_element_by_id("note-body-editor"));
+    el.and_then(|e| e.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+        .map(|ta| ta.value())
+        .unwrap_or_default()
 }
 
 #[cfg(feature = "hydrate")]
-fn run_agent_request(project_id: String, agent: String, prompt: String, api_key: Option<String>, output: RwSignal<String>, busy: RwSignal<bool>) {
+fn run_agent_request(
+    project_id: String,
+    agent: String,
+    prompt: String,
+    api_key: Option<String>,
+    output: RwSignal<String>,
+    busy: RwSignal<bool>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
-        let body = AgentRunRequest { agent: &agent, prompt: &prompt, api_key: api_key.as_deref() };
+        let body = AgentRunRequest {
+            agent: &agent,
+            prompt: &prompt,
+            api_key: api_key.as_deref(),
+        };
         let result = gloo_net::http::Request::post(&format!("/projects/{}/agent/run", project_id))
             .json(&body)
             .expect("valid json body")
             .send()
             .await;
         match result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(data) => {
-                    if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
-                        if data.get("stdout").is_none() {
-                            output.set(format!("Error: {err}"));
-                            busy.set(false);
-                            return;
+            | Ok(resp) => {
+                match resp.json::<serde_json::Value>().await {
+                    | Ok(data) => {
+                        if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                            if data.get("stdout").is_none() {
+                                output.set(format!("Error: {err}"));
+                                busy.set(false);
+                                return;
+                            }
                         }
-                    }
-                    let stdout = data.get("stdout").and_then(|v| v.as_str()).unwrap_or_default();
-                    let stderr = data.get("stderr").and_then(|v| v.as_str()).unwrap_or_default();
-                    let exit_code = data.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(-1);
-                    let success = data.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let mut text = format!("{stdout}{stderr}");
-                    if text.is_empty() {
-                        text = "(no output)".to_string();
-                    }
-                    text.push_str(&format!("\n\n[exit code {exit_code}, {}]", if success { "succeeded" } else { "failed" }));
-                    output.set(text);
+                        let stdout = data
+                            .get("stdout")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let stderr = data
+                            .get("stderr")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let exit_code =
+                            data.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(-1);
+                        let success = data
+                            .get("success")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let mut text = format!("{stdout}{stderr}");
+                        if text.is_empty() {
+                            text = "(no output)".to_string();
+                        }
+                        text.push_str(&format!(
+                            "\n\n[exit code {exit_code}, {}]",
+                            if success {
+                                "succeeded"
+                            } else {
+                                "failed"
+                            }
+                        ));
+                        output.set(text);
+                    },
+                    | Err(e) => output.set(format!("Error parsing response: {e}")),
                 }
-                Err(e) => output.set(format!("Error parsing response: {e}")),
             },
-            Err(e) => output.set(format!("Request failed: {e}")),
+            | Err(e) => output.set(format!("Request failed: {e}")),
         }
         busy.set(false);
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn run_agent_request(_project_id: String, _agent: String, _prompt: String, _api_key: Option<String>, _output: RwSignal<String>, busy: RwSignal<bool>) {
+fn run_agent_request(
+    _project_id: String,
+    _agent: String,
+    _prompt: String,
+    _api_key: Option<String>,
+    _output: RwSignal<String>,
+    busy: RwSignal<bool>,
+) {
     busy.set(false);
 }
 
 #[cfg(feature = "hydrate")]
-fn start_agent_login_request(project_id: String, agent: String, session: RwSignal<Option<String>>, output: RwSignal<String>, code_visible: RwSignal<bool>) {
+fn start_agent_login_request(
+    project_id: String,
+    agent: String,
+    session: RwSignal<Option<String>>,
+    output: RwSignal<String>,
+    code_visible: RwSignal<bool>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         let body = serde_json::json!({ "agent": agent });
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/agent/login/start", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
+        let result =
+            gloo_net::http::Request::post(&format!("/projects/{}/agent/login/start", project_id))
+                .json(&body)
+                .expect("valid json body")
+                .send()
+                .await;
         match result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(data) => {
-                    if data.get("success").and_then(|v| v.as_bool()) != Some(true) {
-                        let err = data.get("error").and_then(|v| v.as_str()).unwrap_or("Failed to start login");
-                        output.set(format!("Error: {err}"));
-                        return;
-                    }
-                    let Some(session_id) = data.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string()) else {
-                        output.set("Error: no session id returned".to_string());
-                        return;
-                    };
-                    if data.get("login_support").and_then(|v| v.as_str()) == Some("paste_code_back") {
-                        code_visible.set(true);
-                    }
-                    session.set(Some(session_id.clone()));
-                    poll_login_status(project_id.clone(), session_id, session, output, code_visible);
+            | Ok(resp) => {
+                match resp.json::<serde_json::Value>().await {
+                    | Ok(data) => {
+                        if data.get("success").and_then(|v| v.as_bool()) != Some(true) {
+                            let err = data
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Failed to start login");
+                            output.set(format!("Error: {err}"));
+                            return;
+                        }
+                        let Some(session_id) = data
+                            .get("session_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                        else {
+                            output.set("Error: no session id returned".to_string());
+                            return;
+                        };
+                        if data.get("login_support").and_then(|v| v.as_str())
+                            == Some("paste_code_back")
+                        {
+                            code_visible.set(true);
+                        }
+                        session.set(Some(session_id.clone()));
+                        poll_login_status(
+                            project_id.clone(),
+                            session_id,
+                            session,
+                            output,
+                            code_visible,
+                        );
+                    },
+                    | Err(e) => output.set(format!("Request failed: {e}")),
                 }
-                Err(e) => output.set(format!("Request failed: {e}")),
             },
-            Err(e) => output.set(format!("Request failed: {e}")),
+            | Err(e) => output.set(format!("Request failed: {e}")),
         }
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn start_agent_login_request(_project_id: String, _agent: String, _session: RwSignal<Option<String>>, _output: RwSignal<String>, _code_visible: RwSignal<bool>) {}
+fn start_agent_login_request(
+    _project_id: String,
+    _agent: String,
+    _session: RwSignal<Option<String>>,
+    _output: RwSignal<String>,
+    _code_visible: RwSignal<bool>,
+) {
+}
 
 /// Polls one login session's output on a timer until it finishes -- but a user is free to abandon
 /// a login attempt partway (switch the agent dropdown, click "Login" again for a different agent,
@@ -731,12 +929,23 @@ fn start_agent_login_request(_project_id: String, _agent: String, _session: RwSi
 /// one (`current_session`) -- if the user has since moved on, this stops polling immediately
 /// without touching `output` at all, leaving the new session's own polling as the only writer.
 #[cfg(feature = "hydrate")]
-fn poll_login_status(project_id: String, session_id: String, current_session: RwSignal<Option<String>>, output: RwSignal<String>, code_visible: RwSignal<bool>) {
+fn poll_login_status(
+    project_id: String,
+    session_id: String,
+    current_session: RwSignal<Option<String>>,
+    output: RwSignal<String>,
+    code_visible: RwSignal<bool>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         if current_session.get_untracked().as_deref() != Some(session_id.as_str()) {
             return;
         }
-        let result = gloo_net::http::Request::get(&format!("/projects/{}/agent/login/{}/status", project_id, session_id)).send().await;
+        let result = gloo_net::http::Request::get(&format!(
+            "/projects/{}/agent/login/{}/status",
+            project_id, session_id
+        ))
+        .send()
+        .await;
         // Re-check after the await: the user may have switched sessions while this request was
         // in flight, and this response is now stale.
         if current_session.get_untracked().as_deref() != Some(session_id.as_str()) {
@@ -744,94 +953,149 @@ fn poll_login_status(project_id: String, session_id: String, current_session: Rw
         }
         let mut keep_polling = true;
         match result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(data) => {
-                    if data.get("success").and_then(|v| v.as_bool()) != Some(true) {
-                        let err = data.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                        output.set(format!("Error: {err}"));
-                        keep_polling = false;
-                    } else {
-                        let raw = data.get("output").and_then(|v| v.as_str()).unwrap_or_default();
-                        let sanitized = sanitize_term_output(raw);
-                        let mut html = linkify(&sanitized);
-                        if html.is_empty() {
-                            html = "(waiting for output...)".to_string();
-                        }
-                        // Prefer an OSC-8 hyperlink URI (`extract_osc8_url`, scanning the RAW,
-                        // pre-strip bytes) over `first_url`'s whitespace-delimited scan of the
-                        // flattened text -- see that function's own doc comment for why: a real
-                        // TUI (confirmed live with agy) redraws its screen using cursor-
-                        // repositioning escape sequences, not literal newlines, so stripping those
-                        // sequences for plain-text display can glue two separate redraw frames'
-                        // text together with no separator, corrupting a long OAuth URL that
-                        // happens to span a redraw boundary. An OSC-8 URI has its own explicit,
-                        // unambiguous terminator (BEL or ST) that survives this regardless.
-                        if let Some(url) = extract_osc8_url(raw).or_else(|| first_url(&sanitized)) {
-                            html = format!(
+            | Ok(resp) => {
+                match resp.json::<serde_json::Value>().await {
+                    | Ok(data) => {
+                        if data.get("success").and_then(|v| v.as_bool()) != Some(true) {
+                            let err = data
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error");
+                            output.set(format!("Error: {err}"));
+                            keep_polling = false;
+                        } else {
+                            let raw = data
+                                .get("output")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default();
+                            let sanitized = sanitize_term_output(raw);
+                            let mut html = linkify(&sanitized);
+                            if html.is_empty() {
+                                html = "(waiting for output...)".to_string();
+                            }
+                            // Prefer an OSC-8 hyperlink URI (`extract_osc8_url`, scanning the RAW,
+                            // pre-strip bytes) over `first_url`'s whitespace-delimited scan of the
+                            // flattened text -- see that function's own doc comment for why: a real
+                            // TUI (confirmed live with agy) redraws its screen using cursor-
+                            // repositioning escape sequences, not literal newlines, so stripping those
+                            // sequences for plain-text display can glue two separate redraw frames'
+                            // text together with no separator, corrupting a long OAuth URL that
+                            // happens to span a redraw boundary. An OSC-8 URI has its own explicit,
+                            // unambiguous terminator (BEL or ST) that survives this regardless.
+                            if let Some(url) =
+                                extract_osc8_url(raw).or_else(|| first_url(&sanitized))
+                            {
+                                html = format!(
                                 "<div style=\"margin-bottom:0.6rem; padding:0.5rem 0.7rem; background:var(--primary-light); border:1px solid var(--primary-border); border-radius:8px;\">\
                                 <div style=\"font-size:0.7rem; color:var(--text-sub); margin-bottom:0.35rem;\">This can't open a browser on its own -- open this link in <strong>your own browser</strong> to finish signing in:</div>\
                                 <a href=\"{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"btn btn-primary btn-sm\" style=\"text-decoration:none;\">🔗 Open sign-in page</a>\
                                 </div>{html}"
                             );
+                            }
+                            let status = data
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("running");
+                            if status == "succeeded" {
+                                html.push_str("<br><br>✅ Logged in. Future runs of this agent will use your account, no API key needed.");
+                                code_visible.set(false);
+                                keep_polling = false;
+                            } else if status == "failed" {
+                                let exit_code =
+                                    data.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(-1);
+                                html.push_str(&format!(
+                                    "<br><br>❌ Login did not complete (exit code {exit_code})."
+                                ));
+                                keep_polling = false;
+                            }
+                            output.set(html);
                         }
-                        let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("running");
-                        if status == "succeeded" {
-                            html.push_str("<br><br>✅ Logged in. Future runs of this agent will use your account, no API key needed.");
-                            code_visible.set(false);
-                            keep_polling = false;
-                        } else if status == "failed" {
-                            let exit_code = data.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(-1);
-                            html.push_str(&format!("<br><br>❌ Login did not complete (exit code {exit_code})."));
-                            keep_polling = false;
-                        }
-                        output.set(html);
-                    }
-                }
-                Err(e) => {
-                    output.update(|o| o.push_str(&format!("<br><br>Polling failed: {e}")));
-                    keep_polling = false;
+                    },
+                    | Err(e) => {
+                        output.update(|o| o.push_str(&format!("<br><br>Polling failed: {e}")));
+                        keep_polling = false;
+                    },
                 }
             },
-            Err(e) => {
+            | Err(e) => {
                 output.update(|o| o.push_str(&format!("<br><br>Polling failed: {e}")));
                 keep_polling = false;
-            }
+            },
         }
         if keep_polling {
-            schedule_poll(project_id, session_id, current_session, output, code_visible);
+            schedule_poll(
+                project_id,
+                session_id,
+                current_session,
+                output,
+                code_visible,
+            );
         }
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn poll_login_status(_project_id: String, _session_id: String, _current_session: RwSignal<Option<String>>, _output: RwSignal<String>, _code_visible: RwSignal<bool>) {}
+fn poll_login_status(
+    _project_id: String,
+    _session_id: String,
+    _current_session: RwSignal<Option<String>>,
+    _output: RwSignal<String>,
+    _code_visible: RwSignal<bool>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-fn schedule_poll(project_id: String, session_id: String, current_session: RwSignal<Option<String>>, output: RwSignal<String>, code_visible: RwSignal<bool>) {
+fn schedule_poll(
+    project_id: String,
+    session_id: String,
+    current_session: RwSignal<Option<String>>,
+    output: RwSignal<String>,
+    code_visible: RwSignal<bool>,
+) {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
     let closure = Closure::once(move || {
-        poll_login_status(project_id, session_id, current_session, output, code_visible);
+        poll_login_status(
+            project_id,
+            session_id,
+            current_session,
+            output,
+            code_visible,
+        );
     });
     if let Some(win) = web_sys::window() {
-        let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(closure.as_ref().unchecked_ref(), 1500);
+        let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().unchecked_ref(),
+            1500,
+        );
     }
     closure.forget();
 }
 
 #[cfg(feature = "hydrate")]
-fn submit_login_code_request(project_id: String, session_id: String, code: String, output: RwSignal<String>) {
+fn submit_login_code_request(
+    project_id: String,
+    session_id: String,
+    code: String,
+    output: RwSignal<String>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         let body = format!("code={}", urlencode(&code));
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/agent/login/{}/code", project_id, session_id))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .expect("valid form body")
-            .send()
-            .await;
+        let result = gloo_net::http::Request::post(&format!(
+            "/projects/{}/agent/login/{}/code",
+            project_id, session_id
+        ))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .expect("valid form body")
+        .send()
+        .await;
         if let Ok(resp) = result {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 if data.get("success").and_then(|v| v.as_bool()) != Some(true) {
-                    let err = data.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                    let err = data
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error");
                     output.update(|o| o.push_str(&format!("<br><br>Failed to submit code: {err}")));
                 }
             }
@@ -839,15 +1103,23 @@ fn submit_login_code_request(project_id: String, session_id: String, code: Strin
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn submit_login_code_request(_project_id: String, _session_id: String, _code: String, _output: RwSignal<String>) {}
+fn submit_login_code_request(
+    _project_id: String,
+    _session_id: String,
+    _code: String,
+    _output: RwSignal<String>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
 fn urlencode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{:02X}", b)),
+            | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            },
+            | _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
     out
@@ -860,7 +1132,10 @@ mod osc8_url_tests {
     #[test]
     fn test_extract_osc8_url_finds_simple_hyperlink() {
         let raw = "some text \u{1b}]8;;https://example.com/callback?a=1\u{7}click here\u{1b}]8;;\u{7} more text";
-        assert_eq!(extract_osc8_url(raw), Some("https://example.com/callback?a=1".to_string()));
+        assert_eq!(
+            extract_osc8_url(raw),
+            Some("https://example.com/callback?a=1".to_string())
+        );
     }
 
     #[test]
@@ -868,7 +1143,10 @@ mod osc8_url_tests {
         let raw = "\u{1b}]8;id=jk754e961;https://accounts.google.com/o/oauth2/auth?response_type=code&state=abc\u{7}";
         assert_eq!(
             extract_osc8_url(raw),
-            Some("https://accounts.google.com/o/oauth2/auth?response_type=code&state=abc".to_string())
+            Some(
+                "https://accounts.google.com/o/oauth2/auth?response_type=code&state=abc"
+                    .to_string()
+            )
         );
     }
 

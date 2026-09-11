@@ -1,15 +1,28 @@
-use apich_db::{
-    CreateOAuthClientDto, CreateOrganizationDto, CreateTeamDto, CreateUserDto, Database,
-    PostgresConfig, PostgresContainer, UpdateOrganizationDto, UpdateTeamDto, UserRole,
-};
+use apich_db::CreateOAuthClientDto;
+use apich_db::CreateOrganizationDto;
+use apich_db::CreateTeamDto;
+use apich_db::CreateUserDto;
+use apich_db::Database;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::UpdateOrganizationDto;
+use apich_db::UpdateTeamDto;
+use apich_db::UserRole;
 use apich_sandbox::SandboxManager;
-use apich_web::{create_app, AppState};
+use apich_web::create_app;
+use apich_web::AppState;
 use base64::prelude::*;
-use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+use p256::ecdsa::signature::Signer;
+use p256::ecdsa::Signature;
+use p256::ecdsa::SigningKey;
 use reqwest::StatusCode;
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use serde_json::json;
+use serde_json::Value;
+use sha2::Digest;
+use sha2::Sha256;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 
 fn test_temp_dir() -> TempDir {
@@ -54,14 +67,14 @@ async fn test_fullstack_web_e2e_lifecycle() {
             .expect("Failed to connect admin"),
     );
 
-    db.run_migrations()
-        .await
-        .expect("Failed to run migrations");
+    db.run_migrations().await.expect("Failed to run migrations");
 
     // Clean tables for reproducible test runs
-    let _ = sqlx::query("TRUNCATE TABLE users, organizations, oauth_clients, system_settings, invitations CASCADE")
-        .execute(db.pool())
-        .await;
+    let _ = sqlx::query(
+        "TRUNCATE TABLE users, organizations, oauth_clients, system_settings, invitations CASCADE",
+    )
+    .execute(db.pool())
+    .await;
 
     let repo = db.repository();
 
@@ -100,7 +113,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Failed to bind ephemeral TCP port");
-    let server_port = listener.local_addr().expect("Failed to get local port").port();
+    let server_port = listener
+        .local_addr()
+        .expect("Failed to get local port")
+        .port();
     let base_url = format!("http://127.0.0.1:{}", server_port);
 
     let state = AppState::new(
@@ -253,7 +269,11 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(enroll_res.status(), StatusCode::OK);
 
     // Logout to test authentication ceremony from cold state
-    let _ = client.post(format!("{}/api/auth/logout", base_url)).send().await.unwrap();
+    let _ = client
+        .post(format!("{}/api/auth/logout", base_url))
+        .send()
+        .await
+        .unwrap();
 
     // Start Passkey Authentication Ceremony
     let auth_start_res = client
@@ -323,9 +343,18 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(discovery_res.status(), StatusCode::OK);
     let discovery_body: Value = discovery_res.json().await.unwrap();
     assert_eq!(discovery_body["issuer"], base_url);
-    assert!(discovery_body["authorization_endpoint"].as_str().unwrap().ends_with("/oauth/authorize"));
-    assert!(discovery_body["token_endpoint"].as_str().unwrap().ends_with("/oauth/token"));
-    assert!(discovery_body["userinfo_endpoint"].as_str().unwrap().ends_with("/oauth/userinfo"));
+    assert!(discovery_body["authorization_endpoint"]
+        .as_str()
+        .unwrap()
+        .ends_with("/oauth/authorize"));
+    assert!(discovery_body["token_endpoint"]
+        .as_str()
+        .unwrap()
+        .ends_with("/oauth/token"));
+    assert!(discovery_body["userinfo_endpoint"]
+        .as_str()
+        .unwrap()
+        .ends_with("/oauth/userinfo"));
 
     // JWKS
     let jwks_res = client
@@ -541,7 +570,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Launch Dedicated Sandbox Container for (Project + Alice)
     let launch_res = client
-        .post(format!("{}/api/projects/{}/sandbox/start", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/sandbox/start",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to launch sandbox container");
@@ -549,7 +581,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     let launch_status = launch_res.status();
     let launch_text = launch_res.text().await.unwrap();
     if launch_status != StatusCode::OK {
-        eprintln!("LAUNCH SANDBOX FAILED (status {}): {}", launch_status, launch_text);
+        eprintln!(
+            "LAUNCH SANDBOX FAILED (status {}): {}",
+            launch_status, launch_text
+        );
     }
     assert_eq!(launch_status, StatusCode::OK);
     let launch_body: Value = serde_json::from_str(&launch_text).unwrap();
@@ -558,7 +593,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Query Sandbox Status
     let status_res = client
-        .get(format!("{}/api/projects/{}/sandbox/status", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/sandbox/status",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to get sandbox status");
@@ -568,7 +606,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Stop Sandbox Container
     let stop_res = client
-        .post(format!("{}/api/projects/{}/sandbox/stop", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/sandbox/stop",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to stop sandbox container");
@@ -585,7 +626,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     .expect("Failed to write test file");
 
     let snapshot_res = client
-        .post(format!("{}/api/projects/{}/vcs/snapshot", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/vcs/snapshot",
+            base_url, proj_id
+        ))
         .json(&json!({
             "message": "Initial calibration equations for transmon simulator"
         }))
@@ -594,11 +638,17 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .expect("Failed to snapshot project");
     assert_eq!(snapshot_res.status(), StatusCode::OK);
     let snap_body: Value = snapshot_res.json().await.unwrap();
-    assert!(snap_body["message"].as_str().unwrap().starts_with("Initial calibration equations for transmon simulator"));
+    assert!(snap_body["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("Initial calibration equations for transmon simulator"));
 
     // Retrieve VCS Timeline
     let timeline_res = client
-        .get(format!("{}/api/projects/{}/vcs/timeline", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/vcs/timeline",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to get project timeline");
@@ -606,7 +656,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     let timeline_body: Value = timeline_res.json().await.unwrap();
     let snapshots = timeline_body.as_array().unwrap();
     assert!(!snapshots.is_empty());
-    assert!(snapshots[0]["message"].as_str().unwrap().starts_with("Initial calibration equations for transmon simulator"));
+    assert!(snapshots[0]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("Initial calibration equations for transmon simulator"));
 
     // ========================================================================
     // TEST 5.1: Project Sharing, Member Roles & Concurrent Multi-User Sandboxes
@@ -696,7 +749,11 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .expect("Failed to list bob projects");
     assert_eq!(bob_projects_res.status(), StatusCode::OK);
     let bob_projects: Value = bob_projects_res.json().await.unwrap();
-    assert!(bob_projects.as_array().unwrap().iter().any(|p| p["id"] == proj_id.to_string()));
+    assert!(bob_projects
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["id"] == proj_id.to_string()));
 
     // Verify David (Viewer) read access vs write restrictions
     let david_view_res = david_client
@@ -707,7 +764,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(david_view_res.status(), StatusCode::OK);
 
     let david_timeline_res = david_client
-        .get(format!("{}/api/projects/{}/vcs/timeline", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/vcs/timeline",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to get timeline as viewer");
@@ -715,7 +775,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // David (viewer) attempts to launch sandbox -> 403 Forbidden
     let david_sandbox_start = david_client
-        .post(format!("{}/api/projects/{}/sandbox/start", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/sandbox/start",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to send start sandbox");
@@ -723,7 +786,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // David (viewer) attempts to create snapshot -> 403 Forbidden
     let david_snap = david_client
-        .post(format!("{}/api/projects/{}/vcs/snapshot", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/vcs/snapshot",
+            base_url, proj_id
+        ))
         .json(&json!({ "message": "Viewer snapshot attempt" }))
         .send()
         .await
@@ -732,7 +798,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Concurrent Sandboxes: Alice and Bob launch sandboxes on the SAME project simultaneously
     let alice_start = client
-        .post(format!("{}/api/projects/{}/sandbox/start", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/sandbox/start",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to start Alice sandbox");
@@ -741,7 +810,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(alice_box["status"], "running");
 
     let bob_start = bob_client
-        .post(format!("{}/api/projects/{}/sandbox/start", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/sandbox/start",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to start Bob sandbox");
@@ -754,7 +826,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Both Alice and Bob query their own sandbox status -> both running
     let alice_status = client
-        .get(format!("{}/api/projects/{}/sandbox/status", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/sandbox/status",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to get Alice status");
@@ -762,7 +837,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(alice_status_body["status"], "running");
 
     let bob_status = bob_client
-        .get(format!("{}/api/projects/{}/sandbox/status", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/sandbox/status",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to get Bob status");
@@ -771,14 +849,20 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Alice stops her sandbox -> Bob's sandbox continues running independently
     let alice_stop = client
-        .post(format!("{}/api/projects/{}/sandbox/stop", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/sandbox/stop",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to stop Alice sandbox");
     assert_eq!(alice_stop.status(), StatusCode::OK);
 
     let alice_status_after = client
-        .get(format!("{}/api/projects/{}/sandbox/status", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/sandbox/status",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap()
@@ -788,7 +872,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(alice_status_after["status"], "stopped");
 
     let bob_status_after = bob_client
-        .get(format!("{}/api/projects/{}/sandbox/status", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/sandbox/status",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap()
@@ -799,7 +886,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Now Bob stops his sandbox
     let bob_stop = bob_client
-        .post(format!("{}/api/projects/{}/sandbox/stop", base_url, proj_id))
+        .post(format!(
+            "{}/api/projects/{}/sandbox/stop",
+            base_url, proj_id
+        ))
         .send()
         .await
         .expect("Failed to stop Bob sandbox");
@@ -807,7 +897,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Alice updates David's role to 'editor'
     let update_role_res = client
-        .put(format!("{}/api/projects/{}/members/{}", base_url, proj_id, david_uuid))
+        .put(format!(
+            "{}/api/projects/{}/members/{}",
+            base_url, proj_id, david_uuid
+        ))
         .json(&json!({ "role": "editor" }))
         .send()
         .await
@@ -816,7 +909,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Alice removes David from project members
     let remove_member_res = client
-        .delete(format!("{}/api/projects/{}/members/{}", base_url, proj_id, david_uuid))
+        .delete(format!(
+            "{}/api/projects/{}/members/{}",
+            base_url, proj_id, david_uuid
+        ))
         .send()
         .await
         .expect("Failed to remove member");
@@ -881,7 +977,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
     // Verify invitation email was recorded in MailerService
     let sent_emails = state.mailer.get_sent_emails();
     assert!(!sent_emails.is_empty());
-    let email = sent_emails.iter().find(|e| e.to == "charlie@apich.org").unwrap();
+    let email = sent_emails
+        .iter()
+        .find(|e| e.to == "charlie@apich.org")
+        .unwrap();
     assert!(email.body.contains(&invite_token));
 
     // Charlie completes registration with invite token -> 200 OK
@@ -938,11 +1037,18 @@ async fn test_fullstack_web_e2e_lifecycle() {
     let home_html = home_res.text().await.unwrap();
     assert!(home_html.contains("APICH"));
     // Leptos SSR correctly HTML-escapes text nodes ("&" -> "&amp;"), unlike the old raw format! templates.
-    assert!(home_html.contains("Projects &amp; Sandboxes") || home_html.contains("Projects & Sandboxes"));
+    assert!(
+        home_html.contains("Projects &amp; Sandboxes")
+            || home_html.contains("Projects & Sandboxes")
+    );
     assert!(home_html.contains("New Project"));
 
     // 7.2 Language Toggle: Switch to Chinese (zh)
-    let lang_zh_res = client.get(format!("{}/set-lang?lang=zh&return_to=/", base_url)).send().await.unwrap();
+    let lang_zh_res = client
+        .get(format!("{}/set-lang?lang=zh&return_to=/", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(lang_zh_res.status(), StatusCode::SEE_OTHER);
     assert_eq!(lang_zh_res.headers().get("location").unwrap(), "/");
 
@@ -953,22 +1059,41 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert!(zh_home_html.contains("新建项目"));
 
     // Switch back to English (primary)
-    let _ = client.get(format!("{}/set-lang?lang=en&return_to=/", base_url)).send().await.unwrap();
+    let _ = client
+        .get(format!("{}/set-lang?lang=en&return_to=/", base_url))
+        .send()
+        .await
+        .unwrap();
 
     // Authenticated user accessing /login or /register is redirected to /
-    let auth_login_res = client.get(format!("{}/login", base_url)).send().await.unwrap();
+    let auth_login_res = client
+        .get(format!("{}/login", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(auth_login_res.status(), StatusCode::SEE_OTHER);
     assert_eq!(auth_login_res.headers().get("location").unwrap(), "/");
 
-    let auth_reg_res = client.get(format!("{}/register", base_url)).send().await.unwrap();
+    let auth_reg_res = client
+        .get(format!("{}/register", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(auth_reg_res.status(), StatusCode::SEE_OTHER);
     assert_eq!(auth_reg_res.headers().get("location").unwrap(), "/");
 
     // Settings page (Profile chip badge, no fake inputs)
-    let settings_res = client.get(format!("{}/settings", base_url)).send().await.unwrap();
+    let settings_res = client
+        .get(format!("{}/settings", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(settings_res.status(), StatusCode::OK);
     let settings_html = settings_res.text().await.unwrap();
-    assert!(settings_html.contains("Account &amp; Security Settings") || settings_html.contains("Account & Security Settings"));
+    assert!(
+        settings_html.contains("Account &amp; Security Settings")
+            || settings_html.contains("Account & Security Settings")
+    );
     assert!(settings_html.contains("Platform Administrator"));
     assert!(settings_html.contains("Passkey"));
 
@@ -984,12 +1109,21 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(update_prof_res.status(), StatusCode::SEE_OTHER);
-    assert!(update_prof_res.headers().get("location").unwrap().to_str().unwrap().contains("notice="));
+    assert!(update_prof_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("notice="));
 
     let alice_db = repo.get_user_by_id(alice.id).await.unwrap().unwrap();
     assert_eq!(alice_db.display_name, "Alice Principal Investigator");
     assert_eq!(alice_db.email, "alice.chief@apich.org");
-    assert_eq!(alice_db.avatar_url.as_deref(), Some("https://apich.org/avatars/alice.png"));
+    assert_eq!(
+        alice_db.avatar_url.as_deref(),
+        Some("https://apich.org/avatars/alice.png")
+    );
 
     // 7.2.2 Password Change Validations & Re-login
     // Case A: Password confirmation mismatch
@@ -1004,7 +1138,13 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(pwd_mismatch_res.status(), StatusCode::SEE_OTHER);
-    assert!(pwd_mismatch_res.headers().get("location").unwrap().to_str().unwrap().contains("error="));
+    assert!(pwd_mismatch_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("error="));
 
     // Case B: Incorrect old password
     let pwd_wrong_res = client
@@ -1018,7 +1158,13 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(pwd_wrong_res.status(), StatusCode::SEE_OTHER);
-    assert!(pwd_wrong_res.headers().get("location").unwrap().to_str().unwrap().contains("error="));
+    assert!(pwd_wrong_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("error="));
 
     // Case C: Valid password change
     let pwd_ok_res = client
@@ -1032,7 +1178,13 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(pwd_ok_res.status(), StatusCode::SEE_OTHER);
-    assert!(pwd_ok_res.headers().get("location").unwrap().to_str().unwrap().contains("notice="));
+    assert!(pwd_ok_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("notice="));
 
     // Verify Alice can authenticate with the new password
     let new_login_res = client
@@ -1047,10 +1199,17 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(new_login_res.status(), StatusCode::OK);
 
     // 7.3 Organization & Team Admin Management
-    let orgs_res = client.get(format!("{}/admin/orgs", base_url)).send().await.unwrap();
+    let orgs_res = client
+        .get(format!("{}/admin/orgs", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(orgs_res.status(), StatusCode::OK);
     let orgs_html = orgs_res.text().await.unwrap();
-    assert!(orgs_html.contains("Organizations &amp; Teams") || orgs_html.contains("Organizations & Teams"));
+    assert!(
+        orgs_html.contains("Organizations &amp; Teams")
+            || orgs_html.contains("Organizations & Teams")
+    );
     assert!(orgs_html.contains("Quantum Labs"));
     assert!(orgs_html.contains("Hardware Engineering"));
 
@@ -1066,9 +1225,19 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(create_org_res.status(), StatusCode::SEE_OTHER);
-    assert!(create_org_res.headers().get("location").unwrap().to_str().unwrap().contains("org_created"));
+    assert!(create_org_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("org_created"));
 
-    let cern_org = repo.get_organization_by_slug("cern-quantum").await.unwrap().unwrap();
+    let cern_org = repo
+        .get_organization_by_slug("cern-quantum")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(cern_org.name, "CERN Quantum Physics");
 
     let edit_org_res = client
@@ -1083,23 +1252,41 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(edit_org_res.status(), StatusCode::SEE_OTHER);
-    assert!(edit_org_res.headers().get("location").unwrap().to_str().unwrap().contains("org_updated"));
+    assert!(edit_org_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("org_updated"));
 
-    let updated_cern_org = repo.get_organization_by_id(cern_org.id).await.unwrap().unwrap();
+    let updated_cern_org = repo
+        .get_organization_by_id(cern_org.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(updated_cern_org.name, "CERN Advanced Quantum Institute");
     assert_eq!(updated_cern_org.slug, "cern-quantum-adv");
 
     let del_org_res = client
         .post(format!("{}/admin/orgs/delete", base_url))
-        .form(&[
-            ("org_id", cern_org.id.to_string()),
-        ])
+        .form(&[("org_id", cern_org.id.to_string())])
         .send()
         .await
         .unwrap();
     assert_eq!(del_org_res.status(), StatusCode::SEE_OTHER);
-    assert!(del_org_res.headers().get("location").unwrap().to_str().unwrap().contains("org_deleted"));
-    assert!(repo.get_organization_by_id(cern_org.id).await.unwrap().is_none());
+    assert!(del_org_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("org_deleted"));
+    assert!(repo
+        .get_organization_by_id(cern_org.id)
+        .await
+        .unwrap()
+        .is_none());
 
     // 7.3.2 Team Creation, Hierarchy Re-parenting & Deletion via Web Forms
     let create_team_res = client
@@ -1114,10 +1301,19 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(create_team_res.status(), StatusCode::SEE_OTHER);
-    assert!(create_team_res.headers().get("location").unwrap().to_str().unwrap().contains("team_created"));
+    assert!(create_team_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("team_created"));
 
     let org_teams = repo.list_teams_by_org(org_id).await.unwrap();
-    let qt_team = org_teams.into_iter().find(|t| t.slug == "quantum-theory").unwrap();
+    let qt_team = org_teams
+        .into_iter()
+        .find(|t| t.slug == "quantum-theory")
+        .unwrap();
     assert_eq!(qt_team.name, "Quantum Theory");
 
     // Edit team and re-parent under root_team_id
@@ -1134,7 +1330,13 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(edit_team_res.status(), StatusCode::SEE_OTHER);
-    assert!(edit_team_res.headers().get("location").unwrap().to_str().unwrap().contains("team_updated"));
+    assert!(edit_team_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("team_updated"));
 
     let updated_qt_team = repo.get_team_by_id(qt_team.id).await.unwrap().unwrap();
     assert_eq!(updated_qt_team.name, "Quantum Theoretical Simulation");
@@ -1168,18 +1370,26 @@ async fn test_fullstack_web_e2e_lifecycle() {
     // Delete team via web form
     let del_team_res = client
         .post(format!("{}/admin/teams/delete", base_url))
-        .form(&[
-            ("team_id", qt_team.id.to_string()),
-        ])
+        .form(&[("team_id", qt_team.id.to_string())])
         .send()
         .await
         .unwrap();
     assert_eq!(del_team_res.status(), StatusCode::SEE_OTHER);
-    assert!(del_team_res.headers().get("location").unwrap().to_str().unwrap().contains("team_deleted"));
+    assert!(del_team_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("team_deleted"));
     assert!(repo.get_team_by_id(qt_team.id).await.unwrap().is_none());
 
     // 7.3.3 Outbound Email (SMTP) Platform Settings & Verification Test Form
-    let platform_res = client.get(format!("{}/admin/platform", base_url)).send().await.unwrap();
+    let platform_res = client
+        .get(format!("{}/admin/platform", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(platform_res.status(), StatusCode::OK);
     let platform_html = platform_res.text().await.unwrap();
     assert!(platform_html.contains("System Admin"));
@@ -1204,54 +1414,90 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(update_smtp_res.status(), StatusCode::SEE_OTHER);
-    assert!(update_smtp_res.headers().get("location").unwrap().to_str().unwrap().contains("notice="));
+    assert!(update_smtp_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("notice="));
 
     let settings = repo.get_system_settings().await.unwrap();
     assert!(settings.smtp_enabled);
     assert_eq!(settings.smtp_port, Some(587));
-    assert_eq!(settings.smtp_from_email.as_deref(), Some("no-reply@apich.edu"));
-    assert_eq!(settings.smtp_from_name.as_deref(), Some("APICH Academic Platform"));
+    assert_eq!(
+        settings.smtp_from_email.as_deref(),
+        Some("no-reply@apich.edu")
+    );
+    assert_eq!(
+        settings.smtp_from_name.as_deref(),
+        Some("APICH Academic Platform")
+    );
     assert!(settings.smtp_use_tls);
 
     // Trigger live test verification email via web form
     let test_smtp_res = client
         .post(format!("{}/admin/platform/smtp-test", base_url))
-        .form(&[
-            ("test_email", "researcher-verify@apich.edu"),
-        ])
+        .form(&[("test_email", "researcher-verify@apich.edu")])
         .send()
         .await
         .unwrap();
     assert_eq!(test_smtp_res.status(), StatusCode::SEE_OTHER);
-    assert!(test_smtp_res.headers().get("location").unwrap().to_str().unwrap().contains("notice="));
+    assert!(test_smtp_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("notice="));
 
     // Verify in mailer audit queue that test verification email was recorded
     let sent_emails = state.mailer.get_sent_emails();
-    assert!(sent_emails.iter().any(|m| m.to == "researcher-verify@apich.edu" && m.subject.contains("SMTP Delivery Test")));
+    assert!(sent_emails.iter().any(|m| {
+        m.to == "researcher-verify@apich.edu" && m.subject.contains("SMTP Delivery Test")
+    }));
 
     // 7.4 Project Detail Page Tabs & Collaborator Management
     // Bare /projects/:id now defaults to the Files tab (the old "Overview" tab was dropped:
     // its content was redundant with the page header, and plan.md's spec is Files/VCS/Sharing).
-    let proj_files_res = client.get(format!("{}/projects/{}", base_url, proj_id)).send().await.unwrap();
+    let proj_files_res = client
+        .get(format!("{}/projects/{}", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(proj_files_res.status(), StatusCode::OK);
     let proj_files_html = proj_files_res.text().await.unwrap();
     assert!(proj_files_html.contains("Project Files"));
     assert!(proj_files_html.contains("Files"));
 
     // merge/timeline/git are now unified into a single VCS tab (plan.md: "VCS history & management").
-    let proj_vcs_res = client.get(format!("{}/projects/{}?tab=vcs", base_url, proj_id)).send().await.unwrap();
+    let proj_vcs_res = client
+        .get(format!("{}/projects/{}?tab=vcs", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(proj_vcs_res.status(), StatusCode::OK);
     let proj_vcs_html = proj_vcs_res.text().await.unwrap();
-    assert!(proj_vcs_html.contains("Branches &amp; Merging") || proj_vcs_html.contains("Branches & Merging"));
+    assert!(
+        proj_vcs_html.contains("Branches &amp; Merging")
+            || proj_vcs_html.contains("Branches & Merging")
+    );
     assert!(proj_vcs_html.contains("Timeline Snapshots"));
     assert!(proj_vcs_html.contains("Initial calibration equations for transmon simulator"));
     assert!(proj_vcs_html.contains("Git Compatibility"));
 
     // Legacy tab query values still resolve to the same VCS tab.
-    let proj_merge_res = client.get(format!("{}/projects/{}?tab=merge", base_url, proj_id)).send().await.unwrap();
+    let proj_merge_res = client
+        .get(format!("{}/projects/{}?tab=merge", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(proj_merge_res.status(), StatusCode::OK);
     let proj_merge_html = proj_merge_res.text().await.unwrap();
-    assert!(proj_merge_html.contains("Branches &amp; Merging") || proj_merge_html.contains("Branches & Merging"));
+    assert!(
+        proj_merge_html.contains("Branches &amp; Merging")
+            || proj_merge_html.contains("Branches & Merging")
+    );
 
     // Owner adds collaborator via web form
     let add_collab_res = client
@@ -1264,19 +1510,29 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(add_collab_res.status(), StatusCode::SEE_OTHER);
-    assert!(add_collab_res.headers().get("location").unwrap().to_str().unwrap().contains("collaborator_added"));
+    assert!(add_collab_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("collaborator_added"));
 
     // Owner removes collaborator via web form
     let rm_collab_res = client
         .post(format!("{}/projects/{}/members/remove", base_url, proj_id))
-        .form(&[
-            ("user_id", charlie_uuid.to_string()),
-        ])
+        .form(&[("user_id", charlie_uuid.to_string())])
         .send()
         .await
         .unwrap();
     assert_eq!(rm_collab_res.status(), StatusCode::SEE_OTHER);
-    assert!(rm_collab_res.headers().get("location").unwrap().to_str().unwrap().contains("collaborator_removed"));
+    assert!(rm_collab_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("collaborator_removed"));
 
     // ========================================================================
     // TEST 7.5: Scientific Workspace Extensions: Hub Links, SQLite Tables, Knowledge Hub, Terminal
@@ -1284,30 +1540,46 @@ async fn test_fullstack_web_e2e_lifecycle() {
     println!("--- Running Test 7.5: Hub Links, SQLite Tables, Knowledge Hub & Terminal ---");
 
     // A. External Hub Links Resolution, Team-level Overrides and Org Lockout
-    let _ = repo.update_organization(org_id, UpdateOrganizationDto {
-        name: None,
-        slug: None,
-        description: None,
-        chat_url: Some("https://matrix.quantum-labs.org".to_string()),
-        meeting_url: Some("https://meet.quantum-labs.org".to_string()),
-        drive_url: Some("https://drive.quantum-labs.org".to_string()),
-        ai_agent_url: Some("https://ai.quantum-labs.org".to_string()),
-        allow_team_override: Some(true),
-    }).await.unwrap();
+    let _ = repo
+        .update_organization(
+            org_id,
+            UpdateOrganizationDto {
+                name: None,
+                slug: None,
+                description: None,
+                chat_url: Some("https://matrix.quantum-labs.org".to_string()),
+                meeting_url: Some("https://meet.quantum-labs.org".to_string()),
+                drive_url: Some("https://drive.quantum-labs.org".to_string()),
+                ai_agent_url: Some("https://ai.quantum-labs.org".to_string()),
+                allow_team_override: Some(true),
+            },
+        )
+        .await
+        .unwrap();
 
-    let _ = repo.update_team(root_team_id, UpdateTeamDto {
-        name: None,
-        slug: None,
-        description: None,
-        parent_team_id: None,
-        chat_url: Some("https://discord.gg/quantum-hw".to_string()),
-        meeting_url: None, // Inherits org
-        drive_url: None,   // Inherits org
-        ai_agent_url: None, // Inherits org
-    }).await.unwrap();
+    let _ = repo
+        .update_team(
+            root_team_id,
+            UpdateTeamDto {
+                name: None,
+                slug: None,
+                description: None,
+                parent_team_id: None,
+                chat_url: Some("https://discord.gg/quantum-hw".to_string()),
+                meeting_url: None,  // Inherits org
+                drive_url: None,    // Inherits org
+                ai_agent_url: None, // Inherits org
+            },
+        )
+        .await
+        .unwrap();
 
     // Query effective hub links: team override on chat, inherited org on meeting/drive/ai
-    let hl_res = client.get(format!("{}/api/projects/{}/hub-links", base_url, proj_id)).send().await.unwrap();
+    let hl_res = client
+        .get(format!("{}/api/projects/{}/hub-links", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(hl_res.status(), StatusCode::OK);
     let hl: Value = hl_res.json().await.unwrap();
     assert_eq!(hl["chat_url"], "https://discord.gg/quantum-hw");
@@ -1316,18 +1588,28 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(hl["ai_agent_url"], "https://ai.quantum-labs.org");
 
     // Master Lockout: Org admin disables allow_team_override
-    let _ = repo.update_organization(org_id, UpdateOrganizationDto {
-        name: None,
-        slug: None,
-        description: None,
-        chat_url: None,
-        meeting_url: None,
-        drive_url: None,
-        ai_agent_url: None,
-        allow_team_override: Some(false),
-    }).await.unwrap();
+    let _ = repo
+        .update_organization(
+            org_id,
+            UpdateOrganizationDto {
+                name: None,
+                slug: None,
+                description: None,
+                chat_url: None,
+                meeting_url: None,
+                drive_url: None,
+                ai_agent_url: None,
+                allow_team_override: Some(false),
+            },
+        )
+        .await
+        .unwrap();
 
-    let hl_lockout_res = client.get(format!("{}/api/projects/{}/hub-links", base_url, proj_id)).send().await.unwrap();
+    let hl_lockout_res = client
+        .get(format!("{}/api/projects/{}/hub-links", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(hl_lockout_res.status(), StatusCode::OK);
     let hl_lockout: Value = hl_lockout_res.json().await.unwrap();
     assert_eq!(hl_lockout["chat_url"], "https://matrix.quantum-labs.org");
@@ -1353,7 +1635,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .unwrap();
     assert_eq!(sql_exec_res.status(), StatusCode::OK);
     let sql_body: Value = sql_exec_res.json().await.unwrap();
-    assert!(sql_body["message"].as_str().unwrap().contains("executed successfully"));
+    assert!(sql_body["message"]
+        .as_str()
+        .unwrap()
+        .contains("executed successfully"));
     assert_eq!(sql_body["is_query"], false);
 
     // Also test a SELECT query via API
@@ -1369,12 +1654,18 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(select_exec_res.status(), StatusCode::OK);
     let select_body: Value = select_exec_res.json().await.unwrap();
     assert_eq!(select_body["is_query"], true);
-    assert!(select_body["message"].as_str().unwrap().contains("Query executed successfully"));
+    assert!(select_body["message"]
+        .as_str()
+        .unwrap()
+        .contains("Query executed successfully"));
     assert_eq!(select_body["rows"].as_array().unwrap().len(), 1);
 
     // Fetch Table Data via API
     let table_data_res = client
-        .get(format!("{}/api/projects/{}/tables/data?file=data.db&table=qubit_telemetry", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/tables/data?file=data.db&table=qubit_telemetry",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1386,7 +1677,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Web UI: Visual Grid View
     let grid_page_res = client
-        .get(format!("{}/projects/{}/table?file=data.db&table=qubit_telemetry&mode=grid", base_url, proj_id))
+        .get(format!(
+            "{}/projects/{}/table?file=data.db&table=qubit_telemetry&mode=grid",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1413,11 +1707,16 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // C. Knowledge Hub: Markdown Tasks, Kanban, Wiki Graph, Calendar, and Bidirectional Sync
     let lab_notes_content = "# Lab Notebook: Quantum Transmon Benchmarking\nSee [[Dilution Fridge Guide]] and [[Pulse Calibration]] for operations.\n\n## Action Items\n- [ ] Characterize resonator frequency response #hardware @2026-09-25\n- [/] Calibrate single-qubit Clifford gates #control @2026-09-28\n- [x] Room-temperature microwave line testing #rf @2026-09-12\n";
-    tokio::fs::write(storage_path.join("lab_notebook.md"), lab_notes_content).await.unwrap();
+    tokio::fs::write(storage_path.join("lab_notebook.md"), lab_notes_content)
+        .await
+        .unwrap();
 
     // Query Knowledge Tasks API
     let tasks_res = client
-        .get(format!("{}/api/projects/{}/knowledge/tasks", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/knowledge/tasks",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1427,7 +1726,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Query Knowledge Kanban API
     let kanban_res = client
-        .get(format!("{}/api/projects/{}/knowledge/kanban", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/knowledge/kanban",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1438,7 +1740,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Query Knowledge Wiki Graph API
     let graph_res = client
-        .get(format!("{}/api/projects/{}/knowledge/graph", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/knowledge/graph",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1450,7 +1755,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Query Calendar API
     let cal_res = client
-        .get(format!("{}/api/projects/{}/knowledge/calendar", base_url, proj_id))
+        .get(format!(
+            "{}/api/projects/{}/knowledge/calendar",
+            base_url, proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1460,7 +1768,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Bidirectional Task Toggle: Toggle line 5 from todo to done
     let toggle_res = client
-        .post(format!("{}/projects/{}/knowledge/toggle-task", base_url, proj_id))
+        .post(format!(
+            "{}/projects/{}/knowledge/toggle-task",
+            base_url, proj_id
+        ))
         .form(&[
             ("file", "lab_notebook.md"),
             ("line_number", "5"),
@@ -1473,36 +1784,76 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(toggle_res.status(), StatusCode::SEE_OTHER);
 
     // Verify physical Markdown file was updated!
-    let updated_notes = tokio::fs::read_to_string(storage_path.join("lab_notebook.md")).await.unwrap();
+    let updated_notes = tokio::fs::read_to_string(storage_path.join("lab_notebook.md"))
+        .await
+        .unwrap();
     assert!(updated_notes.contains("- [x] Characterize resonator frequency response"));
 
     // Verify Kanban/Wiki/Calendar Views -- these used to be a standalone `/knowledge` page that
     // nothing in the UI actually linked to (a real orphaned-page bug). plan.md calls for one
     // integrated space ("一体化空间") aggregating notes, wiki, whiteboard, calendar, and kanban,
     // so they're tabs on the unified note page now.
-    let kb_page_res = client.get(format!("{}/projects/{}/note?view=kanban", base_url, proj_id)).send().await.unwrap();
+    let kb_page_res = client
+        .get(format!(
+            "{}/projects/{}/note?view=kanban",
+            base_url, proj_id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(kb_page_res.status(), StatusCode::OK);
     let kb_page_html = kb_page_res.text().await.unwrap();
     assert!(kb_page_html.contains("kanban-grid"));
     assert!(kb_page_html.contains("📋 Kanban"));
 
-    let wiki_page_res = client.get(format!("{}/projects/{}/note?view=wiki", base_url, proj_id)).send().await.unwrap();
+    let wiki_page_res = client
+        .get(format!("{}/projects/{}/note?view=wiki", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(wiki_page_res.status(), StatusCode::OK);
     let wiki_page_html = wiki_page_res.text().await.unwrap();
-    assert!(wiki_page_html.contains("Notes &amp; Concepts") || wiki_page_html.contains("Notes & Concepts"));
+    assert!(
+        wiki_page_html.contains("Notes &amp; Concepts")
+            || wiki_page_html.contains("Notes & Concepts")
+    );
 
-    let cal_page_res = client.get(format!("{}/projects/{}/note?view=calendar", base_url, proj_id)).send().await.unwrap();
+    let cal_page_res = client
+        .get(format!(
+            "{}/projects/{}/note?view=calendar",
+            base_url, proj_id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(cal_page_res.status(), StatusCode::OK);
 
     // The old `/knowledge` page route survives only to redirect bookmarked links to the right
     // place on the unified note page (this test client has redirect-following disabled, like
     // every other request in this test, so check the Location header directly).
-    let legacy_kb_res = client.get(format!("{}/projects/{}/knowledge?view=kanban", base_url, proj_id)).send().await.unwrap();
+    let legacy_kb_res = client
+        .get(format!(
+            "{}/projects/{}/knowledge?view=kanban",
+            base_url, proj_id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(legacy_kb_res.status(), StatusCode::SEE_OTHER);
-    assert!(legacy_kb_res.headers().get("location").unwrap().to_str().unwrap().contains("/note?view=kanban"));
+    assert!(legacy_kb_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("/note?view=kanban"));
 
     // D. Interactive Container Terminal Page & Execution
-    let term_page_res = client.get(format!("{}/projects/{}/terminal", base_url, proj_id)).send().await.unwrap();
+    let term_page_res = client
+        .get(format!("{}/projects/{}/terminal", base_url, proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(term_page_res.status(), StatusCode::OK);
     let term_html = term_page_res.text().await.unwrap();
     assert!(term_html.contains("Terminal"));
@@ -1516,15 +1867,16 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     let term_exec_res = client
         .post(format!("{}/projects/{}/terminal/exec", base_url, proj_id))
-        .form(&[
-            ("command", "echo 'APICH Sandbox Terminal Live Test'"),
-        ])
+        .form(&[("command", "echo 'APICH Sandbox Terminal Live Test'")])
         .send()
         .await
         .unwrap();
     assert_eq!(term_exec_res.status(), StatusCode::OK);
     let exec_res_body: Value = term_exec_res.json().await.unwrap();
-    assert!(exec_res_body["output"].as_str().unwrap().contains("APICH Sandbox Terminal Live Test"));
+    assert!(exec_res_body["output"]
+        .as_str()
+        .unwrap()
+        .contains("APICH Sandbox Terminal Live Test"));
 
     // 7.6 Anonymous / Unauthenticated Client Flows
     let anon_client = reqwest::Client::builder()
@@ -1533,12 +1885,20 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .unwrap();
 
     // Default visit to / when unauthenticated redirects to /login
-    let unauth_home_res = anon_client.get(format!("{}/", base_url)).send().await.unwrap();
+    let unauth_home_res = anon_client
+        .get(format!("{}/", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(unauth_home_res.status(), StatusCode::SEE_OTHER);
     assert_eq!(unauth_home_res.headers().get("location").unwrap(), "/login");
 
     // Login page renders in English by default
-    let login_res = anon_client.get(format!("{}/login", base_url)).send().await.unwrap();
+    let login_res = anon_client
+        .get(format!("{}/login", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(login_res.status(), StatusCode::OK);
     let login_html = login_res.text().await.unwrap();
     assert!(login_html.contains("Sign In to Workspace"));
@@ -1546,7 +1906,11 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert!(login_html.contains("Username or Email"));
 
     // Register page renders in English by default
-    let register_res = anon_client.get(format!("{}/register", base_url)).send().await.unwrap();
+    let register_res = anon_client
+        .get(format!("{}/register", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(register_res.status(), StatusCode::OK);
     let register_html = register_res.text().await.unwrap();
     assert!(register_html.contains("Create Research Account"));
@@ -1566,14 +1930,33 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert!(dash_html.contains("/settings"));
 
     // 2. Create Showcase Demo Project via POST /projects/demo/create
-    let create_demo_res = client.post(format!("{}/projects/demo/create", base_url)).send().await.unwrap();
+    let create_demo_res = client
+        .post(format!("{}/projects/demo/create", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(create_demo_res.status(), StatusCode::SEE_OTHER);
-    let demo_proj_loc = create_demo_res.headers().get("location").unwrap().to_str().unwrap();
+    let demo_proj_loc = create_demo_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(demo_proj_loc.contains("/projects/"));
-    let demo_proj_id = demo_proj_loc.split('/').nth(2).unwrap().split('?').next().unwrap();
+    let demo_proj_id = demo_proj_loc
+        .split('/')
+        .nth(2)
+        .unwrap()
+        .split('?')
+        .next()
+        .unwrap();
 
     // 3. Verify Files Tab is Default View on Project Page
-    let proj_files_res = client.get(format!("{}/projects/{}", base_url, demo_proj_id)).send().await.unwrap();
+    let proj_files_res = client
+        .get(format!("{}/projects/{}", base_url, demo_proj_id))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(proj_files_res.status(), StatusCode::OK);
     let files_html = proj_files_res.text().await.unwrap();
     assert!(files_html.contains("slides.typ"));
@@ -1582,7 +1965,14 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert!(files_html.contains("lab_notebook.anote"));
 
     // 4. Verify Sharing & Permissions Tab with the 3 Strict Collaboration Roles
-    let sharing_res = client.get(format!("{}/projects/{}?tab=members", base_url, demo_proj_id)).send().await.unwrap();
+    let sharing_res = client
+        .get(format!(
+            "{}/projects/{}?tab=members",
+            base_url, demo_proj_id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(sharing_res.status(), StatusCode::OK);
     let sharing_html = sharing_res.text().await.unwrap();
     assert!(sharing_html.contains("read_only"));
@@ -1591,7 +1981,14 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert!(sharing_html.contains("Copy Share Link"));
 
     // 5. Test Dedicated Document & Slide Editor Studio
-    let editor_res = client.get(format!("{}/projects/{}/editor?file=slides.typ", base_url, demo_proj_id)).send().await.unwrap();
+    let editor_res = client
+        .get(format!(
+            "{}/projects/{}/editor?file=slides.typ",
+            base_url, demo_proj_id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(editor_res.status(), StatusCode::OK);
     let editor_html = editor_res.text().await.unwrap();
     assert!(editor_html.contains("slides.typ"));
@@ -1599,10 +1996,16 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Save document edit
     let save_doc_res = client
-        .post(format!("{}/projects/{}/editor/save", base_url, demo_proj_id))
+        .post(format!(
+            "{}/projects/{}/editor/save",
+            base_url, demo_proj_id
+        ))
         .form(&[
             ("file", "slides.typ"),
-            ("content", "// Updated slides with quantum coherence\n#import \"theme.typ\": *\n"),
+            (
+                "content",
+                "// Updated slides with quantum coherence\n#import \"theme.typ\": *\n",
+            ),
         ])
         .send()
         .await
@@ -1611,7 +2014,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // 6. Test Spreadsheet Table: Cell Edit, Row Add, Row Delete, CSV Export & Import
     let cell_edit_res = client
-        .post(format!("{}/projects/{}/table/cell-edit", base_url, demo_proj_id))
+        .post(format!(
+            "{}/projects/{}/table/cell-edit",
+            base_url, demo_proj_id
+        ))
         .form(&[
             ("file", "quantum_measurements.table"),
             ("table", "qubit_characterization"),
@@ -1650,7 +2056,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // 7. Test Dedicated Unified Note Studio (.anote)
     let note_studio_res = client
-        .get(format!("{}/projects/{}/note?file=lab_notebook.anote&view=editor", base_url, demo_proj_id))
+        .get(format!(
+            "{}/projects/{}/note?file=lab_notebook.anote&view=editor",
+            base_url, demo_proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1661,7 +2070,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
 
     // Whiteboard Canvas View in Unified Note Studio
     let wb_res = client
-        .get(format!("{}/projects/{}/note?file=lab_notebook.anote&view=whiteboard", base_url, demo_proj_id))
+        .get(format!(
+            "{}/projects/{}/note?file=lab_notebook.anote&view=whiteboard",
+            base_url, demo_proj_id
+        ))
         .send()
         .await
         .unwrap();
@@ -1684,7 +2096,10 @@ async fn test_fullstack_web_e2e_lifecycle() {
             ("meta_title", "Cryogenic Qubit Characterization Notebook"),
             ("meta_author", "Alice & Bob"),
             ("meta_tags", "quantum, dilution-fridge, transmon"),
-            ("body", "# Lab Notebook\n\n## Next Steps\n- [ ] Calibrate pulse envelope\n"),
+            (
+                "body",
+                "# Lab Notebook\n\n## Next Steps\n- [ ] Calibrate pulse envelope\n",
+            ),
         ])
         .send()
         .await
@@ -1692,7 +2107,11 @@ async fn test_fullstack_web_e2e_lifecycle() {
     assert_eq!(save_note_res.status(), StatusCode::SEE_OTHER);
 
     // 7.6 Logout Flow: POST /logout redirects to /login and clears session cookie
-    let logout_res = client.post(format!("{}/logout", base_url)).send().await.unwrap();
+    let logout_res = client
+        .post(format!("{}/logout", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(logout_res.status(), StatusCode::SEE_OTHER);
     assert_eq!(logout_res.headers().get("location").unwrap(), "/login");
 

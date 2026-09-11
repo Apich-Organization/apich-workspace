@@ -1,22 +1,28 @@
-use crate::{
-    auth::AuthUser,
-    error::{WebError, WebResult},
-    services::TokenResponse,
-    state::AppState,
-};
+use crate::auth::AuthUser;
+use crate::error::WebError;
+use crate::error::WebResult;
+use crate::services::TokenResponse;
+use crate::state::AppState;
 use apich_db::OidcDiscovery;
-use axum::{
-    extract::{Query, State},
-    response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
-    Form, Json, Router,
-};
+use axum::extract::Query;
+use axum::extract::State;
+use axum::response::IntoResponse;
+use axum::response::Redirect;
+use axum::response::Response;
+use axum::routing::get;
+use axum::routing::post;
+use axum::Form;
+use axum::Json;
+use axum::Router;
 use serde::Deserialize;
 use serde_json::json;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/.well-known/openid-configuration", get(openid_configuration))
+        .route(
+            "/.well-known/openid-configuration",
+            get(openid_configuration),
+        )
         .route("/oauth/jwks.json", get(jwks))
         .route("/oauth/authorize", get(authorize).post(authorize_post))
         .route("/oauth/token", post(token))
@@ -64,13 +70,15 @@ async fn authorize(
     Query(params): Query<AuthorizeQuery>,
 ) -> WebResult<Response> {
     if params.response_type != "code" {
-        return Err(WebError::OAuthError("Unsupported response_type; must be 'code'".to_string()));
+        return Err(WebError::OAuthError(
+            "Unsupported response_type; must be 'code'".to_string(),
+        ));
     }
 
     // If user is not authenticated, redirect to login page preserving query params
     let AuthUser(user) = match auth_user {
-        Some(u) => u,
-        None => {
+        | Some(u) => u,
+        | None => {
             let return_to = format!(
                 "/oauth/authorize?response_type={}&client_id={}&redirect_uri={}&state={}",
                 params.response_type,
@@ -78,24 +86,32 @@ async fn authorize(
                 urlencoding::encode(&params.redirect_uri),
                 urlencoding::encode(params.state.as_deref().unwrap_or(""))
             );
-            return Ok(Redirect::temporary(&format!("/login?return_to={}", urlencoding::encode(&return_to))).into_response());
-        }
+            return Ok(Redirect::temporary(&format!(
+                "/login?return_to={}",
+                urlencoding::encode(&return_to)
+            ))
+            .into_response());
+        },
     };
 
-    let scope = params.scope.unwrap_or_else(|| "openid profile email".to_string());
+    let scope = params
+        .scope
+        .unwrap_or_else(|| "openid profile email".to_string());
     let code = state
         .sso_service
         .issue_auth_code(&params.client_id, user.id, &params.redirect_uri, &scope)
         .await?;
 
     let redirect_url = match &params.state {
-        Some(s) => format!(
-            "{}?code={}&state={}",
-            params.redirect_uri,
-            code,
-            urlencoding::encode(s)
-        ),
-        None => format!("{}?code={}", params.redirect_uri, code),
+        | Some(s) => {
+            format!(
+                "{}?code={}&state={}",
+                params.redirect_uri,
+                code,
+                urlencoding::encode(s)
+            )
+        },
+        | None => format!("{}?code={}", params.redirect_uri, code),
     };
 
     Ok(Redirect::temporary(&redirect_url).into_response())
@@ -114,7 +130,9 @@ async fn token(
     Form(payload): Form<TokenRequest>,
 ) -> WebResult<Json<TokenResponse>> {
     if payload.grant_type != "authorization_code" {
-        return Err(WebError::OAuthError("Unsupported grant_type; must be 'authorization_code'".to_string()));
+        return Err(WebError::OAuthError(
+            "Unsupported grant_type; must be 'authorization_code'".to_string(),
+        ));
     }
 
     let tokens = state
@@ -135,7 +153,10 @@ async fn userinfo(
     State(state): State<AppState>,
 ) -> WebResult<Json<serde_json::Value>> {
     let repo = state.db.repository();
-    let orgs = repo.list_organizations_for_user(user.id).await.unwrap_or_default();
+    let orgs = repo
+        .list_organizations_for_user(user.id)
+        .await
+        .unwrap_or_default();
 
     Ok(Json(json!({
         "sub": user.id.to_string(),

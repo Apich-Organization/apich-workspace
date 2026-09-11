@@ -5,7 +5,8 @@
 //! the same minimal cross-boundary bridge used for the AI drawer's toggle button.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareableUser {
@@ -14,7 +15,11 @@ pub struct ShareableUser {
 }
 
 #[island]
-pub fn FileShareModalIsland(#[prop(into)] project_id: String, #[prop(into)] redirect_to: String, all_users: Vec<ShareableUser>) -> impl IntoView {
+pub fn FileShareModalIsland(
+    #[prop(into)] project_id: String,
+    #[prop(into)] redirect_to: String,
+    all_users: Vec<ShareableUser>,
+) -> impl IntoView {
     let visible = RwSignal::new(false);
     let file_path = RwSignal::new(String::new());
     let mode = RwSignal::new("private".to_string());
@@ -118,19 +123,39 @@ fn wire_open_listener(
     let closure = Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |ev: web_sys::CustomEvent| {
         let detail = ev.detail();
         let get_str = |key: &str| -> String {
-            js_sys::Reflect::get(&detail, &key.into()).ok().and_then(|v| v.as_string()).unwrap_or_default()
+            js_sys::Reflect::get(&detail, &key.into())
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_default()
         };
         file_path.set(get_str("path"));
         let m = get_str("mode");
-        mode.set(if m.is_empty() { "private".to_string() } else { m });
+        mode.set(if m.is_empty() {
+            "private".to_string()
+        } else {
+            m
+        });
         let r = get_str("role");
-        role.set(if r.is_empty() { "read".to_string() } else { r });
+        role.set(if r.is_empty() {
+            "read".to_string()
+        } else {
+            r
+        });
         let users_csv = get_str("users");
-        selected_users.set(users_csv.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect());
+        selected_users.set(
+            users_csv
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+        );
         visible.set(true);
     });
     if let Some(win) = web_sys::window() {
-        let _ = win.add_event_listener_with_callback("apich-open-share-modal", closure.as_ref().unchecked_ref());
+        let _ = win.add_event_listener_with_callback(
+            "apich-open-share-modal",
+            closure.as_ref().unchecked_ref(),
+        );
     }
     closure.forget();
 }

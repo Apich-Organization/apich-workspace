@@ -27,7 +27,10 @@
 /// of columns so a bare column-letter range like `A:A` knows how far down to read); anything
 /// else (including an empty string) passes through unchanged, matching every existing cell that
 /// predates this feature.
-pub fn display_value(raw: &str, cells: &[Vec<String>]) -> String {
+pub fn display_value(
+    raw: &str,
+    cells: &[Vec<String>],
+) -> String {
     let Some(expr) = raw.strip_prefix('=') else {
         return raw.to_string();
     };
@@ -35,8 +38,8 @@ pub fn display_value(raw: &str, cells: &[Vec<String>]) -> String {
         return raw.to_string();
     }
     match eval(expr, cells) {
-        Ok(n) => format_number(n),
-        Err(e) => e.to_string(),
+        | Ok(n) => format_number(n),
+        | Err(e) => e.to_string(),
     }
 }
 
@@ -57,11 +60,14 @@ enum FormulaError {
 }
 
 impl std::fmt::Display for FormulaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         match self {
-            FormulaError::Parse => write!(f, "#ERROR"),
-            FormulaError::Ref => write!(f, "#REF!"),
-            FormulaError::DivZero => write!(f, "#DIV/0!"),
+            | FormulaError::Parse => write!(f, "#ERROR"),
+            | FormulaError::Ref => write!(f, "#REF!"),
+            | FormulaError::DivZero => write!(f, "#DIV/0!"),
         }
     }
 }
@@ -84,7 +90,11 @@ fn col_index(letter: &str) -> Option<usize> {
     }
 }
 
-fn cell_value(cells: &[Vec<String>], row: usize, col: usize) -> EvalResult {
+fn cell_value(
+    cells: &[Vec<String>],
+    row: usize,
+    col: usize,
+) -> EvalResult {
     let raw = cells
         .get(row)
         .and_then(|r| r.get(col))
@@ -123,25 +133,34 @@ fn parse_cell_ref(s: &str) -> Option<(usize, usize)> {
 
 /// Parses a function argument that's a range: `A1:B1`, `A1:A10`, or a bare column like `A` /
 /// `A:A` meaning "the whole column, every row currently in the grid".
-fn resolve_range(arg: &str, cells: &[Vec<String>]) -> Result<Vec<f64>, FormulaError> {
+fn resolve_range(
+    arg: &str,
+    cells: &[Vec<String>],
+) -> Result<Vec<f64>, FormulaError> {
     let arg = arg.trim();
     let n_rows = cells.len();
 
     let (start, end) = match arg.split_once(':') {
-        Some((a, b)) => (a.trim(), b.trim()),
-        None => (arg, arg),
+        | Some((a, b)) => (a.trim(), b.trim()),
+        | None => (arg, arg),
     };
 
     // Bare column letter(s) on both ends (e.g. "A" or "A:A") -> whole column.
     if let (Some(c1), Some(c2)) = (col_index(start), col_index(end)) {
-        if !start.chars().next().unwrap_or(' ').is_ascii_digit() && start.chars().all(|c| c.is_alphabetic()) {
+        if !start.chars().next().unwrap_or(' ').is_ascii_digit()
+            && start.chars().all(|c| c.is_alphabetic())
+        {
             let col = c1;
             if c1 != c2 {
                 return Err(FormulaError::Ref);
             }
             let mut out = Vec::with_capacity(n_rows);
             for r in 0..n_rows {
-                let raw = cells.get(r).and_then(|row| row.get(col)).map(|s| s.as_str()).unwrap_or("");
+                let raw = cells
+                    .get(r)
+                    .and_then(|row| row.get(col))
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 if raw.trim().is_empty() {
                     continue;
                 }
@@ -156,7 +175,11 @@ fn resolve_range(arg: &str, cells: &[Vec<String>]) -> Result<Vec<f64>, FormulaEr
     if c1 != c2 {
         return Err(FormulaError::Ref); // only single-column ranges supported
     }
-    let (lo, hi) = if r1 <= r2 { (r1, r2) } else { (r2, r1) };
+    let (lo, hi) = if r1 <= r2 {
+        (r1, r2)
+    } else {
+        (r2, r1)
+    };
     let mut out = Vec::with_capacity(hi - lo + 1);
     for r in lo..=hi {
         out.push(cell_value(cells, r, c1)?);
@@ -172,59 +195,75 @@ fn split_top_level_args(arg: &str) -> Vec<&str> {
     let mut start = 0usize;
     for (i, c) in arg.char_indices() {
         match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            ',' if depth == 0 => {
+            | '(' => depth += 1,
+            | ')' => depth -= 1,
+            | ',' if depth == 0 => {
                 parts.push(arg[start..i].trim());
                 start = i + 1;
-            }
-            _ => {}
+            },
+            | _ => {},
         }
     }
     parts.push(arg[start..].trim());
     parts
 }
 
-fn eval_function(name: &str, arg: &str, cells: &[Vec<String>]) -> EvalResult {
+fn eval_function(
+    name: &str,
+    arg: &str,
+    cells: &[Vec<String>],
+) -> EvalResult {
     let upper = name.to_ascii_uppercase();
     match upper.as_str() {
-        "SUM" | "AVG" | "AVERAGE" | "COUNT" | "MIN" | "MAX" => {
+        | "SUM" | "AVG" | "AVERAGE" | "COUNT" | "MIN" | "MAX" => {
             let values = resolve_range(arg, cells)?;
             match upper.as_str() {
-                "SUM" => Ok(values.iter().sum()),
-                "AVG" | "AVERAGE" => {
+                | "SUM" => Ok(values.iter().sum()),
+                | "AVG" | "AVERAGE" => {
                     if values.is_empty() {
                         Err(FormulaError::DivZero)
                     } else {
                         Ok(values.iter().sum::<f64>() / values.len() as f64)
                     }
-                }
-                "COUNT" => Ok(values.len() as f64),
-                "MIN" => values.iter().cloned().fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.min(v)))).ok_or(FormulaError::DivZero),
-                "MAX" => values.iter().cloned().fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.max(v)))).ok_or(FormulaError::DivZero),
-                _ => unreachable!(),
+                },
+                | "COUNT" => Ok(values.len() as f64),
+                | "MIN" => {
+                    values
+                        .iter()
+                        .cloned()
+                        .fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.min(v))))
+                        .ok_or(FormulaError::DivZero)
+                },
+                | "MAX" => {
+                    values
+                        .iter()
+                        .cloned()
+                        .fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.max(v))))
+                        .ok_or(FormulaError::DivZero)
+                },
+                | _ => unreachable!(),
             }
-        }
-        "ABS" => Ok(eval(arg, cells)?.abs()),
-        "SQRT" => {
+        },
+        | "ABS" => Ok(eval(arg, cells)?.abs()),
+        | "SQRT" => {
             let v = eval(arg, cells)?;
             if v < 0.0 {
                 Err(FormulaError::Parse)
             } else {
                 Ok(v.sqrt())
             }
-        }
-        "ROUND" => {
+        },
+        | "ROUND" => {
             let parts = split_top_level_args(arg);
             let v = eval(parts.first().copied().unwrap_or(""), cells)?;
             let digits = match parts.get(1) {
-                Some(d) => eval(d, cells)? as i32,
-                None => 0,
+                | Some(d) => eval(d, cells)? as i32,
+                | None => 0,
             };
             let factor = 10f64.powi(digits);
             Ok((v * factor).round() / factor)
-        }
-        "POWER" | "POW" => {
+        },
+        | "POWER" | "POW" => {
             let parts = split_top_level_args(arg);
             if parts.len() != 2 {
                 return Err(FormulaError::Parse);
@@ -232,8 +271,8 @@ fn eval_function(name: &str, arg: &str, cells: &[Vec<String>]) -> EvalResult {
             let base = eval(parts[0], cells)?;
             let exp = eval(parts[1], cells)?;
             Ok(base.powf(exp))
-        }
-        "MOD" => {
+        },
+        | "MOD" => {
             let parts = split_top_level_args(arg);
             if parts.len() != 2 {
                 return Err(FormulaError::Parse);
@@ -245,8 +284,8 @@ fn eval_function(name: &str, arg: &str, cells: &[Vec<String>]) -> EvalResult {
             } else {
                 Ok(a % b)
             }
-        }
-        "IF" => {
+        },
+        | "IF" => {
             let parts = split_top_level_args(arg);
             if parts.len() != 3 {
                 return Err(FormulaError::Parse);
@@ -257,8 +296,8 @@ fn eval_function(name: &str, arg: &str, cells: &[Vec<String>]) -> EvalResult {
             } else {
                 eval(parts[2], cells)
             }
-        }
-        _ => Err(FormulaError::Parse),
+        },
+        | _ => Err(FormulaError::Parse),
     }
 }
 
@@ -271,8 +310,15 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(s: &'a str, cells: &'a [Vec<String>]) -> Self {
-        Self { chars: s.chars().collect(), pos: 0, cells }
+    fn new(
+        s: &'a str,
+        cells: &'a [Vec<String>],
+    ) -> Self {
+        Self {
+            chars: s.chars().collect(),
+            pos: 0,
+            cells,
+        }
     }
 
     fn peek(&self) -> Option<char> {
@@ -309,13 +355,13 @@ impl<'a> Parser<'a> {
         let Some(op) = op else { return Ok(lhs) };
         let rhs = self.expr()?;
         let truth = match op.as_str() {
-            "=" => lhs == rhs,
-            "<>" => lhs != rhs,
-            "<=" => lhs <= rhs,
-            ">=" => lhs >= rhs,
-            "<" => lhs < rhs,
-            ">" => lhs > rhs,
-            _ => unreachable!(),
+            | "=" => lhs == rhs,
+            | "<>" => lhs != rhs,
+            | "<=" => lhs <= rhs,
+            | ">=" => lhs >= rhs,
+            | "<" => lhs < rhs,
+            | ">" => lhs > rhs,
+            | _ => unreachable!(),
         };
         Ok(if truth { 1.0 } else { 0.0 })
     }
@@ -325,15 +371,15 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_ws();
             match self.peek() {
-                Some('+') => {
+                | Some('+') => {
                     self.pos += 1;
                     val += self.term()?;
-                }
-                Some('-') => {
+                },
+                | Some('-') => {
                     self.pos += 1;
                     val -= self.term()?;
-                }
-                _ => break,
+                },
+                | _ => break,
             }
         }
         Ok(val)
@@ -344,19 +390,19 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_ws();
             match self.peek() {
-                Some('*') => {
+                | Some('*') => {
                     self.pos += 1;
                     val *= self.power()?;
-                }
-                Some('/') => {
+                },
+                | Some('/') => {
                     self.pos += 1;
                     let rhs = self.power()?;
                     if rhs == 0.0 {
                         return Err(FormulaError::DivZero);
                     }
                     val /= rhs;
-                }
-                _ => break,
+                },
+                | _ => break,
             }
         }
         Ok(val)
@@ -378,11 +424,11 @@ impl<'a> Parser<'a> {
     fn factor(&mut self) -> EvalResult {
         self.skip_ws();
         match self.peek() {
-            Some('-') => {
+            | Some('-') => {
                 self.pos += 1;
                 Ok(-self.factor()?)
-            }
-            Some('(') => {
+            },
+            | Some('(') => {
                 self.pos += 1;
                 let val = self.comparison()?;
                 self.skip_ws();
@@ -392,10 +438,10 @@ impl<'a> Parser<'a> {
                     return Err(FormulaError::Parse);
                 }
                 Ok(val)
-            }
-            Some(c) if c.is_ascii_alphabetic() => self.ident_or_cellref(),
-            Some(c) if c.is_ascii_digit() || c == '.' => self.number(),
-            _ => Err(FormulaError::Parse),
+            },
+            | Some(c) if c.is_ascii_alphabetic() => self.ident_or_cellref(),
+            | Some(c) if c.is_ascii_digit() || c == '.' => self.number(),
+            | _ => Err(FormulaError::Parse),
         }
     }
 
@@ -426,10 +472,10 @@ impl<'a> Parser<'a> {
             let mut depth = 1;
             while depth > 0 {
                 match self.peek() {
-                    Some('(') => depth += 1,
-                    Some(')') => depth -= 1,
-                    None => return Err(FormulaError::Parse),
-                    _ => {}
+                    | Some('(') => depth += 1,
+                    | Some(')') => depth -= 1,
+                    | None => return Err(FormulaError::Parse),
+                    | _ => {},
                 }
                 if depth > 0 {
                     self.pos += 1;
@@ -449,12 +495,16 @@ impl<'a> Parser<'a> {
             return Err(FormulaError::Parse);
         }
         let digits: String = self.chars[digit_start..self.pos].iter().collect();
-        let (row, col) = parse_cell_ref(&format!("{letters}{digits}")).ok_or(FormulaError::Parse)?;
+        let (row, col) =
+            parse_cell_ref(&format!("{letters}{digits}")).ok_or(FormulaError::Parse)?;
         cell_value(self.cells, row, col)
     }
 }
 
-fn eval(expr: &str, cells: &[Vec<String>]) -> EvalResult {
+fn eval(
+    expr: &str,
+    cells: &[Vec<String>],
+) -> EvalResult {
     let mut parser = Parser::new(expr, cells);
     let val = parser.comparison()?;
     parser.skip_ws();

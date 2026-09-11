@@ -1,10 +1,20 @@
-use crate::error::{WebError, WebResult};
-use apich_db::{Database, OidcClaims, OidcDiscovery, User};
+use crate::error::WebError;
+use crate::error::WebResult;
+use apich_db::Database;
+use apich_db::OidcClaims;
+use apich_db::OidcDiscovery;
+use apich_db::User;
 use base64::prelude::*;
 use chrono::Utc;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::decode;
+use jsonwebtoken::encode;
+use jsonwebtoken::DecodingKey;
+use jsonwebtoken::EncodingKey;
+use jsonwebtoken::Header;
+use jsonwebtoken::Validation;
 use rand::RngCore;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -41,7 +51,11 @@ pub struct JwksResponse {
 }
 
 impl SsoService {
-    pub fn new(db: Arc<Database>, issuer_url: String, jwt_secret: String) -> Self {
+    pub fn new(
+        db: Arc<Database>,
+        issuer_url: String,
+        jwt_secret: String,
+    ) -> Self {
         Self {
             db,
             issuer_url,
@@ -57,11 +71,22 @@ impl SsoService {
             token_endpoint: format!("{}/oauth/token", self.issuer_url),
             userinfo_endpoint: format!("{}/oauth/userinfo", self.issuer_url),
             jwks_uri: format!("{}/oauth/jwks.json", self.issuer_url),
-            response_types_supported: vec!["code".to_string(), "token".to_string(), "id_token".to_string()],
+            response_types_supported: vec![
+                "code".to_string(),
+                "token".to_string(),
+                "id_token".to_string(),
+            ],
             subject_types_supported: vec!["public".to_string()],
             id_token_signing_alg_values_supported: vec!["HS256".to_string()],
-            scopes_supported: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
-            token_endpoint_auth_methods_supported: vec!["client_secret_post".to_string(), "client_secret_basic".to_string()],
+            scopes_supported: vec![
+                "openid".to_string(),
+                "profile".to_string(),
+                "email".to_string(),
+            ],
+            token_endpoint_auth_methods_supported: vec![
+                "client_secret_post".to_string(),
+                "client_secret_basic".to_string(),
+            ],
             claims_supported: vec![
                 "sub".to_string(),
                 "iss".to_string(),
@@ -122,7 +147,8 @@ impl SsoService {
 
         // If client is confidential, verify client_secret
         if client.is_confidential {
-            let secret = client_secret.ok_or_else(|| WebError::OAuthError("Client secret required".to_string()))?;
+            let secret = client_secret
+                .ok_or_else(|| WebError::OAuthError("Client secret required".to_string()))?;
             if let Some(hash) = &client.client_secret_hash {
                 if !crate::auth::verify_password(secret, hash).unwrap_or(false) && secret != hash {
                     return Err(WebError::OAuthError("Invalid client secret".to_string()));
@@ -130,13 +156,14 @@ impl SsoService {
             }
         }
 
-        let auth_code = repo
-            .consume_oauth_auth_code(code)
-            .await?
-            .ok_or_else(|| WebError::OAuthError("Invalid or expired authorization code".to_string()))?;
+        let auth_code = repo.consume_oauth_auth_code(code).await?.ok_or_else(|| {
+            WebError::OAuthError("Invalid or expired authorization code".to_string())
+        })?;
 
         if auth_code.client_id != client_id || auth_code.redirect_uri != redirect_uri {
-            return Err(WebError::OAuthError("Authorization code parameter mismatch".to_string()));
+            return Err(WebError::OAuthError(
+                "Authorization code parameter mismatch".to_string(),
+            ));
         }
 
         let user = repo
@@ -182,7 +209,10 @@ impl SsoService {
     }
 
     /// UserInfo endpoint claim resolver
-    pub async fn get_userinfo(&self, user_id: Uuid) -> WebResult<User> {
+    pub async fn get_userinfo(
+        &self,
+        user_id: Uuid,
+    ) -> WebResult<User> {
         let repo = self.db.repository();
         let user = repo
             .get_user_by_id(user_id)
@@ -193,7 +223,10 @@ impl SsoService {
     }
 
     /// Validate and decode a signed JWT access token or ID token
-    pub fn validate_jwt(&self, token: &str) -> WebResult<OidcClaims> {
+    pub fn validate_jwt(
+        &self,
+        token: &str,
+    ) -> WebResult<OidcClaims> {
         let mut validation = Validation::default();
         validation.set_issuer(&[&self.issuer_url]);
         validation.validate_aud = false;

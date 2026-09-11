@@ -9,7 +9,12 @@ use leptos::prelude::*;
 /// edits to, so this only ever shows content, never write actions, regardless of the
 /// configured share role (which is shown for information only).
 #[component]
-pub fn SharedProjectPage(project: Project, files: Vec<ProjectFileItem>, share_role: String, i18n: I18n) -> impl IntoView {
+pub fn SharedProjectPage(
+    project: Project,
+    files: Vec<ProjectFileItem>,
+    share_role: String,
+    i18n: I18n,
+) -> impl IntoView {
     let file_rows = if files.is_empty() {
         view! { <p class="text-muted">"This project has no files yet."</p> }.into_any()
     } else {
@@ -40,9 +45,9 @@ pub fn SharedProjectPage(project: Project, files: Vec<ProjectFileItem>, share_ro
     };
 
     let role_label = match share_role.as_str() {
-        "read_and_review" => "Read & Review",
-        "read_write_and_review" => "Read, Write & Review (sign in required to edit)",
-        _ => "Read Only",
+        | "read_and_review" => "Read & Review",
+        | "read_write_and_review" => "Read, Write & Review (sign in required to edit)",
+        | _ => "Read Only",
     };
 
     view! {

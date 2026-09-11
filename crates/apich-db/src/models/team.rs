@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -16,10 +18,10 @@ pub enum TeamRole {
 impl TeamRole {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Admin => "admin",
-            Self::Maintainer => "maintainer",
-            Self::Member => "member",
-            Self::Viewer => "viewer",
+            | Self::Admin => "admin",
+            | Self::Maintainer => "maintainer",
+            | Self::Member => "member",
+            | Self::Viewer => "viewer",
         }
     }
 
@@ -33,10 +35,10 @@ impl std::str::FromStr for TeamRole {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "admin" => Self::Admin,
-            "maintainer" => Self::Maintainer,
-            "viewer" => Self::Viewer,
-            _ => Self::Member,
+            | "admin" => Self::Admin,
+            | "maintainer" => Self::Maintainer,
+            | "viewer" => Self::Viewer,
+            | _ => Self::Member,
         })
     }
 }

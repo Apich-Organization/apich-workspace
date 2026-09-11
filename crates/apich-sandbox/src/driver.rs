@@ -1,14 +1,23 @@
 use crate::config::SandboxConfig;
-use crate::error::{Result, SandboxError};
-use crate::exec::{ExecOptions, ExecResult, ExecStream, InteractiveExec, OutputChunk};
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use crate::error::Result;
+use crate::error::SandboxError;
+use crate::exec::ExecOptions;
+use crate::exec::ExecResult;
+use crate::exec::ExecStream;
+use crate::exec::InteractiveExec;
+use crate::exec::OutputChunk;
+use serde::Deserialize;
+use serde::Serialize;
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::debug;
+use tracing::error;
+use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -24,12 +33,12 @@ pub enum ContainerStatus {
 impl From<&str> for ContainerStatus {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            "running" => ContainerStatus::Running,
-            "paused" => ContainerStatus::Paused,
-            "exited" => ContainerStatus::Exited,
-            "created" => ContainerStatus::Created,
-            "stopped" => ContainerStatus::Stopped,
-            _ => ContainerStatus::Unknown,
+            | "running" => ContainerStatus::Running,
+            | "paused" => ContainerStatus::Paused,
+            | "exited" => ContainerStatus::Exited,
+            | "created" => ContainerStatus::Created,
+            | "stopped" => ContainerStatus::Stopped,
+            | _ => ContainerStatus::Unknown,
         }
     }
 }
@@ -123,7 +132,10 @@ impl PodmanDriver {
     }
 
     /// Create and run a detached container
-    pub async fn run_detached(&self, config: &SandboxConfig) -> Result<String> {
+    pub async fn run_detached(
+        &self,
+        config: &SandboxConfig,
+    ) -> Result<String> {
         let mut cmd = Command::new(&self.bin_path);
         cmd.arg("run").arg("-d");
 
@@ -162,7 +174,11 @@ impl PodmanDriver {
         }
 
         // Workspace volume mount
-        let mount_flag = if config.selinux_relabel { ":Z" } else { "" };
+        let mount_flag = if config.selinux_relabel {
+            ":Z"
+        } else {
+            ""
+        };
         let ws_mount = format!(
             "{}:{}{}",
             config.host_workspace_dir.display(),
@@ -226,7 +242,10 @@ impl PodmanDriver {
     }
 
     /// Inspect a container
-    pub async fn inspect(&self, container_name: &str) -> Result<Option<ContainerInspectInfo>> {
+    pub async fn inspect(
+        &self,
+        container_name: &str,
+    ) -> Result<Option<ContainerInspectInfo>> {
         let output = Command::new(&self.bin_path)
             .arg("inspect")
             .arg(container_name)
@@ -280,7 +299,10 @@ impl PodmanDriver {
     /// rebuilding the image via `podman build` just produced. Returns `Ok(None)` rather than an
     /// error if the image simply hasn't been pulled/built yet -- that's not this call's problem
     /// to report, `run_detached`'s own error on a missing image is the right place for that.
-    pub async fn image_id(&self, image: &str) -> Result<Option<String>> {
+    pub async fn image_id(
+        &self,
+        image: &str,
+    ) -> Result<Option<String>> {
         let output = Command::new(&self.bin_path)
             .arg("image")
             .arg("inspect")
@@ -304,7 +326,10 @@ impl PodmanDriver {
     }
 
     /// Start a stopped container
-    pub async fn start(&self, container_name: &str) -> Result<()> {
+    pub async fn start(
+        &self,
+        container_name: &str,
+    ) -> Result<()> {
         let output = Command::new(&self.bin_path)
             .arg("start")
             .arg(container_name)
@@ -324,7 +349,11 @@ impl PodmanDriver {
     }
 
     /// Stop a running container gracefully
-    pub async fn stop(&self, container_name: &str, timeout_secs: u32) -> Result<()> {
+    pub async fn stop(
+        &self,
+        container_name: &str,
+        timeout_secs: u32,
+    ) -> Result<()> {
         let output = Command::new(&self.bin_path)
             .arg("stop")
             .arg("-t")
@@ -352,7 +381,10 @@ impl PodmanDriver {
     }
 
     /// Kill a container immediately
-    pub async fn kill(&self, container_name: &str) -> Result<()> {
+    pub async fn kill(
+        &self,
+        container_name: &str,
+    ) -> Result<()> {
         let output = Command::new(&self.bin_path)
             .arg("kill")
             .arg(container_name)
@@ -378,7 +410,10 @@ impl PodmanDriver {
     }
 
     /// Pause a running container
-    pub async fn pause(&self, container_name: &str) -> Result<()> {
+    pub async fn pause(
+        &self,
+        container_name: &str,
+    ) -> Result<()> {
         let output = Command::new(&self.bin_path)
             .arg("pause")
             .arg(container_name)
@@ -398,7 +433,10 @@ impl PodmanDriver {
     }
 
     /// Unpause a paused container
-    pub async fn unpause(&self, container_name: &str) -> Result<()> {
+    pub async fn unpause(
+        &self,
+        container_name: &str,
+    ) -> Result<()> {
         let output = Command::new(&self.bin_path)
             .arg("unpause")
             .arg(container_name)
@@ -418,7 +456,11 @@ impl PodmanDriver {
     }
 
     /// Remove a container
-    pub async fn remove(&self, container_name: &str, force: bool) -> Result<()> {
+    pub async fn remove(
+        &self,
+        container_name: &str,
+        force: bool,
+    ) -> Result<()> {
         let mut cmd = Command::new(&self.bin_path);
         cmd.arg("rm");
         if force {
@@ -500,7 +542,11 @@ impl PodmanDriver {
     }
 
     /// Execute a command in a running container and collect all output
-    pub async fn exec(&self, container_name: &str, opts: &ExecOptions) -> Result<ExecResult> {
+    pub async fn exec(
+        &self,
+        container_name: &str,
+        opts: &ExecOptions,
+    ) -> Result<ExecResult> {
         let start = Instant::now();
         let mut cmd = Command::new(&self.bin_path);
         cmd.arg("exec");
@@ -555,7 +601,7 @@ impl PodmanDriver {
         if let Some(timeout) = opts.timeout {
             let combined = async { tokio::join!(wait_fut, stdout_fut, stderr_fut) };
             match tokio::time::timeout(timeout, combined).await {
-                Ok((status_res, stdout, stderr)) => {
+                | Ok((status_res, stdout, stderr)) => {
                     let status = status_res.map_err(SandboxError::Io)?;
                     Ok(ExecResult {
                         exit_code: status.code().unwrap_or(-1),
@@ -563,11 +609,11 @@ impl PodmanDriver {
                         stderr,
                         duration: start.elapsed(),
                     })
-                }
-                Err(_) => {
+                },
+                | Err(_) => {
                     let _ = child.kill().await;
                     Err(SandboxError::ExecutionTimeout(timeout))
-                }
+                },
             }
         } else {
             let (status_res, stdout, stderr) = tokio::join!(wait_fut, stdout_fut, stderr_fut);
@@ -628,8 +674,8 @@ impl PodmanDriver {
                 let mut buf = [0u8; 4096];
                 loop {
                     match out.read(&mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
+                        | Ok(0) => break,
+                        | Ok(n) => {
                             if tx_out
                                 .send(OutputChunk::Stdout(buf[..n].to_vec()))
                                 .await
@@ -637,11 +683,11 @@ impl PodmanDriver {
                             {
                                 break;
                             }
-                        }
-                        Err(e) => {
+                        },
+                        | Err(e) => {
                             error!("Error reading stdout: {}", e);
                             break;
-                        }
+                        },
                     }
                 }
             });
@@ -654,8 +700,8 @@ impl PodmanDriver {
                 let mut buf = [0u8; 4096];
                 loop {
                     match err.read(&mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
+                        | Ok(0) => break,
+                        | Ok(n) => {
                             if tx_err
                                 .send(OutputChunk::Stderr(buf[..n].to_vec()))
                                 .await
@@ -663,11 +709,11 @@ impl PodmanDriver {
                             {
                                 break;
                             }
-                        }
-                        Err(e) => {
+                        },
+                        | Err(e) => {
                             error!("Error reading stderr: {}", e);
                             break;
-                        }
+                        },
                     }
                 }
             });
@@ -679,19 +725,21 @@ impl PodmanDriver {
             let wait_fut = child.wait();
             let exit_code = if let Some(dur) = timeout {
                 match tokio::time::timeout(dur, wait_fut).await {
-                    Ok(res) => match res {
-                        Ok(status) => status.code().unwrap_or(-1),
-                        Err(_) => -1,
+                    | Ok(res) => {
+                        match res {
+                            | Ok(status) => status.code().unwrap_or(-1),
+                            | Err(_) => -1,
+                        }
                     },
-                    Err(_) => {
+                    | Err(_) => {
                         let _ = child.kill().await;
                         -124 // timeout code
-                    }
+                    },
                 }
             } else {
                 match wait_fut.await {
-                    Ok(status) => status.code().unwrap_or(-1),
-                    Err(_) => -1,
+                    | Ok(status) => status.code().unwrap_or(-1),
+                    | Err(_) => -1,
                 }
             };
 
@@ -769,16 +817,20 @@ impl PodmanDriver {
                 let mut buf = [0u8; 4096];
                 loop {
                     match out.read(&mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            if tx_out.send(OutputChunk::Stdout(buf[..n].to_vec())).await.is_err() {
+                        | Ok(0) => break,
+                        | Ok(n) => {
+                            if tx_out
+                                .send(OutputChunk::Stdout(buf[..n].to_vec()))
+                                .await
+                                .is_err()
+                            {
                                 break;
                             }
-                        }
-                        Err(e) => {
+                        },
+                        | Err(e) => {
                             error!("Error reading stdout: {}", e);
                             break;
-                        }
+                        },
                     }
                 }
             });
@@ -790,16 +842,20 @@ impl PodmanDriver {
                 let mut buf = [0u8; 4096];
                 loop {
                     match err.read(&mut buf).await {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            if tx_err.send(OutputChunk::Stderr(buf[..n].to_vec())).await.is_err() {
+                        | Ok(0) => break,
+                        | Ok(n) => {
+                            if tx_err
+                                .send(OutputChunk::Stderr(buf[..n].to_vec()))
+                                .await
+                                .is_err()
+                            {
                                 break;
                             }
-                        }
-                        Err(e) => {
+                        },
+                        | Err(e) => {
                             error!("Error reading stderr: {}", e);
                             break;
-                        }
+                        },
                     }
                 }
             });
@@ -810,19 +866,21 @@ impl PodmanDriver {
             let wait_fut = child.wait();
             let exit_code = if let Some(dur) = timeout {
                 match tokio::time::timeout(dur, wait_fut).await {
-                    Ok(res) => match res {
-                        Ok(status) => status.code().unwrap_or(-1),
-                        Err(_) => -1,
+                    | Ok(res) => {
+                        match res {
+                            | Ok(status) => status.code().unwrap_or(-1),
+                            | Err(_) => -1,
+                        }
                     },
-                    Err(_) => {
+                    | Err(_) => {
                         let _ = child.kill().await;
                         -124
-                    }
+                    },
                 }
             } else {
                 match wait_fut.await {
-                    Ok(status) => status.code().unwrap_or(-1),
-                    Err(_) => -1,
+                    | Ok(status) => status.code().unwrap_or(-1),
+                    | Err(_) => -1,
                 }
             };
             let _ = out_tx.send(OutputChunk::Exit(exit_code)).await;
@@ -835,7 +893,10 @@ impl PodmanDriver {
     }
 
     /// List container names matching a label filter
-    pub async fn list_containers(&self, label_filter: Option<&str>) -> Result<Vec<String>> {
+    pub async fn list_containers(
+        &self,
+        label_filter: Option<&str>,
+    ) -> Result<Vec<String>> {
         let mut cmd = Command::new(&self.bin_path);
         cmd.arg("ps").arg("-a").arg("--format").arg("{{.Names}}");
 

@@ -1,5 +1,6 @@
 mod common;
-use apich_vcs::{BundleOptions, ProjectVcs};
+use apich_vcs::BundleOptions;
+use apich_vcs::ProjectVcs;
 use common::test_temp_dir;
 use std::fs;
 
@@ -20,7 +21,9 @@ fn test_push_pull_clone_over_bundle_protocol() {
     let client_temp = test_temp_dir();
     let client_root = client_temp.path().join("client_repo");
     let mut bundle_bytes = Vec::new();
-    server_vcs.export_bundle(&mut bundle_bytes, BundleOptions::default()).unwrap();
+    server_vcs
+        .export_bundle(&mut bundle_bytes, BundleOptions::default())
+        .unwrap();
     let client_vcs = ProjectVcs::import_bundle(&bundle_bytes[..], &client_root).unwrap();
     assert_eq!(
         fs::read_to_string(client_root.join("a.txt")).unwrap(),
@@ -32,12 +35,18 @@ fn test_push_pull_clone_over_bundle_protocol() {
     fs::write(client_root.join("a.txt"), "v2\n").unwrap();
     let s2 = client_vcs.snapshot("second commit").unwrap();
     let mut push_bytes = Vec::new();
-    client_vcs.export_bundle(&mut push_bytes, BundleOptions::default()).unwrap();
+    client_vcs
+        .export_bundle(&mut push_bytes, BundleOptions::default())
+        .unwrap();
     let outcome = server_vcs.accept_push_bundle(&push_bytes[..]).unwrap();
     assert_eq!(outcome.accepted_branches, vec!["main".to_string()]);
     assert!(outcome.rejected_branches.is_empty());
     assert_eq!(
-        server_vcs.get_branch("main").unwrap().unwrap().head_snapshot_id,
+        server_vcs
+            .get_branch("main")
+            .unwrap()
+            .unwrap()
+            .head_snapshot_id,
         s2.id
     );
     // The pushed snapshot's tree must be a real, independently-readable object on the server now.
@@ -57,16 +66,26 @@ fn test_push_pull_clone_over_bundle_protocol() {
     let stale_vcs = ProjectVcs::open_or_init(&stale_root).unwrap();
     fs::write(stale_root.join("a.txt"), "conflicting-v2\n").unwrap();
     let _s2_rogue = stale_vcs.snapshot("conflicting second commit").unwrap();
-    stale_vcs.export_bundle(&mut base_bytes, BundleOptions::default()).unwrap();
+    stale_vcs
+        .export_bundle(&mut base_bytes, BundleOptions::default())
+        .unwrap();
     let _ = fs::create_dir_all(&rogue_root);
 
     let rejected_outcome = server_vcs.accept_push_bundle(&base_bytes[..]).unwrap();
-    assert!(rejected_outcome.accepted_branches.is_empty(), "diverged push must not silently win: {:?}", rejected_outcome);
+    assert!(
+        rejected_outcome.accepted_branches.is_empty(),
+        "diverged push must not silently win: {:?}",
+        rejected_outcome
+    );
     assert_eq!(rejected_outcome.rejected_branches.len(), 1);
     assert_eq!(rejected_outcome.rejected_branches[0].0, "main");
     // Server's branch ref must be unchanged -- still pointing at the legitimately-pushed s2.
     assert_eq!(
-        server_vcs.get_branch("main").unwrap().unwrap().head_snapshot_id,
+        server_vcs
+            .get_branch("main")
+            .unwrap()
+            .unwrap()
+            .head_snapshot_id,
         s2.id
     );
 
@@ -74,16 +93,15 @@ fn test_push_pull_clone_over_bundle_protocol() {
     let puller_temp = test_temp_dir();
     let puller_root = puller_temp.path().join("puller_repo");
     let mut server_bytes_now = Vec::new();
-    server_vcs.export_bundle(&mut server_bytes_now, BundleOptions::default()).unwrap();
+    server_vcs
+        .export_bundle(&mut server_bytes_now, BundleOptions::default())
+        .unwrap();
     let puller_vcs = ProjectVcs::import_bundle(&server_bytes_now[..], &puller_root).unwrap();
     assert_eq!(
         fs::read_to_string(puller_root.join("a.txt")).unwrap(),
         "v2\n"
     );
-    assert_eq!(
-        puller_vcs.head_snapshot().unwrap().unwrap().id,
-        s2.id
-    );
+    assert_eq!(puller_vcs.head_snapshot().unwrap().unwrap().id, s2.id);
 }
 
 #[test]
@@ -106,7 +124,8 @@ fn test_project_bundle_export_and_import_roundtrip() {
     fs::write(source_root.join("assets").join("logo.bin"), &binary_data).unwrap();
 
     let s1 = vcs.snapshot("Initial project setup").unwrap();
-    vcs.create_milestone("v1.0-draft", "First complete draft").unwrap();
+    vcs.create_milestone("v1.0-draft", "First complete draft")
+        .unwrap();
 
     // Create a branch
     vcs.branch_create("experiment").unwrap();

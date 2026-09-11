@@ -1,9 +1,12 @@
-use crate::config::{ResourceLimits, SandboxConfig};
+use crate::config::ResourceLimits;
+use crate::config::SandboxConfig;
 use crate::container::UserContainer;
-use crate::driver::{ContainerStatus, PodmanDriver};
+use crate::driver::ContainerStatus;
+use crate::driver::PodmanDriver;
 use crate::error::Result;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 
@@ -21,7 +24,10 @@ pub struct SandboxManager {
 
 impl SandboxManager {
     /// Create a new SandboxManager with a base storage root and default image
-    pub fn new(base_storage_dir: impl AsRef<Path>, default_image: impl Into<String>) -> Self {
+    pub fn new(
+        base_storage_dir: impl AsRef<Path>,
+        default_image: impl Into<String>,
+    ) -> Self {
         Self {
             base_storage_dir: base_storage_dir.as_ref().to_path_buf(),
             default_image: default_image.into(),
@@ -33,27 +39,42 @@ impl SandboxManager {
         }
     }
 
-    pub fn with_driver(mut self, driver: PodmanDriver) -> Self {
+    pub fn with_driver(
+        mut self,
+        driver: PodmanDriver,
+    ) -> Self {
         self.driver = Arc::new(driver);
         self
     }
 
-    pub fn with_selinux(mut self, enable: bool) -> Self {
+    pub fn with_selinux(
+        mut self,
+        enable: bool,
+    ) -> Self {
         self.selinux_relabel = enable;
         self
     }
 
-    pub fn with_resources(mut self, limits: ResourceLimits) -> Self {
+    pub fn with_resources(
+        mut self,
+        limits: ResourceLimits,
+    ) -> Self {
         self.default_resources = limits;
         self
     }
 
-    pub fn with_container_workspace_dir(mut self, dir: impl AsRef<Path>) -> Self {
+    pub fn with_container_workspace_dir(
+        mut self,
+        dir: impl AsRef<Path>,
+    ) -> Self {
         self.container_workspace_dir = dir.as_ref().to_path_buf();
         self
     }
 
-    pub fn with_keep_id(mut self, keep_id: bool) -> Self {
+    pub fn with_keep_id(
+        mut self,
+        keep_id: bool,
+    ) -> Self {
         self.keep_id = keep_id;
         self
     }
@@ -71,17 +92,27 @@ impl SandboxManager {
     }
 
     /// Stop an arbitrary named container
-    pub async fn stop_container(&self, container_name: &str, timeout_secs: u32) -> Result<()> {
+    pub async fn stop_container(
+        &self,
+        container_name: &str,
+        timeout_secs: u32,
+    ) -> Result<()> {
         self.driver.stop(container_name, timeout_secs).await
     }
 
     /// Resolve host directory for a specific user
-    pub fn user_storage_path(&self, user_id: &str) -> PathBuf {
+    pub fn user_storage_path(
+        &self,
+        user_id: &str,
+    ) -> PathBuf {
         self.base_storage_dir.join(user_id)
     }
 
     /// Generate default config for a user sandbox
-    pub fn make_user_config(&self, user_id: &str) -> SandboxConfig {
+    pub fn make_user_config(
+        &self,
+        user_id: &str,
+    ) -> SandboxConfig {
         let host_dir = self.user_storage_path(user_id);
         let mut builder = SandboxConfig::builder(user_id, host_dir)
             .image(&self.default_image)
@@ -106,13 +137,19 @@ impl SandboxManager {
     /// If container does not exist, it will create storage directory, mount it, and start container.
     /// If container is stopped or exited, it will start it.
     /// If container is running, it returns the handle directly.
-    pub async fn ensure_running(&self, user_id: &str) -> Result<UserContainer> {
+    pub async fn ensure_running(
+        &self,
+        user_id: &str,
+    ) -> Result<UserContainer> {
         let config = self.make_user_config(user_id);
         self.ensure_running_with_config(config).await
     }
 
     /// Ensure container is running with custom configuration
-    pub async fn ensure_running_with_config(&self, config: SandboxConfig) -> Result<UserContainer> {
+    pub async fn ensure_running_with_config(
+        &self,
+        config: SandboxConfig,
+    ) -> Result<UserContainer> {
         // Ensure host storage directory exists
         if !config.host_workspace_dir.exists() {
             fs::create_dir_all(&config.host_workspace_dir)?;
@@ -120,7 +157,7 @@ impl SandboxManager {
 
         let container_name = &config.container_name;
         match self.driver.inspect(container_name).await? {
-            Some(info) => {
+            | Some(info) => {
                 // Detect a container stuck on a stale image: it was created once via `podman
                 // run` and pinned to whatever image ID that tag resolved to *then*, so rebuilding
                 // e.g. docker/Containerfile.sandbox (adding a missing Python package, say) and
@@ -131,8 +168,8 @@ impl SandboxManager {
                 // that failure surfaces naturally from `run_detached` instead.
                 let current_image_id = self.driver.image_id(&config.image).await?;
                 let is_stale = match &current_image_id {
-                    Some(current) => !info.image_id.is_empty() && &info.image_id != current,
-                    None => false,
+                    | Some(current) => !info.image_id.is_empty() && &info.image_id != current,
+                    | None => false,
                 };
                 if is_stale {
                     info!(
@@ -147,37 +184,40 @@ impl SandboxManager {
                 }
 
                 match info.status {
-                    ContainerStatus::Running => {
+                    | ContainerStatus::Running => {
                         info!(container_name = %container_name, "Container already running");
-                    }
-                    ContainerStatus::Paused => {
+                    },
+                    | ContainerStatus::Paused => {
                         info!(container_name = %container_name, "Unpausing container");
                         self.driver.unpause(container_name).await?;
-                    }
-                    ContainerStatus::Stopped
+                    },
+                    | ContainerStatus::Stopped
                     | ContainerStatus::Exited
                     | ContainerStatus::Created => {
                         info!(container_name = %container_name, "Starting stopped container");
                         self.driver.start(container_name).await?;
-                    }
-                    ContainerStatus::Unknown => {
+                    },
+                    | ContainerStatus::Unknown => {
                         // Recreate if in unknown state
                         let _ = self.driver.remove(container_name, true).await;
                         self.driver.run_detached(&config).await?;
-                    }
+                    },
                 }
-            }
-            None => {
+            },
+            | None => {
                 info!(container_name = %container_name, "Spawning new container");
                 self.driver.run_detached(&config).await?;
-            }
+            },
         }
 
         Ok(UserContainer::new(config, self.driver.clone()))
     }
 
     /// Retrieve user container handle if it exists
-    pub async fn get_user_sandbox(&self, user_id: &str) -> Result<Option<UserContainer>> {
+    pub async fn get_user_sandbox(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<UserContainer>> {
         let config = self.make_user_config(user_id);
         if let Some(_info) = self.driver.inspect(&config.container_name).await? {
             Ok(Some(UserContainer::new(config, self.driver.clone())))
@@ -187,13 +227,20 @@ impl SandboxManager {
     }
 
     /// Gracefully stop user sandbox
-    pub async fn stop_user_sandbox(&self, user_id: &str, timeout_secs: u32) -> Result<()> {
+    pub async fn stop_user_sandbox(
+        &self,
+        user_id: &str,
+        timeout_secs: u32,
+    ) -> Result<()> {
         let container_name = SandboxConfig::default_container_name(user_id);
         self.driver.stop(&container_name, timeout_secs).await
     }
 
     /// Destroy / remove user sandbox container
-    pub async fn destroy_user_sandbox(&self, user_id: &str) -> Result<()> {
+    pub async fn destroy_user_sandbox(
+        &self,
+        user_id: &str,
+    ) -> Result<()> {
         let container_name = SandboxConfig::default_container_name(user_id);
         self.driver.remove(&container_name, true).await
     }

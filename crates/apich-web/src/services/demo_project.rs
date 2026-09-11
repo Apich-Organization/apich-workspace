@@ -424,32 +424,73 @@ Target readout fidelity for the distance-3 surface code prototype is 99.5%; curr
 "###;
 
         // Write all text files
-        tokio::fs::write(root.join("slides.typ"), slides_typ).await.ok();
-        tokio::fs::write(root.join("theme.typ"), theme_typ).await.ok();
-        tokio::fs::write(root.join("slide.typ"), slide_typ).await.ok();
-        tokio::fs::write(root.join("assets").join("data.csv"), data_csv).await.ok();
+        tokio::fs::write(root.join("slides.typ"), slides_typ)
+            .await
+            .ok();
+        tokio::fs::write(root.join("theme.typ"), theme_typ)
+            .await
+            .ok();
+        tokio::fs::write(root.join("slide.typ"), slide_typ)
+            .await
+            .ok();
+        tokio::fs::write(root.join("assets").join("data.csv"), data_csv)
+            .await
+            .ok();
         // Minimal valid (silent, 1-sample) WAV file so slides.typ's #audio() asset reference resolves to a real file.
         let ambient_wav: [u8; 46] = [
-            0x52, 0x49, 0x46, 0x46, 0x26, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
-            0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x44, 0xac, 0x00, 0x00, 0x88, 0x58, 0x01, 0x00,
-            0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x52, 0x49, 0x46, 0x46, 0x26, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d,
+            0x74, 0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x44, 0xac, 0x00, 0x00,
+            0x88, 0x58, 0x01, 0x00, 0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0x02, 0x00,
+            0x00, 0x00, 0x00, 0x00,
         ];
-        tokio::fs::write(root.join("assets").join("ambient.wav"), ambient_wav).await.ok();
-        tokio::fs::write(root.join("paper.typ"), paper_typ).await.ok();
-        tokio::fs::write(root.join("report.tex"), report_tex).await.ok();
-        tokio::fs::write(root.join("lab_notebook.anote"), lab_notebook_anote).await.ok();
-        tokio::fs::write(root.join("cryostat_cooldown.anote"), cryostat_cooldown_anote).await.ok();
-        tokio::fs::write(root.join("microwave_calibration.anote"), microwave_calibration_anote).await.ok();
-        tokio::fs::write(root.join("surface_code_readout.anote"), surface_code_readout_anote).await.ok();
-        tokio::fs::write(root.join("analysis.py"), analysis_py).await.ok();
-        tokio::fs::write(root.join("analysis.R"), analysis_r).await.ok();
-        tokio::fs::write(root.join("simulate.rs"), simulate_rs).await.ok();
-        tokio::fs::write(root.join("README.md"), readme_md).await.ok();
+        tokio::fs::write(root.join("assets").join("ambient.wav"), ambient_wav)
+            .await
+            .ok();
+        tokio::fs::write(root.join("paper.typ"), paper_typ)
+            .await
+            .ok();
+        tokio::fs::write(root.join("report.tex"), report_tex)
+            .await
+            .ok();
+        tokio::fs::write(root.join("lab_notebook.anote"), lab_notebook_anote)
+            .await
+            .ok();
+        tokio::fs::write(
+            root.join("cryostat_cooldown.anote"),
+            cryostat_cooldown_anote,
+        )
+        .await
+        .ok();
+        tokio::fs::write(
+            root.join("microwave_calibration.anote"),
+            microwave_calibration_anote,
+        )
+        .await
+        .ok();
+        tokio::fs::write(
+            root.join("surface_code_readout.anote"),
+            surface_code_readout_anote,
+        )
+        .await
+        .ok();
+        tokio::fs::write(root.join("analysis.py"), analysis_py)
+            .await
+            .ok();
+        tokio::fs::write(root.join("analysis.R"), analysis_r)
+            .await
+            .ok();
+        tokio::fs::write(root.join("simulate.rs"), simulate_rs)
+            .await
+            .ok();
+        tokio::fs::write(root.join("README.md"), readme_md)
+            .await
+            .ok();
 
         // 10. Create SQLite physical table file: quantum_measurements.table
         let db_path = root.join("quantum_measurements.table");
         if let Ok(conn) = rusqlite::Connection::open(&db_path) {
-            let _ = conn.execute_batch(r#"
+            let _ = conn.execute_batch(
+                r#"
                 CREATE TABLE IF NOT EXISTS qubit_characterization (
                     id INTEGER PRIMARY KEY,
                     qubit_label TEXT NOT NULL,
@@ -482,7 +523,8 @@ Target readout fidelity for the distance-3 surface code prototype is 99.5%; curr
                     (1, '2026-09-08 04:30', 11.8, 60.0, 'Alice'),
                     (2, '2026-09-08 08:15', 12.1, 60.0, 'Bob'),
                     (3, '2026-09-08 12:00', 11.9, 60.0, 'Alice');
-            "#);
+            "#,
+            );
         }
 
         // Initialize VCS with a real multi-snapshot history: an initial commit, a follow-up edit,
@@ -507,13 +549,18 @@ Target readout fidelity for the distance-3 surface code prototype is 99.5%; curr
                 let _ = vcs.snapshot_if_changed("Add reproducibility notes to README");
 
                 // Feature branch: extend the readout wiki page, then merge back.
-                if vcs.branch_create("readout-experiment").is_ok() && vcs.branch_switch("readout-experiment").is_ok() {
+                if vcs.branch_create("readout-experiment").is_ok()
+                    && vcs.branch_switch("readout-experiment").is_ok()
+                {
                     let extended = format!(
                         "{}\n## Update ({})\n- [ ] Cross-check syndrome extraction timing against calibration branch #readout @2026-09-28\n",
                         surface_code_readout_anote, "readout-experiment branch"
                     );
-                    tokio::fs::write(root.join("surface_code_readout.anote"), extended).await.ok();
-                    let _ = vcs.snapshot_if_changed("Add cross-check task on readout-experiment branch");
+                    tokio::fs::write(root.join("surface_code_readout.anote"), extended)
+                        .await
+                        .ok();
+                    let _ = vcs
+                        .snapshot_if_changed("Add cross-check task on readout-experiment branch");
 
                     if vcs.branch_switch(&main_branch).is_ok() {
                         let _ = vcs.merge("readout-experiment");

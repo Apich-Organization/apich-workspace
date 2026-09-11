@@ -1,10 +1,18 @@
 mod common;
-use apich_db::{
-    CreateDocumentDto, CreateUserDto, CreateWorkspaceDto, Database, DocType, ExtensibleMetadata,
-    Migration, MigrationManager, PostgresConfig, PostgresContainer, WorkspaceVisibility,
-};
+use apich_db::CreateDocumentDto;
+use apich_db::CreateUserDto;
+use apich_db::CreateWorkspaceDto;
+use apich_db::Database;
+use apich_db::DocType;
+use apich_db::ExtensibleMetadata;
+use apich_db::Migration;
+use apich_db::MigrationManager;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::WorkspaceVisibility;
 use common::test_temp_dir;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -210,13 +218,12 @@ async fn test_extensible_architecture_and_rls() {
     .await
     .expect("Failed to insert into dynamically registered git_repositories table");
 
-    let branch: String = sqlx::query_scalar(
-        "SELECT current_branch FROM git_repositories WHERE id = $1"
-    )
-    .bind(repo_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("Failed to query git_repositories");
+    let branch: String =
+        sqlx::query_scalar("SELECT current_branch FROM git_repositories WHERE id = $1")
+            .bind(repo_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("Failed to query git_repositories");
     assert_eq!(branch, "develop");
 
     // 3. Test Row-Level Security (RLS) Isolation via DbSession

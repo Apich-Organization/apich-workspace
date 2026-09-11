@@ -872,7 +872,9 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
 /// Writes `theme.typ`/`slide.typ` into `project_dir` if either is missing -- called before
 /// creating or applying anything that imports them, so a slide deck compiles on the very first
 /// try in any project, not only one that happened to run the demo seeder first.
-pub async fn ensure_cargo_slide_helpers<P: AsRef<std::path::Path>>(project_dir: P) -> std::io::Result<()> {
+pub async fn ensure_cargo_slide_helpers<P: AsRef<std::path::Path>>(
+    project_dir: P
+) -> std::io::Result<()> {
     let dir = project_dir.as_ref();
     let theme_path = dir.join("theme.typ");
     if !theme_path.exists() {

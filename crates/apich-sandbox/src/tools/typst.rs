@@ -19,14 +19,22 @@ impl<'a> TypstToolchain<'a> {
     }
 
     /// Compile a .typ file to PDF
-    pub async fn compile(&self, input_file: &str, output_pdf: &str) -> Result<ExecResult> {
+    pub async fn compile(
+        &self,
+        input_file: &str,
+        output_pdf: &str,
+    ) -> Result<ExecResult> {
         self.container
             .exec(&["typst", "compile", input_file, output_pdf])
             .await
     }
 
     /// Compile a .typ file to SVG (e.g. for browser preview)
-    pub async fn compile_svg(&self, input_file: &str, output_svg: &str) -> Result<ExecResult> {
+    pub async fn compile_svg(
+        &self,
+        input_file: &str,
+        output_svg: &str,
+    ) -> Result<ExecResult> {
         self.container
             .exec(&[
                 "typst", "compile", "--format", "svg", input_file, output_svg,
@@ -50,7 +58,11 @@ impl<'a> TypstToolchain<'a> {
     }
 
     /// Query metadata / labels from a Typst document
-    pub async fn query(&self, input_file: &str, selector: &str) -> Result<ExecResult> {
+    pub async fn query(
+        &self,
+        input_file: &str,
+        selector: &str,
+    ) -> Result<ExecResult> {
         self.container
             .exec(&["typst", "query", input_file, selector])
             .await

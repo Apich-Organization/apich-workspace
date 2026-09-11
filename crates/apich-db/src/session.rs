@@ -1,6 +1,9 @@
 use crate::error::Result;
-use crate::models::{Document, Workspace};
-use sqlx::{PgPool, Postgres, Transaction};
+use crate::models::Document;
+use crate::models::Workspace;
+use sqlx::PgPool;
+use sqlx::Postgres;
+use sqlx::Transaction;
 use uuid::Uuid;
 
 /// Scoped transactional session enforcing PostgreSQL 18 Row-Level Security (RLS).
@@ -14,7 +17,10 @@ pub struct DbSession<'a> {
 
 impl<'a> DbSession<'a> {
     /// Begin a new transaction scoped to a specific user context for RLS
-    pub async fn begin(pool: &PgPool, user_id: Option<Uuid>) -> Result<Self> {
+    pub async fn begin(
+        pool: &PgPool,
+        user_id: Option<Uuid>,
+    ) -> Result<Self> {
         let mut tx = pool.begin().await?;
         if let Some(uid) = user_id {
             sqlx::query(&format!("SET LOCAL app.current_user_id = '{}';", uid))
@@ -68,7 +74,10 @@ impl<'a> DbSession<'a> {
     }
 
     /// Query documents accessible by the current session under RLS
-    pub async fn list_visible_documents(&mut self, workspace_id: Uuid) -> Result<Vec<Document>> {
+    pub async fn list_visible_documents(
+        &mut self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<Document>> {
         let rows = sqlx::query_as::<_, Document>(
             "SELECT * FROM documents WHERE workspace_id = $1 ORDER BY updated_at DESC",
         )

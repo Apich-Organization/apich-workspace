@@ -6,7 +6,8 @@
 //! only the interactive grid itself needs a browser-side brain.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,8 +62,13 @@ pub fn SpreadsheetIsland(
     let fx_value = RwSignal::new(String::new());
     let summary_ops = RwSignal::new(vec!["sum".to_string(); n_cols]);
     let initial_styles: HashMap<(usize, usize), CellStyle> = {
-        let row_index: HashMap<i64, usize> = row_ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
-        let col_index: HashMap<&str, usize> = columns.iter().enumerate().map(|(i, c)| (c.as_str(), i)).collect();
+        let row_index: HashMap<i64, usize> =
+            row_ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+        let col_index: HashMap<&str, usize> = columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.as_str(), i))
+            .collect();
         cell_styles
             .into_iter()
             .filter_map(|entry| {
@@ -86,19 +92,31 @@ pub fn SpreadsheetIsland(
 
     let select_cell = move |r: usize, c: usize| {
         active.set(Some((r, c)));
-        let val = cells.with(|rows| rows.get(r).and_then(|row| row.get(c)).cloned().unwrap_or_default());
+        let val = cells.with(|rows| {
+            rows.get(r)
+                .and_then(|row| row.get(c))
+                .cloned()
+                .unwrap_or_default()
+        });
         fx_value.set(val);
         set_delete_row_target(row_ids.with_value(|ids| ids.get(r).copied()));
     };
 
     let start_edit = move |r: usize, c: usize| {
-        let cur = cells.with(|rows| rows.get(r).and_then(|row| row.get(c)).cloned().unwrap_or_default());
+        let cur = cells.with(|rows| {
+            rows.get(r)
+                .and_then(|row| row.get(c))
+                .cloned()
+                .unwrap_or_default()
+        });
         edit_draft.set(cur);
         editing.set(Some((r, c)));
     };
 
     let commit_edit = move |r: usize, c: usize| {
-        let Some((er, ec)) = editing.get_untracked() else { return };
+        let Some((er, ec)) = editing.get_untracked() else {
+            return;
+        };
         if (er, ec) != (r, c) {
             return;
         }
@@ -124,7 +142,9 @@ pub fn SpreadsheetIsland(
     };
 
     let apply_style = move |mutate: Box<dyn Fn(&mut CellStyle)>| {
-        let Some((r, c)) = active.get_untracked() else { return };
+        let Some((r, c)) = active.get_untracked() else {
+            return;
+        };
         let mut new_style = styles.with_untracked(|m| m.get(&(r, c)).cloned().unwrap_or_default());
         mutate(&mut new_style);
         styles.update(|m| {
@@ -145,14 +165,21 @@ pub fn SpreadsheetIsland(
             new_style,
         );
     };
-    let active_style = move || active.get().and_then(|(r, c)| styles.with(|m| m.get(&(r, c)).cloned())).unwrap_or_default();
+    let active_style = move || {
+        active
+            .get()
+            .and_then(|(r, c)| styles.with(|m| m.get(&(r, c)).cloned()))
+            .unwrap_or_default()
+    };
 
     // A spreadsheet reads numbers right-aligned and text left-aligned; SQLite's own type-affinity
     // keywords (see https://www.sqlite.org/datatype3.html#type_affinity) are enough of a signal
     // for this without needing to sniff actual cell values.
     let is_numeric_type = |t: &str| {
         let up = t.to_ascii_uppercase();
-        ["INT", "REAL", "FLOA", "DOUB", "NUMERIC", "DECIMAL"].iter().any(|kw| up.contains(kw))
+        ["INT", "REAL", "FLOA", "DOUB", "NUMERIC", "DECIMAL"]
+            .iter()
+            .any(|kw| up.contains(kw))
     };
     let col_is_numeric: Vec<bool> = column_types.iter().map(|t| is_numeric_type(t)).collect();
 
@@ -160,7 +187,10 @@ pub fn SpreadsheetIsland(
         .iter()
         .enumerate()
         .map(|(c, name)| {
-            let type_str = column_types.get(c).cloned().unwrap_or_else(|| "TEXT".to_string());
+            let type_str = column_types
+                .get(c)
+                .cloned()
+                .unwrap_or_else(|| "TEXT".to_string());
             let type_str_title = type_str.clone();
             let numeric = col_is_numeric.get(c).copied().unwrap_or(false);
             let is_pk = primary_keys.get(c).copied().unwrap_or(false);
@@ -311,11 +341,16 @@ pub fn SpreadsheetIsland(
         .collect();
 
     let fx_ref_label = move || {
-        active.get().map(|(r, c)| format!("{}{}", col_letter(c), r + 1)).unwrap_or_else(|| "-".to_string())
+        active
+            .get()
+            .map(|(r, c)| format!("{}{}", col_letter(c), r + 1))
+            .unwrap_or_else(|| "-".to_string())
     };
 
     let do_commit_fx = move || {
-        let Some((r, c)) = active.get_untracked() else { return };
+        let Some((r, c)) = active.get_untracked() else {
+            return;
+        };
         let val = fx_value.get_untracked();
         cells.update(|rows| {
             if let Some(row) = rows.get_mut(r) {
@@ -434,7 +469,9 @@ pub fn SpreadsheetIsland(
 #[cfg(feature = "hydrate")]
 fn set_delete_row_target(rowid: Option<i64>) {
     let Some(rowid) = rowid else { return };
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
     if let Some(el) = doc.get_element_by_id("del-row-id-val") {
         use wasm_bindgen::JsCast;
         if let Ok(input) = el.dyn_into::<web_sys::HtmlInputElement>() {
@@ -447,7 +484,14 @@ fn set_delete_row_target(rowid: Option<i64>) {
 fn set_delete_row_target(_rowid: Option<i64>) {}
 
 #[cfg(feature = "hydrate")]
-fn save_cell(project_id: String, file_path: String, table_name: String, col: String, rowid: i64, val: String) {
+fn save_cell(
+    project_id: String,
+    file_path: String,
+    table_name: String,
+    col: String,
+    rowid: i64,
+    val: String,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         let body = serde_json::json!({
             "file": file_path,
@@ -459,9 +503,7 @@ fn save_cell(project_id: String, file_path: String, table_name: String, col: Str
         });
         let _ = gloo_net::http::Request::post(&format!("/projects/{}/table/cell-edit", project_id))
             .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(
-                serde_urlencoded_body(&body),
-            )
+            .body(serde_urlencoded_body(&body))
             .expect("valid form body")
             .send()
             .await;
@@ -469,10 +511,25 @@ fn save_cell(project_id: String, file_path: String, table_name: String, col: Str
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn save_cell(_project_id: String, _file_path: String, _table_name: String, _col: String, _rowid: i64, _val: String) {}
+fn save_cell(
+    _project_id: String,
+    _file_path: String,
+    _table_name: String,
+    _col: String,
+    _rowid: i64,
+    _val: String,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-fn save_style(project_id: String, file_path: String, table_name: String, col: String, rowid: i64, style: CellStyle) {
+fn save_style(
+    project_id: String,
+    file_path: String,
+    table_name: String,
+    col: String,
+    rowid: i64,
+    style: CellStyle,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         let body = serde_json::json!({
             "file": file_path,
@@ -484,16 +541,25 @@ fn save_style(project_id: String, file_path: String, table_name: String, col: St
             "color": style.color,
             "bg_color": style.bg_color,
         });
-        let _ = gloo_net::http::Request::post(&format!("/projects/{}/table/cell-style", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
+        let _ =
+            gloo_net::http::Request::post(&format!("/projects/{}/table/cell-style", project_id))
+                .json(&body)
+                .expect("valid json body")
+                .send()
+                .await;
     });
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn save_style(_project_id: String, _file_path: String, _table_name: String, _col: String, _rowid: i64, _style: CellStyle) {}
+fn save_style(
+    _project_id: String,
+    _file_path: String,
+    _table_name: String,
+    _col: String,
+    _rowid: i64,
+    _style: CellStyle,
+) {
+}
 
 /// The `table/cell-edit` endpoint expects a classic `application/x-www-form-urlencoded` body
 /// (it's shared with the plain HTML `<form>` fallback), not JSON -- encode the same fields the
@@ -518,8 +584,10 @@ fn urlencode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{:02X}", b)),
+            | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            },
+            | _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
     out

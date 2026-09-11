@@ -1,12 +1,24 @@
 use crate::config::SandboxConfig;
-use crate::driver::{ContainerInspectInfo, ContainerStatus, PodmanDriver};
-use crate::error::{Result, SandboxError};
-use crate::exec::{ExecOptions, ExecResult, ExecStream, InteractiveExec};
-use crate::fs::{self, FileEntry};
-use crate::tools::{
-    agent::AgentToolchain, git::GitToolchain, latex::LatexToolchain, python::PythonToolchain,
-    r::RToolchain, rust::RustToolchain, typst::TypstToolchain,
+use crate::driver::ContainerInspectInfo;
+use crate::driver::ContainerStatus;
+use crate::driver::PodmanDriver;
+use crate::error::Result;
+use crate::error::SandboxError;
+use crate::exec::ExecOptions;
+use crate::exec::ExecResult;
+use crate::exec::ExecStream;
+use crate::exec::InteractiveExec;
+use crate::fs::FileEntry;
+use crate::fs::{
+    self,
 };
+use crate::tools::agent::AgentToolchain;
+use crate::tools::git::GitToolchain;
+use crate::tools::latex::LatexToolchain;
+use crate::tools::python::PythonToolchain;
+use crate::tools::r::RToolchain;
+use crate::tools::rust::RustToolchain;
+use crate::tools::typst::TypstToolchain;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -18,7 +30,10 @@ pub struct UserContainer {
 }
 
 impl UserContainer {
-    pub fn new(config: SandboxConfig, driver: Arc<PodmanDriver>) -> Self {
+    pub fn new(
+        config: SandboxConfig,
+        driver: Arc<PodmanDriver>,
+    ) -> Self {
         Self { config, driver }
     }
 
@@ -79,7 +94,10 @@ impl UserContainer {
     }
 
     /// Stop the container gracefully with timeout
-    pub async fn stop(&self, timeout_secs: u32) -> Result<()> {
+    pub async fn stop(
+        &self,
+        timeout_secs: u32,
+    ) -> Result<()> {
         self.driver
             .stop(&self.config.container_name, timeout_secs)
             .await
@@ -101,7 +119,10 @@ impl UserContainer {
     }
 
     /// Restart the container
-    pub async fn restart(&self, timeout_secs: u32) -> Result<()> {
+    pub async fn restart(
+        &self,
+        timeout_secs: u32,
+    ) -> Result<()> {
         self.stop(timeout_secs).await?;
         self.start().await
     }
@@ -114,7 +135,10 @@ impl UserContainer {
     // --- Command Execution Operations ---
 
     /// Execute command in container with default working directory (`container_workspace_dir`)
-    pub async fn exec<I, S>(&self, cmd: I) -> Result<ExecResult>
+    pub async fn exec<I, S>(
+        &self,
+        cmd: I,
+    ) -> Result<ExecResult>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -124,7 +148,10 @@ impl UserContainer {
     }
 
     /// Execute command in container with explicit options
-    pub async fn exec_with_options(&self, mut opts: ExecOptions) -> Result<ExecResult> {
+    pub async fn exec_with_options(
+        &self,
+        mut opts: ExecOptions,
+    ) -> Result<ExecResult> {
         if opts.working_dir.is_none() {
             opts.working_dir = Some(self.config.container_workspace_dir.clone());
         }
@@ -132,7 +159,10 @@ impl UserContainer {
     }
 
     /// Execute command in container with streaming stdout/stderr
-    pub async fn exec_stream(&self, mut opts: ExecOptions) -> Result<ExecStream> {
+    pub async fn exec_stream(
+        &self,
+        mut opts: ExecOptions,
+    ) -> Result<ExecStream> {
         if opts.working_dir.is_none() {
             opts.working_dir = Some(self.config.container_workspace_dir.clone());
         }
@@ -143,7 +173,10 @@ impl UserContainer {
 
     /// Execute command in container with streaming output AND a writable stdin, for commands
     /// that need real interactive input mid-run (e.g. an agent CLI's account-login flow).
-    pub async fn exec_interactive(&self, mut opts: ExecOptions) -> Result<InteractiveExec> {
+    pub async fn exec_interactive(
+        &self,
+        mut opts: ExecOptions,
+    ) -> Result<InteractiveExec> {
         if opts.working_dir.is_none() {
             opts.working_dir = Some(self.config.container_workspace_dir.clone());
         }
@@ -155,50 +188,81 @@ impl UserContainer {
     // --- File Operations ---
 
     /// Write binary file to user's workspace
-    pub async fn save_file(&self, rel_path: impl AsRef<Path>, content: &[u8]) -> Result<()> {
+    pub async fn save_file(
+        &self,
+        rel_path: impl AsRef<Path>,
+        content: &[u8],
+    ) -> Result<()> {
         fs::write_file_safe(&self.config.host_workspace_dir, rel_path.as_ref(), content)
     }
 
     /// Write string file to user's workspace
-    pub async fn save_file_str(&self, rel_path: impl AsRef<Path>, content: &str) -> Result<()> {
+    pub async fn save_file_str(
+        &self,
+        rel_path: impl AsRef<Path>,
+        content: &str,
+    ) -> Result<()> {
         self.save_file(rel_path, content.as_bytes()).await
     }
 
     /// Read file content from user's workspace
-    pub async fn read_file(&self, rel_path: impl AsRef<Path>) -> Result<Vec<u8>> {
+    pub async fn read_file(
+        &self,
+        rel_path: impl AsRef<Path>,
+    ) -> Result<Vec<u8>> {
         fs::read_file_safe(&self.config.host_workspace_dir, rel_path.as_ref())
     }
 
     /// Read file content as UTF-8 string from user's workspace
-    pub async fn read_file_str(&self, rel_path: impl AsRef<Path>) -> Result<String> {
+    pub async fn read_file_str(
+        &self,
+        rel_path: impl AsRef<Path>,
+    ) -> Result<String> {
         let bytes = self.read_file(rel_path).await?;
         String::from_utf8(bytes).map_err(|e| SandboxError::Internal(e.to_string()))
     }
 
     /// Check if file exists in user's workspace
-    pub fn file_exists(&self, rel_path: impl AsRef<Path>) -> bool {
+    pub fn file_exists(
+        &self,
+        rel_path: impl AsRef<Path>,
+    ) -> bool {
         fs::file_exists_safe(&self.config.host_workspace_dir, rel_path.as_ref())
     }
 
     /// Remove a file or directory in user's workspace
-    pub async fn remove_file(&self, rel_path: impl AsRef<Path>) -> Result<()> {
+    pub async fn remove_file(
+        &self,
+        rel_path: impl AsRef<Path>,
+    ) -> Result<()> {
         fs::remove_file_safe(&self.config.host_workspace_dir, rel_path.as_ref())
     }
 
     /// List files in user's workspace directory
-    pub async fn list_files(&self, rel_path: impl AsRef<Path>) -> Result<Vec<FileEntry>> {
+    pub async fn list_files(
+        &self,
+        rel_path: impl AsRef<Path>,
+    ) -> Result<Vec<FileEntry>> {
         fs::list_dir_safe(&self.config.host_workspace_dir, rel_path.as_ref())
     }
 
     /// Copy a host file into container at an arbitrary path (outside workspace mount)
-    pub async fn copy_into(&self, host_src: &Path, container_dest: &Path) -> Result<()> {
+    pub async fn copy_into(
+        &self,
+        host_src: &Path,
+        container_dest: &Path,
+    ) -> Result<()> {
         self.driver
             .copy_to(&self.config.container_name, host_src, container_dest)
             .await
     }
 
     /// Copy a container file from an arbitrary path out to host
-    pub async fn copy_out(&self, container_src: &Path, host_dest: &Path) -> Result<()> {
+    pub async fn copy_out(
+        &self,
+        container_src: &Path,
+        host_dest: &Path,
+    ) -> Result<()> {
         self.driver
             .copy_from(&self.config.container_name, container_src, host_dest)
             .await

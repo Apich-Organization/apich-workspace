@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// First-class non-blocking conflict metadata
 ///
@@ -35,7 +36,12 @@ impl Conflict {
     }
 
     /// Render standard inline conflict markers into a single text buffer
-    pub fn format_text_conflict(ours: &str, theirs: &str, ours_label: &str, theirs_label: &str) -> String {
+    pub fn format_text_conflict(
+        ours: &str,
+        theirs: &str,
+        ours_label: &str,
+        theirs_label: &str,
+    ) -> String {
         format!(
             "<<<<<<< {}\n{}\n=======\n{}\n>>>>>>> {}\n",
             ours_label, ours, theirs, theirs_label

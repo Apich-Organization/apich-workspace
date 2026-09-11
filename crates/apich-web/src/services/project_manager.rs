@@ -1,10 +1,18 @@
-use crate::error::{WebError, WebResult};
+use crate::error::WebError;
+use crate::error::WebResult;
 use crate::services::agent_login::AgentLoginRegistry;
 use crate::services::slide_build::SlideBuildRegistry;
-use apich_db::{CreateProjectDto, Database, Project, ProjectSandbox};
-use apich_sandbox::{SandboxConfig, SandboxManager};
-use apich_vcs::{api::ProjectVcs, IgnoreFilter, Snapshot};
-use std::{path::PathBuf, sync::Arc};
+use apich_db::CreateProjectDto;
+use apich_db::Database;
+use apich_db::Project;
+use apich_db::ProjectSandbox;
+use apich_sandbox::SandboxConfig;
+use apich_sandbox::SandboxManager;
+use apich_vcs::api::ProjectVcs;
+use apich_vcs::IgnoreFilter;
+use apich_vcs::Snapshot;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
@@ -18,6 +26,19 @@ pub struct ProjectManager {
 }
 
 impl ProjectManager {
+    /// The four cross-compilation targets this app's sandbox image (see
+    /// `docker/Containerfile.sandbox`'s cross-compilation section) is provisioned for, alongside
+    /// the host's own native platform. Each value is a real Rust target triple `cargo slide build
+    /// --target <triple>` is passed verbatim, validated against this allow-list before it ever
+    /// reaches a shell command (see `start_slide_build`).
+    pub const SLIDE_BUILD_TARGETS: &'static [(&'static str, &'static str)] = &[
+        ("host", "This server's own platform (Linux, native)"),
+        ("x86_64-pc-windows-gnu", "Windows x86_64"),
+        ("aarch64-pc-windows-gnullvm", "Windows ARM64"),
+        ("x86_64-unknown-linux-musl", "Linux x86_64 (musl, static)"),
+        ("aarch64-unknown-linux-musl", "Linux ARM64 (musl, static)"),
+    ];
+
     pub fn new(
         db: Arc<Database>,
         sandbox_manager: Arc<SandboxManager>,
@@ -33,7 +54,10 @@ impl ProjectManager {
     }
 
     /// Create a new project, provision storage workspace directory, and initialize FastCDC VCS
-    pub async fn create_project(&self, mut dto: CreateProjectDto) -> WebResult<Project> {
+    pub async fn create_project(
+        &self,
+        mut dto: CreateProjectDto,
+    ) -> WebResult<Project> {
         // Ensure storage path is set within base directory if not absolute
         let project_dir = if dto.storage_path.is_empty() {
             self.base_storage_dir
@@ -43,9 +67,12 @@ impl ProjectManager {
             PathBuf::from(&dto.storage_path)
         };
 
-        tokio::fs::create_dir_all(&project_dir)
-            .await
-            .map_err(|e| WebError::Internal(format!("Failed to create project workspace directory: {}", e)))?;
+        tokio::fs::create_dir_all(&project_dir).await.map_err(|e| {
+            WebError::Internal(format!(
+                "Failed to create project workspace directory: {}",
+                e
+            ))
+        })?;
 
         // Canonicalize before persisting: `base_storage_dir` (from `APICH_STORAGE_DIR`, default
         // `./scratch/workspace`) is relative by default, and a caller-supplied `dto.storage_path`
@@ -61,9 +88,12 @@ impl ProjectManager {
         // compiler then failed with "I can't find file" because the file genuinely wasn't in the
         // container's (mismatched) mount. Storing an absolute path here removes the cwd from the
         // equation entirely, for the lifetime of the project.
-        let project_dir = tokio::fs::canonicalize(&project_dir)
-            .await
-            .map_err(|e| WebError::Internal(format!("Failed to resolve project workspace directory: {}", e)))?;
+        let project_dir = tokio::fs::canonicalize(&project_dir).await.map_err(|e| {
+            WebError::Internal(format!(
+                "Failed to resolve project workspace directory: {}",
+                e
+            ))
+        })?;
 
         // Initialize FastCDC Version Control in the project directory
         let _ = ProjectVcs::open_or_init(&project_dir)?;
@@ -79,19 +109,26 @@ impl ProjectManager {
         Ok(proj)
     }
 
-    fn project_sandbox_container_name(proj: &Project, user_id: Uuid) -> String {
+    fn project_sandbox_container_name(
+        proj: &Project,
+        user_id: Uuid,
+    ) -> String {
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         format!("apich-proj-{}-{}", proj.slug, user_suffix)
     }
 
-    fn project_sandbox_config(proj: &Project, user_id: Uuid) -> SandboxConfig {
+    fn project_sandbox_config(
+        proj: &Project,
+        user_id: Uuid,
+    ) -> SandboxConfig {
         let container_name = Self::project_sandbox_container_name(proj, user_id);
         // Real toolchain + CLI-agent image (docker/Containerfile.sandbox) -- must be built once
         // via `podman build -t apich-sandbox:latest -f docker/Containerfile.sandbox .` (or
         // scripts/build_sandbox_image.sh) before first run. Overridable for local/CI use with a
         // lighter image (e.g. bare alpine has no typst/rust/agents but starts instantly).
-        let image = std::env::var("APICH_SANDBOX_IMAGE").unwrap_or_else(|_| "localhost/apich-sandbox:latest".to_string());
+        let image = std::env::var("APICH_SANDBOX_IMAGE")
+            .unwrap_or_else(|_| "localhost/apich-sandbox:latest".to_string());
         SandboxConfig::builder(user_id.to_string(), &proj.storage_path)
             .container_name(&container_name)
             .image(image)
@@ -198,14 +235,22 @@ impl ProjectManager {
 
         let _ = repo.touch_sandbox_activity(project_id, user_id).await;
 
-        Ok(format!("{}{}", result.stdout_lossy(), result.stderr_lossy()))
+        Ok(format!(
+            "{}{}",
+            result.stdout_lossy(),
+            result.stderr_lossy()
+        ))
     }
 
     /// Auto-starts the project's real sandbox if needed and returns a handle to it. Shared by
     /// every agent-related operation (`run_agent_in_sandbox`, `agent_availability`,
     /// `start_agent_login`) since they all need the same "make sure it's running, then get a
     /// container handle" preamble.
-    async fn ensure_agent_container(&self, project_id: Uuid, user_id: Uuid) -> WebResult<apich_sandbox::UserContainer> {
+    async fn ensure_agent_container(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+    ) -> WebResult<apich_sandbox::UserContainer> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -218,7 +263,10 @@ impl ProjectManager {
         self.launch_sandbox(project_id, user_id).await?;
 
         let config = Self::project_sandbox_config(&proj, user_id);
-        Ok(apich_sandbox::UserContainer::new(config, self.sandbox_manager.driver().clone()))
+        Ok(apich_sandbox::UserContainer::new(
+            config,
+            self.sandbox_manager.driver().clone(),
+        ))
     }
 
     /// Run a CLI coding agent (claude/codex/opencode/aider/goose) non-interactively inside the
@@ -236,7 +284,11 @@ impl ProjectManager {
     ) -> WebResult<apich_sandbox::ExecResult> {
         let container = self.ensure_agent_container(project_id, user_id).await?;
         let result = container.agents().run(agent, prompt, api_key).await?;
-        let _ = self.db.repository().touch_sandbox_activity(project_id, user_id).await;
+        let _ = self
+            .db
+            .repository()
+            .touch_sandbox_activity(project_id, user_id)
+            .await;
         Ok(result)
     }
 
@@ -255,7 +307,8 @@ impl ProjectManager {
         rel_path: &str,
         args: &str,
     ) -> WebResult<crate::services::document_renderer::ScriptRunResult> {
-        self.run_script_in_sandbox_with_env(project_id, user_id, rel_path, args, &[]).await
+        self.run_script_in_sandbox_with_env(project_id, user_id, rel_path, args, &[])
+            .await
     }
 
     /// Same as `run_script_in_sandbox`, plus extra environment variables for the run -- used by
@@ -279,9 +332,16 @@ impl ProjectManager {
 
         let full_path = std::path::Path::new(&proj.storage_path).join(rel_path);
         if !full_path.exists() {
-            return Err(WebError::NotFound(format!("Script not found: {}", rel_path)));
+            return Err(WebError::NotFound(format!(
+                "Script not found: {}",
+                rel_path
+            )));
         }
-        let ext = full_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let ext = full_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
 
         let container = self.ensure_agent_container(project_id, user_id).await?;
 
@@ -292,28 +352,36 @@ impl ProjectManager {
         let run_id = uuid::Uuid::new_v4().simple().to_string();
         let rust_bin_path = format!("/tmp/apich_run_{}", run_id);
         let cmd: Vec<String> = match ext.as_str() {
-            "py" => vec!["python3".to_string(), rel_path.to_string()],
-            "sh" | "bash" => vec!["bash".to_string(), rel_path.to_string()],
-            "r" => vec!["Rscript".to_string(), rel_path.to_string()],
-            "rs" => vec![
-                "bash".to_string(),
-                "-c".to_string(),
-                format!(r#"rustc -O "$1" -o "{bin}" && "{bin}" "${{@:2}}""#, bin = rust_bin_path),
-                "bash".to_string(),
-                rel_path.to_string(),
-            ],
-            "js" | "ts" => vec!["node".to_string(), rel_path.to_string()],
-            _ => vec!["bash".to_string(), rel_path.to_string()],
+            | "py" => vec!["python3".to_string(), rel_path.to_string()],
+            | "sh" | "bash" => vec!["bash".to_string(), rel_path.to_string()],
+            | "r" => vec!["Rscript".to_string(), rel_path.to_string()],
+            | "rs" => {
+                vec![
+                    "bash".to_string(),
+                    "-c".to_string(),
+                    format!(
+                        r#"rustc -O "$1" -o "{bin}" && "{bin}" "${{@:2}}""#,
+                        bin = rust_bin_path
+                    ),
+                    "bash".to_string(),
+                    rel_path.to_string(),
+                ]
+            },
+            | "js" | "ts" => vec!["node".to_string(), rel_path.to_string()],
+            | _ => vec!["bash".to_string(), rel_path.to_string()],
         };
         let mut cmd = cmd;
         if !args.trim().is_empty() {
             cmd.extend(args.split_whitespace().map(|s| s.to_string()));
         }
 
-        let before_images = crate::services::document_renderer::DocumentRenderer::scan_images(std::path::Path::new(&proj.storage_path));
+        let before_images = crate::services::document_renderer::DocumentRenderer::scan_images(
+            std::path::Path::new(&proj.storage_path),
+        );
         let start = std::time::Instant::now();
 
-        let mut opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(120));
+        let mut opts =
+            apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(120));
         for (k, v) in extra_env {
             opts = opts.env(*k, *v);
         }
@@ -325,25 +393,38 @@ impl ProjectManager {
         let _ = repo.touch_sandbox_activity(project_id, user_id).await;
 
         let elapsed = start.elapsed().as_millis();
-        let after_images = crate::services::document_renderer::DocumentRenderer::scan_images(std::path::Path::new(&proj.storage_path));
+        let after_images = crate::services::document_renderer::DocumentRenderer::scan_images(
+            std::path::Path::new(&proj.storage_path),
+        );
         let mut output_images = Vec::new();
         for (img_path, mtime) in &after_images {
             let is_new_or_modified = match before_images.get(img_path) {
-                Some(old_mtime) => mtime > old_mtime,
-                None => true,
+                | Some(old_mtime) => mtime > old_mtime,
+                | None => true,
             };
             if is_new_or_modified {
                 if let Ok(bytes) = tokio::fs::read(img_path).await {
-                    let img_ext = img_path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_lowercase();
+                    let img_ext = img_path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("png")
+                        .to_lowercase();
                     let mime = match img_ext.as_str() {
-                        "svg" => "image/svg+xml",
-                        "jpg" | "jpeg" => "image/jpeg",
-                        _ => "image/png",
+                        | "svg" => "image/svg+xml",
+                        | "jpg" | "jpeg" => "image/jpeg",
+                        | _ => "image/png",
                     };
-                    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+                    let b64 =
+                        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
                     let data_uri = format!("data:{};base64,{}", mime, b64);
-                    let name = img_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "output.png".to_string());
-                    output_images.push(crate::services::document_renderer::ScriptOutputImage { name, data_uri });
+                    let name = img_path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "output.png".to_string());
+                    output_images.push(crate::services::document_renderer::ScriptOutputImage {
+                        name,
+                        data_uri,
+                    });
                 }
             }
         }
@@ -382,7 +463,10 @@ impl ProjectManager {
             .file_stem()
             .and_then(|s| s.to_str())
             .ok_or_else(|| WebError::BadRequest("Invalid .tex file path".to_string()))?;
-        let parent = std::path::Path::new(rel_path).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        let parent = std::path::Path::new(rel_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
 
         // `engine` is expected to already be validated against the set actually installed in the
         // sandbox image (see `handlers::sanitize_latex_engine`) -- `pdflatex`/`xelatex`/`lualatex`
@@ -403,7 +487,11 @@ impl ProjectManager {
         let _ = container.exec(cmd.clone()).await?;
         let result = container.exec(cmd).await?;
 
-        let _ = self.db.repository().touch_sandbox_activity(project_id, user_id).await;
+        let _ = self
+            .db
+            .repository()
+            .touch_sandbox_activity(project_id, user_id)
+            .await;
 
         let pdf_rel_path = if parent.is_empty() {
             format!("{}.pdf", file_stem)
@@ -425,8 +513,13 @@ impl ProjectManager {
         }
 
         match container.read_file(&pdf_rel_path).await {
-            Ok(bytes) => Ok(Ok(bytes)),
-            Err(e) => Ok(Err(format!("pdflatex reported success but no PDF was found: {}", e))),
+            | Ok(bytes) => Ok(Ok(bytes)),
+            | Err(e) => {
+                Ok(Err(format!(
+                    "pdflatex reported success but no PDF was found: {}",
+                    e
+                )))
+            },
         }
     }
 
@@ -436,9 +529,15 @@ impl ProjectManager {
     /// run exactly like `compile_latex_in_sandbox` does for a real project) and tearing both down
     /// again afterward regardless of outcome. Unlike every other sandbox container in this app,
     /// this one is never meant to persist between calls -- there's no project for it to belong to.
-    pub async fn compile_latex_preview_ephemeral(&self, files: &[(String, String)]) -> WebResult<Result<Vec<u8>, String>> {
+    pub async fn compile_latex_preview_ephemeral(
+        &self,
+        files: &[(String, String)],
+    ) -> WebResult<Result<Vec<u8>, String>> {
         let scratch_id = Uuid::new_v4();
-        let host_dir = self.base_storage_dir.join("_template_previews").join(scratch_id.to_string());
+        let host_dir = self
+            .base_storage_dir
+            .join("_template_previews")
+            .join(scratch_id.to_string());
         tokio::fs::create_dir_all(&host_dir)
             .await
             .map_err(|e| WebError::Internal(format!("Failed to create preview workspace: {e}")))?;
@@ -450,7 +549,9 @@ impl ProjectManager {
             }
             if tokio::fs::write(&target, content).await.is_err() {
                 let _ = tokio::fs::remove_dir_all(&host_dir).await;
-                return Err(WebError::Internal(format!("Failed to write {rel_path} into preview workspace")));
+                return Err(WebError::Internal(format!(
+                    "Failed to write {rel_path} into preview workspace"
+                )));
             }
         }
 
@@ -465,7 +566,8 @@ impl ProjectManager {
             .to_string();
 
         let container_name = format!("apich-preview-{scratch_id}");
-        let image = std::env::var("APICH_SANDBOX_IMAGE").unwrap_or_else(|_| "localhost/apich-sandbox:latest".to_string());
+        let image = std::env::var("APICH_SANDBOX_IMAGE")
+            .unwrap_or_else(|_| "localhost/apich-sandbox:latest".to_string());
         let config = SandboxConfig::builder(format!("preview-{scratch_id}"), &host_dir)
             .container_name(&container_name)
             .image(image)
@@ -479,9 +581,16 @@ impl ProjectManager {
                 .sandbox_manager
                 .ensure_running_with_config(config)
                 .await
-                .map_err(|e| WebError::Internal(format!("Failed to start preview container: {e}")))?;
+                .map_err(|e| {
+                    WebError::Internal(format!("Failed to start preview container: {e}"))
+                })?;
 
-            let cmd = vec!["pdflatex".to_string(), "-interaction=nonstopmode".to_string(), "-halt-on-error".to_string(), main_path.clone()];
+            let cmd = vec![
+                "pdflatex".to_string(),
+                "-interaction=nonstopmode".to_string(),
+                "-halt-on-error".to_string(),
+                main_path.clone(),
+            ];
             let _ = container.exec(cmd.clone()).await;
             let result = container
                 .exec(cmd)
@@ -492,20 +601,30 @@ impl ProjectManager {
                 let log = container
                     .read_file_str(format!("{file_stem}.log"))
                     .await
-                    .unwrap_or_else(|_| format!("{}{}", result.stdout_lossy(), result.stderr_lossy()));
+                    .unwrap_or_else(|_| {
+                        format!("{}{}", result.stdout_lossy(), result.stderr_lossy())
+                    });
                 return Ok(Err(log));
             }
 
             match container.read_file(format!("{file_stem}.pdf")).await {
-                Ok(bytes) => Ok(Ok(bytes)),
-                Err(e) => Ok(Err(format!("pdflatex reported success but no PDF was found: {e}"))),
+                | Ok(bytes) => Ok(Ok(bytes)),
+                | Err(e) => {
+                    Ok(Err(format!(
+                        "pdflatex reported success but no PDF was found: {e}"
+                    )))
+                },
             }
         }
         .await;
 
         // Always torn down, success or failure -- this container and its scratch directory have
         // no reason to exist a moment longer than this one preview request.
-        let _ = self.sandbox_manager.driver().remove(&container_name, true).await;
+        let _ = self
+            .sandbox_manager
+            .driver()
+            .remove(&container_name, true)
+            .await;
         let _ = tokio::fs::remove_dir_all(&host_dir).await;
 
         outcome
@@ -536,7 +655,10 @@ impl ProjectManager {
             .file_stem()
             .and_then(|s| s.to_str())
             .ok_or_else(|| WebError::BadRequest("Invalid .tex file path".to_string()))?;
-        let parent = std::path::Path::new(rel_path).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        let parent = std::path::Path::new(rel_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
         let pdf_rel_path = if parent.is_empty() {
             format!("{}.pdf", file_stem)
         } else {
@@ -544,9 +666,18 @@ impl ProjectManager {
         };
 
         let spec = format!("{}:{}:{}:{}", page, x, y, pdf_rel_path);
-        let cmd = vec!["synctex".to_string(), "edit".to_string(), "-o".to_string(), spec];
+        let cmd = vec![
+            "synctex".to_string(),
+            "edit".to_string(),
+            "-o".to_string(),
+            spec,
+        ];
         let result = container.exec(cmd).await?;
-        let _ = self.db.repository().touch_sandbox_activity(project_id, user_id).await;
+        let _ = self
+            .db
+            .repository()
+            .touch_sandbox_activity(project_id, user_id)
+            .await;
 
         // `synctex edit`'s output is plain text with one `Key:Value` pair per line inside a
         // `SyncTeX result begin ... end` block, e.g. `Input:/workspace/report.tex` / `Line:12`.
@@ -558,19 +689,6 @@ impl ProjectManager {
             .and_then(|n| n.trim().parse::<u32>().ok());
         Ok(line)
     }
-
-/// The four cross-compilation targets this app's sandbox image (see
-    /// `docker/Containerfile.sandbox`'s cross-compilation section) is provisioned for, alongside
-    /// the host's own native platform. Each value is a real Rust target triple `cargo slide build
-    /// --target <triple>` is passed verbatim, validated against this allow-list before it ever
-    /// reaches a shell command (see `start_slide_build`).
-    pub const SLIDE_BUILD_TARGETS: &'static [(&'static str, &'static str)] = &[
-        ("host", "This server's own platform (Linux, native)"),
-        ("x86_64-pc-windows-gnu", "Windows x86_64"),
-        ("aarch64-pc-windows-gnullvm", "Windows ARM64"),
-        ("x86_64-unknown-linux-musl", "Linux x86_64 (musl, static)"),
-        ("aarch64-unknown-linux-musl", "Linux ARM64 (musl, static)"),
-    ];
 
     /// Starts compiling a cargo-slide presentation (`.typ` using `#slide(...)`) into a
     /// standalone, self-contained native binary inside the project's sandbox container, for
@@ -621,12 +739,20 @@ impl ProjectManager {
             cmd.push(target.to_string());
         }
 
-        let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(1800));
+        let opts =
+            apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(1800));
         let stream = container.exec_stream(opts).await?;
 
-        let _ = self.db.repository().touch_sandbox_activity(project_id, user_id).await;
+        let _ = self
+            .db
+            .repository()
+            .touch_sandbox_activity(project_id, user_id)
+            .await;
 
-        let job_id = self.slide_builds.start(user_id, container, stream, out_rel_path, download_name).await;
+        let job_id = self
+            .slide_builds
+            .start(user_id, container, stream, out_rel_path, download_name)
+            .await;
         Ok(job_id)
     }
 
@@ -665,7 +791,10 @@ impl ProjectManager {
         let Some(exec) = container.agents().login(agent).await? else {
             return Ok(None);
         };
-        let session_id = self.agent_logins.start(agent, user_id, project_id, exec).await;
+        let session_id = self
+            .agent_logins
+            .start(agent, user_id, project_id, exec)
+            .await;
         Ok(Some(session_id))
     }
 
@@ -676,7 +805,12 @@ impl ProjectManager {
     pub async fn agent_login_snapshot(
         &self,
         session_id: Uuid,
-    ) -> Option<(apich_sandbox::tools::AgentKind, Uuid, String, crate::services::agent_login::AgentLoginStatus)> {
+    ) -> Option<(
+        apich_sandbox::tools::AgentKind,
+        Uuid,
+        String,
+        crate::services::agent_login::AgentLoginStatus,
+    )> {
         let session = self.agent_logins.get(session_id).await?;
         let (output, status) = session.snapshot().await;
         Some((session.agent, session.owner_user_id, output, status))
@@ -685,14 +819,21 @@ impl ProjectManager {
     /// Writes one line of pasted-back input (e.g. an OAuth code) into a running login session's
     /// stdin. Fails if the session doesn't exist, already finished, or never needed input in the
     /// first place (a `DeviceCode` flow like Codex's polls on its own).
-    pub async fn submit_agent_login_input(&self, session_id: Uuid, user_id: Uuid, line: &str) -> WebResult<()> {
+    pub async fn submit_agent_login_input(
+        &self,
+        session_id: Uuid,
+        user_id: Uuid,
+        line: &str,
+    ) -> WebResult<()> {
         let session = self
             .agent_logins
             .get(session_id)
             .await
             .ok_or_else(|| WebError::NotFound("Login session not found".to_string()))?;
         if session.owner_user_id != user_id {
-            return Err(WebError::Forbidden("This login session belongs to a different user".to_string()));
+            return Err(WebError::Forbidden(
+                "This login session belongs to a different user".to_string(),
+            ));
         }
         self.agent_logins
             .submit_input(session_id, line)
@@ -714,11 +855,7 @@ impl ProjectManager {
 
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
-        let container_name = format!(
-            "apich-proj-{}-{}",
-            proj.slug,
-            user_suffix
-        );
+        let container_name = format!("apich-proj-{}-{}", proj.slug, user_suffix);
 
         info!(
             project_id = %project_id,
@@ -728,7 +865,10 @@ impl ProjectManager {
         );
 
         // Stop container via container manager (ignore error if already stopped)
-        let _ = self.sandbox_manager.stop_container(&container_name, 10).await;
+        let _ = self
+            .sandbox_manager
+            .stop_container(&container_name, 10)
+            .await;
 
         let sandbox = repo
             .upsert_project_sandbox(project_id, user_id, &container_name, "stopped")
@@ -743,7 +883,10 @@ impl ProjectManager {
     /// what makes stopping automatic too, instead of a container running forever once opened.
     /// Intended to be called on a periodic background loop (see `main.rs`), not from a request
     /// handler. Returns how many sandboxes it stopped, for logging.
-    pub async fn reap_idle_sandboxes(&self, idle_timeout: chrono::Duration) -> WebResult<usize> {
+    pub async fn reap_idle_sandboxes(
+        &self,
+        idle_timeout: chrono::Duration,
+    ) -> WebResult<usize> {
         let repo = self.db.repository();
         let idle_since = chrono::Utc::now() - idle_timeout;
         let idle = repo.list_idle_running_sandboxes(idle_since).await?;
@@ -751,7 +894,7 @@ impl ProjectManager {
         let mut stopped = 0;
         for sandbox in idle {
             match self.stop_sandbox(sandbox.project_id, sandbox.user_id).await {
-                Ok(_) => {
+                | Ok(_) => {
                     stopped += 1;
                     info!(
                         project_id = %sandbox.project_id,
@@ -759,15 +902,15 @@ impl ProjectManager {
                         container = %sandbox.container_name,
                         "Stopped idle sandbox"
                     );
-                }
-                Err(e) => {
+                },
+                | Err(e) => {
                     tracing::warn!(
                         project_id = %sandbox.project_id,
                         user_id = %sandbox.user_id,
                         error = %e,
                         "Failed to stop idle sandbox"
                     );
-                }
+                },
             }
         }
         Ok(stopped)
@@ -782,16 +925,26 @@ impl ProjectManager {
     /// exists so a user who stops a sandbox and comes back an hour later still gets a fast restart
     /// via `ensure_running_with_config`'s "container exists, just start it" path rather than a
     /// full re-create from the image every time.
-    pub async fn reap_stopped_sandboxes(&self, grace_period: chrono::Duration) -> WebResult<usize> {
+    pub async fn reap_stopped_sandboxes(
+        &self,
+        grace_period: chrono::Duration,
+    ) -> WebResult<usize> {
         let repo = self.db.repository();
         let stopped_since = chrono::Utc::now() - grace_period;
         let stale = repo.list_stale_stopped_sandboxes(stopped_since).await?;
 
         let mut removed = 0;
         for sandbox in stale {
-            match self.sandbox_manager.driver().remove(&sandbox.container_name, true).await {
-                Ok(()) => {
-                    let _ = repo.delete_project_sandbox(sandbox.project_id, sandbox.user_id).await;
+            match self
+                .sandbox_manager
+                .driver()
+                .remove(&sandbox.container_name, true)
+                .await
+            {
+                | Ok(()) => {
+                    let _ = repo
+                        .delete_project_sandbox(sandbox.project_id, sandbox.user_id)
+                        .await;
                     removed += 1;
                     info!(
                         project_id = %sandbox.project_id,
@@ -799,8 +952,8 @@ impl ProjectManager {
                         container = %sandbox.container_name,
                         "Removed stale stopped sandbox container"
                     );
-                }
-                Err(e) => {
+                },
+                | Err(e) => {
                     tracing::warn!(
                         project_id = %sandbox.project_id,
                         user_id = %sandbox.user_id,
@@ -808,7 +961,7 @@ impl ProjectManager {
                         error = %e,
                         "Failed to remove stale stopped sandbox container"
                     );
-                }
+                },
             }
         }
         Ok(removed)
@@ -824,7 +977,11 @@ impl ProjectManager {
     pub async fn reap_orphaned_containers(&self) -> WebResult<usize> {
         let repo = self.db.repository();
         let managed = self.sandbox_manager.list_managed_sandboxes().await?;
-        let tracked: std::collections::HashSet<String> = repo.list_all_sandbox_container_names().await?.into_iter().collect();
+        let tracked: std::collections::HashSet<String> = repo
+            .list_all_sandbox_container_names()
+            .await?
+            .into_iter()
+            .collect();
 
         let mut removed = 0;
         for name in managed {
@@ -832,13 +989,13 @@ impl ProjectManager {
                 continue;
             }
             match self.sandbox_manager.driver().remove(&name, true).await {
-                Ok(()) => {
+                | Ok(()) => {
                     removed += 1;
                     info!(container = %name, "Removed orphaned sandbox container with no tracking row");
-                }
-                Err(e) => {
+                },
+                | Err(e) => {
                     tracing::warn!(container = %name, error = %e, "Failed to remove orphaned sandbox container");
-                }
+                },
             }
         }
         Ok(removed)
@@ -867,7 +1024,10 @@ impl ProjectManager {
     }
 
     /// Retrieve the VCS snapshot timeline for a project
-    pub async fn get_project_timeline(&self, project_id: Uuid) -> WebResult<Vec<Snapshot>> {
+    pub async fn get_project_timeline(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<Vec<Snapshot>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -909,16 +1069,16 @@ impl ProjectManager {
             let mut best: Option<apich_vcs::SignatureStatus> = None;
             for key in &keys {
                 match vcs.verify_snapshot_signature(snap.id, &key.public_key) {
-                    Ok(Some(apich_vcs::SignatureStatus::Valid { fingerprint })) => {
+                    | Ok(Some(apich_vcs::SignatureStatus::Valid { fingerprint })) => {
                         best = Some(apich_vcs::SignatureStatus::Valid { fingerprint });
                         break;
-                    }
-                    Ok(Some(status @ apich_vcs::SignatureStatus::Invalid(_))) => {
+                    },
+                    | Ok(Some(status @ apich_vcs::SignatureStatus::Invalid(_))) => {
                         if best.is_none() {
                             best = Some(status);
                         }
-                    }
-                    _ => {}
+                    },
+                    | _ => {},
                 }
             }
             if let Some(status) = best {
@@ -930,7 +1090,10 @@ impl ProjectManager {
 
     /// Export a project's full apich-vcs history as a downloadable bundle (tar.gz), for
     /// apich-vcs's own "clone"/"pull" over HTTP -- see `apich_vcs::bundle::ProjectBundle`.
-    pub async fn export_vcs_bundle(&self, project_id: Uuid) -> WebResult<Vec<u8>> {
+    pub async fn export_vcs_bundle(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<Vec<u8>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -944,7 +1107,11 @@ impl ProjectManager {
 
     /// Accept an uploaded bundle as a "push" to this project's apich-vcs history -- see
     /// `apich_vcs::bundle::ProjectBundle::accept_push` for the fast-forward safety rules.
-    pub async fn accept_vcs_push(&self, project_id: Uuid, bundle_bytes: &[u8]) -> WebResult<apich_vcs::PushOutcome> {
+    pub async fn accept_vcs_push(
+        &self,
+        project_id: Uuid,
+        bundle_bytes: &[u8],
+    ) -> WebResult<apich_vcs::PushOutcome> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -956,7 +1123,10 @@ impl ProjectManager {
     }
 
     /// Retrieve branches (current active branch and all branches)
-    pub async fn get_branches(&self, project_id: Uuid) -> WebResult<(Option<String>, Vec<String>)> {
+    pub async fn get_branches(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<(Option<String>, Vec<String>)> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -970,7 +1140,11 @@ impl ProjectManager {
     }
 
     /// Create a new branch pointing at the current HEAD
-    pub async fn branch_create(&self, project_id: Uuid, name: &str) -> WebResult<()> {
+    pub async fn branch_create(
+        &self,
+        project_id: Uuid,
+        name: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -982,7 +1156,11 @@ impl ProjectManager {
     }
 
     /// Switch the current branch (checks out its HEAD tree into the working directory)
-    pub async fn branch_switch(&self, project_id: Uuid, name: &str) -> WebResult<()> {
+    pub async fn branch_switch(
+        &self,
+        project_id: Uuid,
+        name: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -994,7 +1172,12 @@ impl ProjectManager {
     }
 
     /// Mark the current HEAD snapshot (or take a fresh one) as a named milestone
-    pub async fn create_milestone(&self, project_id: Uuid, name: &str, desc: &str) -> WebResult<Snapshot> {
+    pub async fn create_milestone(
+        &self,
+        project_id: Uuid,
+        name: &str,
+        desc: &str,
+    ) -> WebResult<Snapshot> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1006,7 +1189,10 @@ impl ProjectManager {
     }
 
     /// List all snapshots marked as milestones
-    pub async fn list_milestones(&self, project_id: Uuid) -> WebResult<Vec<Snapshot>> {
+    pub async fn list_milestones(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<Vec<Snapshot>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1019,7 +1205,10 @@ impl ProjectManager {
     }
 
     /// Undo the last reversible VCS operation (branch HEAD moves back per the OpLog)
-    pub async fn vcs_undo(&self, project_id: Uuid) -> WebResult<Option<Uuid>> {
+    pub async fn vcs_undo(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<Option<Uuid>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1030,7 +1219,10 @@ impl ProjectManager {
     }
 
     /// Redo the last undone VCS operation
-    pub async fn vcs_redo(&self, project_id: Uuid) -> WebResult<Option<Uuid>> {
+    pub async fn vcs_redo(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<Option<Uuid>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1041,7 +1233,11 @@ impl ProjectManager {
     }
 
     /// Execute a weave-free 3-way merge from another branch
-    pub async fn merge_branch(&self, project_id: Uuid, other_branch: &str) -> WebResult<MergeSummary> {
+    pub async fn merge_branch(
+        &self,
+        project_id: Uuid,
+        other_branch: &str,
+    ) -> WebResult<MergeSummary> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1060,7 +1256,10 @@ impl ProjectManager {
     }
 
     /// Detect files with active conflict markers in the workspace
-    pub async fn detect_conflicts(&self, project_id: Uuid) -> WebResult<Vec<ConflictFileView>> {
+    pub async fn detect_conflicts(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<Vec<ConflictFileView>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1073,8 +1272,8 @@ impl ProjectManager {
         let mut dirs = vec![proj_root.clone()];
         while let Some(dir) = dirs.pop() {
             let mut entries = match tokio::fs::read_dir(&dir).await {
-                Ok(e) => e,
-                Err(_) => continue,
+                | Ok(e) => e,
+                | Err(_) => continue,
             };
 
             while let Ok(Some(entry)) = entries.next_entry().await {
@@ -1155,7 +1354,11 @@ impl ProjectManager {
     }
 
     /// Synchronize project history with Git bridge
-    pub async fn git_sync(&self, project_id: Uuid, commit_message: &str) -> WebResult<Option<String>> {
+    pub async fn git_sync(
+        &self,
+        project_id: Uuid,
+        commit_message: &str,
+    ) -> WebResult<Option<String>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1182,7 +1385,10 @@ impl ProjectManager {
     }
 
     /// Retrieve Git bridge status
-    pub async fn get_git_status(&self, project_id: Uuid) -> WebResult<GitStatusView> {
+    pub async fn get_git_status(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<GitStatusView> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1209,7 +1415,10 @@ impl ProjectManager {
     }
 
     /// Fetch the project's ignore configuration (profile toggles + custom rules).
-    pub async fn get_ignore_config(&self, project_id: Uuid) -> WebResult<apich_vcs::IgnoreConfig> {
+    pub async fn get_ignore_config(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<apich_vcs::IgnoreConfig> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1220,7 +1429,12 @@ impl ProjectManager {
     }
 
     /// Enable or disable a named ignore profile and persist it to the project's config file.
-    pub async fn set_ignore_profile(&self, project_id: Uuid, profile_id: &str, enabled: bool) -> WebResult<()> {
+    pub async fn set_ignore_profile(
+        &self,
+        project_id: Uuid,
+        profile_id: &str,
+        enabled: bool,
+    ) -> WebResult<()> {
         let profile = ignore_profile_from_id(profile_id)
             .ok_or_else(|| WebError::BadRequest(format!("Unknown ignore profile: {profile_id}")))?;
         let repo = self.db.repository();
@@ -1239,7 +1453,11 @@ impl ProjectManager {
     }
 
     /// Add a custom ignore/whitelist rule (e.g. `*.tmp` or `!keep-me.csv`) and persist it.
-    pub async fn add_ignore_rule(&self, project_id: Uuid, rule: &str) -> WebResult<()> {
+    pub async fn add_ignore_rule(
+        &self,
+        project_id: Uuid,
+        rule: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1252,7 +1470,11 @@ impl ProjectManager {
     }
 
     /// Remove a custom ignore/whitelist rule and persist it.
-    pub async fn remove_ignore_rule(&self, project_id: Uuid, rule: &str) -> WebResult<()> {
+    pub async fn remove_ignore_rule(
+        &self,
+        project_id: Uuid,
+        rule: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1266,7 +1488,11 @@ impl ProjectManager {
 
     /// Read the raw contents of the project's `.gitignore` or `.apichignore` file (empty string
     /// if the file does not exist yet).
-    pub async fn read_ignore_file(&self, project_id: Uuid, file_name: &str) -> WebResult<String> {
+    pub async fn read_ignore_file(
+        &self,
+        project_id: Uuid,
+        file_name: &str,
+    ) -> WebResult<String> {
         let file_name = validate_ignore_file_name(file_name)?;
         let repo = self.db.repository();
         let proj = repo
@@ -1275,15 +1501,24 @@ impl ProjectManager {
             .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
         let path = PathBuf::from(&proj.storage_path).join(file_name);
         match tokio::fs::read_to_string(&path).await {
-            Ok(content) => Ok(content),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-            Err(e) => Err(WebError::Internal(format!("Failed to read {file_name}: {e}"))),
+            | Ok(content) => Ok(content),
+            | Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            | Err(e) => {
+                Err(WebError::Internal(format!(
+                    "Failed to read {file_name}: {e}"
+                )))
+            },
         }
     }
 
     /// Overwrite the project's `.gitignore` or `.apichignore` file with new raw content, then
     /// reload the live ignore filter so the change takes effect immediately.
-    pub async fn write_ignore_file(&self, project_id: Uuid, file_name: &str, content: &str) -> WebResult<()> {
+    pub async fn write_ignore_file(
+        &self,
+        project_id: Uuid,
+        file_name: &str,
+        content: &str,
+    ) -> WebResult<()> {
         let file_name = validate_ignore_file_name(file_name)?;
         let repo = self.db.repository();
         let proj = repo
@@ -1300,7 +1535,12 @@ impl ProjectManager {
     }
 
     /// Add or update a Git remote on the project's working repository.
-    pub async fn git_add_remote(&self, project_id: Uuid, name: &str, url: &str) -> WebResult<()> {
+    pub async fn git_add_remote(
+        &self,
+        project_id: Uuid,
+        name: &str,
+        url: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1312,7 +1552,11 @@ impl ProjectManager {
     }
 
     /// Fetch from a Git remote without merging.
-    pub async fn git_fetch(&self, project_id: Uuid, remote: &str) -> WebResult<()> {
+    pub async fn git_fetch(
+        &self,
+        project_id: Uuid,
+        remote: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1325,7 +1569,11 @@ impl ProjectManager {
 
     /// Rebase the current branch onto an upstream branch or commit-ish, then re-snapshot the
     /// resulting working tree so the rebase is reflected in the apich-vcs timeline too.
-    pub async fn git_rebase(&self, project_id: Uuid, upstream: &str) -> WebResult<()> {
+    pub async fn git_rebase(
+        &self,
+        project_id: Uuid,
+        upstream: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1338,7 +1586,12 @@ impl ProjectManager {
     }
 
     /// Push the current (or given) branch to a Git remote.
-    pub async fn git_push(&self, project_id: Uuid, remote: &str, branch: &str) -> WebResult<()> {
+    pub async fn git_push(
+        &self,
+        project_id: Uuid,
+        remote: &str,
+        branch: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1350,7 +1603,12 @@ impl ProjectManager {
     }
 
     /// Pull from a Git remote into the current branch, then re-snapshot the result.
-    pub async fn git_pull(&self, project_id: Uuid, remote: &str, branch: &str) -> WebResult<()> {
+    pub async fn git_pull(
+        &self,
+        project_id: Uuid,
+        remote: &str,
+        branch: &str,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1363,7 +1621,10 @@ impl ProjectManager {
     }
 
     /// Archive a project and cleanly terminate any active containers
-    pub async fn archive_project(&self, project_id: Uuid) -> WebResult<()> {
+    pub async fn archive_project(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         repo.update_project_status(project_id, "archived").await?;
         info!(project_id = %project_id, "Project archived");
@@ -1371,7 +1632,10 @@ impl ProjectManager {
     }
 
     /// Delete a project (soft delete)
-    pub async fn delete_project(&self, project_id: Uuid) -> WebResult<()> {
+    pub async fn delete_project(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<()> {
         let repo = self.db.repository();
         repo.update_project_status(project_id, "deleted").await?;
         info!(project_id = %project_id, "Project marked deleted");
@@ -1379,7 +1643,10 @@ impl ProjectManager {
     }
 
     /// List all working copy files in a project workspace
-    pub async fn list_files(&self, project_id: Uuid) -> WebResult<Vec<ProjectFileItem>> {
+    pub async fn list_files(
+        &self,
+        project_id: Uuid,
+    ) -> WebResult<Vec<ProjectFileItem>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1406,15 +1673,18 @@ impl ProjectManager {
 
         while let Some(dir) = dirs.pop() {
             let mut entries = match tokio::fs::read_dir(&dir).await {
-                Ok(e) => e,
-                Err(_) => continue,
+                | Ok(e) => e,
+                | Err(_) => continue,
             };
 
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let path = entry.path();
                 let file_name = entry.file_name().to_string_lossy().to_string();
 
-                if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" {
+                if file_name.starts_with('.')
+                    || file_name == "target"
+                    || file_name == "node_modules"
+                {
                     continue;
                 }
                 // The auto-materialized `<name>.csv.table` sibling `SqliteTableService::
@@ -1444,9 +1714,9 @@ impl ProjectManager {
 
                         let meta = entry.metadata().await.ok();
                         let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                        let modified_rfc3339 = meta.and_then(|m| m.modified().ok()).map(|t| {
-                            chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()
-                        });
+                        let modified_rfc3339 = meta
+                            .and_then(|m| m.modified().ok())
+                            .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
 
                         let ext = path
                             .extension()
@@ -1454,37 +1724,69 @@ impl ProjectManager {
                             .unwrap_or("")
                             .to_lowercase();
 
-                        let category = if file_name == "slides.typ" || file_name.ends_with(".slide.typ") {
-                            "slide".to_string()
-                        } else if ext == "typ" {
-                            "typst".to_string()
-                        } else if ext == "tex" || ext == "latex" {
-                            "latex".to_string()
-                        } else if ext == "table" || ext == "db" || ext == "sqlite" || ext == "sqlite3" || ext == "csv" {
-                            "table".to_string()
-                        } else if ext == "anote" || ext == "note" || ext == "md" || ext == "markdown" {
-                            "note".to_string()
-                        } else if matches!(ext.as_str(), "py" | "sh" | "bash" | "r" | "rs" | "js" | "ts") {
-                            "script".to_string()
-                        } else if matches!(ext.as_str(), "tsv" | "json" | "png" | "jpg" | "jpeg" | "svg") {
-                            "asset".to_string()
-                        } else {
-                            "other".to_string()
-                        };
+                        let category =
+                            if file_name == "slides.typ" || file_name.ends_with(".slide.typ") {
+                                "slide".to_string()
+                            } else if ext == "typ" {
+                                "typst".to_string()
+                            } else if ext == "tex" || ext == "latex" {
+                                "latex".to_string()
+                            } else if ext == "table"
+                                || ext == "db"
+                                || ext == "sqlite"
+                                || ext == "sqlite3"
+                                || ext == "csv"
+                            {
+                                "table".to_string()
+                            } else if ext == "anote"
+                                || ext == "note"
+                                || ext == "md"
+                                || ext == "markdown"
+                            {
+                                "note".to_string()
+                            } else if matches!(
+                                ext.as_str(),
+                                "py" | "sh" | "bash" | "r" | "rs" | "js" | "ts"
+                            ) {
+                                "script".to_string()
+                            } else if matches!(
+                                ext.as_str(),
+                                "tsv" | "json" | "png" | "jpg" | "jpeg" | "svg"
+                            ) {
+                                "asset".to_string()
+                            } else {
+                                "other".to_string()
+                            };
 
                         let open_url = match category.as_str() {
-                            "slide" | "typst" | "latex" => {
-                                format!("/projects/{}/editor?file={}", project_id, urlencoding::encode(&rel))
-                            }
-                            "script" => {
-                                format!("/projects/{}/editor?file={}", project_id, urlencoding::encode(&rel))
-                            }
-                            "table" => {
-                                format!("/projects/{}/table?file={}", project_id, urlencoding::encode(&rel))
-                            }
-                            "note" => {
-                                format!("/projects/{}/note?file={}", project_id, urlencoding::encode(&rel))
-                            }
+                            | "slide" | "typst" | "latex" => {
+                                format!(
+                                    "/projects/{}/editor?file={}",
+                                    project_id,
+                                    urlencoding::encode(&rel)
+                                )
+                            },
+                            | "script" => {
+                                format!(
+                                    "/projects/{}/editor?file={}",
+                                    project_id,
+                                    urlencoding::encode(&rel)
+                                )
+                            },
+                            | "table" => {
+                                format!(
+                                    "/projects/{}/table?file={}",
+                                    project_id,
+                                    urlencoding::encode(&rel)
+                                )
+                            },
+                            | "note" => {
+                                format!(
+                                    "/projects/{}/note?file={}",
+                                    project_id,
+                                    urlencoding::encode(&rel)
+                                )
+                            },
                             // "asset"/"other" cover real binary content (PDFs -- typically the
                             // compiled output sitting next to a .tex source, images, audio) that
                             // the text-based editor studio's `read_file` (a `String`) simply
@@ -1493,15 +1795,22 @@ impl ProjectManager {
                             // source". The raw endpoint serves real bytes with a real
                             // content-type, so the browser can actually display (PDF, image) or
                             // download (anything else) it.
-                            _ => {
-                                format!("/projects/{}/files/raw?file={}", project_id, urlencoding::encode(&rel))
-                            }
+                            | _ => {
+                                format!(
+                                    "/projects/{}/files/raw?file={}",
+                                    project_id,
+                                    urlencoding::encode(&rel)
+                                )
+                            },
                         };
 
-                        let share_info = proj.settings
+                        let share_info = proj
+                            .settings
                             .get("file_shares")
                             .and_then(|fs| fs.get(&rel))
-                            .and_then(|val| serde_json::from_value::<FileShareInfo>(val.clone()).ok());
+                            .and_then(|val| {
+                                serde_json::from_value::<FileShareInfo>(val.clone()).ok()
+                            });
 
                         items.push(ProjectFileItem {
                             path: rel,
@@ -1552,10 +1861,17 @@ impl ProjectManager {
             token,
         };
 
-        file_shares.insert(file_path.to_string(), serde_json::to_value(&share_info).unwrap());
-        settings.insert("file_shares".to_string(), serde_json::Value::Object(file_shares));
+        file_shares.insert(
+            file_path.to_string(),
+            serde_json::to_value(&share_info).unwrap(),
+        );
+        settings.insert(
+            "file_shares".to_string(),
+            serde_json::Value::Object(file_shares),
+        );
 
-        repo.update_project_settings(project_id, serde_json::Value::Object(settings)).await?;
+        repo.update_project_settings(project_id, serde_json::Value::Object(settings))
+            .await?;
         Ok(share_info)
     }
 
@@ -1571,7 +1887,8 @@ impl ProjectManager {
             .await?
             .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
 
-        let info = proj.settings
+        let info = proj
+            .settings
             .get("file_shares")
             .and_then(|fs| fs.get(file_path))
             .and_then(|val| serde_json::from_value::<FileShareInfo>(val.clone()).ok());
@@ -1596,12 +1913,17 @@ impl ProjectManager {
         settings.insert("share_mode".to_string(), serde_json::json!(mode));
         settings.insert("share_role".to_string(), serde_json::json!(role));
 
-        repo.update_project_settings(project_id, serde_json::Value::Object(settings)).await?;
+        repo.update_project_settings(project_id, serde_json::Value::Object(settings))
+            .await?;
         Ok(())
     }
 
     /// Read file content as text
-    pub async fn read_file(&self, project_id: Uuid, rel_path: &str) -> WebResult<String> {
+    pub async fn read_file(
+        &self,
+        project_id: Uuid,
+        rel_path: &str,
+    ) -> WebResult<String> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1627,7 +1949,11 @@ impl ProjectManager {
     /// Read file content as raw bytes -- for download/inline-view of binary files (PDFs, images,
     /// SQLite tables, audio) that `read_file`'s `String` return type can't represent. Same
     /// path-traversal guard as every other file accessor here.
-    pub async fn read_file_bytes(&self, project_id: Uuid, rel_path: &str) -> WebResult<Vec<u8>> {
+    pub async fn read_file_bytes(
+        &self,
+        project_id: Uuid,
+        rel_path: &str,
+    ) -> WebResult<Vec<u8>> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -1670,9 +1996,9 @@ impl ProjectManager {
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if let Some(parent) = full_path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| WebError::Internal(format!("Failed to create parent directory: {}", e)))?;
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                WebError::Internal(format!("Failed to create parent directory: {}", e))
+            })?;
         }
 
         tokio::fs::write(&full_path, content.as_bytes())
@@ -1709,18 +2035,26 @@ impl ProjectManager {
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if full_path.exists() {
-            return Err(WebError::Conflict(format!("File '{}' already exists", rel_path)));
+            return Err(WebError::Conflict(format!(
+                "File '{}' already exists",
+                rel_path
+            )));
         }
 
         if let Some(parent) = full_path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| WebError::Internal(format!("Failed to create parent directory: {}", e)))?;
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                WebError::Internal(format!("Failed to create parent directory: {}", e))
+            })?;
         }
 
-        if template == "table" || clean.ends_with(".table") || clean.ends_with(".sqlite") || clean.ends_with(".db") {
-            let conn = rusqlite::Connection::open(&full_path)
-                .map_err(|e| WebError::Internal(format!("Failed to initialize SQLite table: {}", e)))?;
+        if template == "table"
+            || clean.ends_with(".table")
+            || clean.ends_with(".sqlite")
+            || clean.ends_with(".db")
+        {
+            let conn = rusqlite::Connection::open(&full_path).map_err(|e| {
+                WebError::Internal(format!("Failed to initialize SQLite table: {}", e))
+            })?;
             conn.execute_batch(
                 r#"CREATE TABLE records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1741,19 +2075,25 @@ INSERT INTO records (item_name, category, value, status, notes) VALUES
             // the demo seeder), or the file this same match arm is about to create would fail its
             // very first compile.
             if template == "slide" {
-                crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(&proj.storage_path)
-                    .await
-                    .map_err(|e| WebError::Internal(format!("Failed to provision slide.typ/theme.typ: {}", e)))?;
+                crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(
+                    &proj.storage_path,
+                )
+                .await
+                .map_err(|e| {
+                    WebError::Internal(format!("Failed to provision slide.typ/theme.typ: {}", e))
+                })?;
             }
             let initial_content = match template {
-                "typst" => r#"#set page(paper: "a4", margin: 2.5cm)
+                | "typst" => {
+                    r#"#set page(paper: "a4", margin: 2.5cm)
 #set text(font: "Linux Libertine", size: 11pt)
 
 = New Typst Document
 
 == Introduction
 This document is authored inside APICH Unified Research Cloud.
-"#,
+"#
+                },
                 // Matches `slide.typ`'s real exported API (`title-slide(title:, subtitle:,
                 // author:, institution:, date:)`, `slide(title:, body)`) -- a previous version of
                 // this called a `slide-theme` function and a `step[...]` block that don't exist
@@ -1768,7 +2108,8 @@ This document is authored inside APICH Unified Research Cloud.
                 // check on virtually any real content as a result. Restored here to match
                 // theme.typ's real, current API and cargo-slide's own reference template
                 // (crates/slide-theme/typst/template.typ upstream) exactly.
-                "slide" => r#"#import "theme.typ": *
+                | "slide" => {
+                    r#"#import "theme.typ": *
 #import "slide.typ": *
 
 #show: slide-theme.with(
@@ -1788,8 +2129,10 @@ This document is authored inside APICH Unified Research Cloud.
   - First bullet point of our presentation
   - Second critical takeaway
 ]
-"#,
-                "latex" => r#"\documentclass{article}
+"#
+                },
+                | "latex" => {
+                    r#"\documentclass{article}
 \usepackage[utf8]{inputenc}
 
 \title{New Research Report}
@@ -1803,8 +2146,10 @@ This document is authored inside APICH Unified Research Cloud.
 Begin drafting your LaTeX manuscript here.
 
 \end{document}
-"#,
-                "note" => r#"---
+"#
+                },
+                | "note" => {
+                    r#"---
 title: "Research Log"
 tags: ["experiment", "notes"]
 status: "in_progress"
@@ -1818,8 +2163,9 @@ status: "in_progress"
 
 ## Cross References
 - [[paper.typ]]
-"#,
-                _ => "# New File\n",
+"#
+                },
+                | _ => "# New File\n",
             };
 
             tokio::fs::write(&full_path, initial_content.as_bytes())
@@ -1860,13 +2206,16 @@ status: "in_progress"
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if full_path.exists() {
-            return Err(WebError::Conflict(format!("File '{}' already exists", rel_path)));
+            return Err(WebError::Conflict(format!(
+                "File '{}' already exists",
+                rel_path
+            )));
         }
 
         if let Some(parent) = full_path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| WebError::Internal(format!("Failed to create parent directory: {}", e)))?;
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                WebError::Internal(format!("Failed to create parent directory: {}", e))
+            })?;
         }
 
         tokio::fs::write(&full_path, content.as_bytes())
@@ -1876,7 +2225,10 @@ status: "in_progress"
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        let _ = vcs.snapshot_if_changed(format!("Create {} from template (by user {})", clean, user_suffix))?;
+        let _ = vcs.snapshot_if_changed(format!(
+            "Create {} from template (by user {})",
+            clean, user_suffix
+        ))?;
 
         Ok(())
     }
@@ -1962,7 +2314,10 @@ pub struct GitStatusView {
     pub current_branch: Option<String>,
 }
 
-pub fn resolve_conflict_content(raw: &str, choice: &str) -> String {
+pub fn resolve_conflict_content(
+    raw: &str,
+    choice: &str,
+) -> String {
     let mut result = String::new();
     let mut in_conflict = false;
     let mut in_ours = false;
@@ -2014,9 +2369,13 @@ pub fn ignore_profile_from_id(id: &str) -> Option<apich_vcs::IgnoreProfile> {
 /// Restrict raw ignore-file editing to the two known file names, rejecting any path traversal.
 fn validate_ignore_file_name(file_name: &str) -> WebResult<&'static str> {
     match file_name {
-        ".gitignore" => Ok(".gitignore"),
-        ".apichignore" => Ok(".apichignore"),
-        _ => Err(WebError::BadRequest(format!("Unsupported ignore file: {file_name}"))),
+        | ".gitignore" => Ok(".gitignore"),
+        | ".apichignore" => Ok(".apichignore"),
+        | _ => {
+            Err(WebError::BadRequest(format!(
+                "Unsupported ignore file: {file_name}"
+            )))
+        },
     }
 }
 

@@ -1,8 +1,13 @@
-use crate::error::{Result, SandboxError};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use crate::error::Result;
+use crate::error::SandboxError;
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::Component;
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -18,18 +23,21 @@ pub struct FileEntry {
 
 /// Safely resolve a relative path against a base host workspace directory,
 /// preventing path traversal attacks (e.g. `../../etc/passwd`).
-pub fn resolve_safe_path(base_dir: &Path, user_path: &Path) -> Result<PathBuf> {
+pub fn resolve_safe_path(
+    base_dir: &Path,
+    user_path: &Path,
+) -> Result<PathBuf> {
     // Disallow absolute user paths or paths with Prefix/RootDir/ParentDir escapes
     for comp in user_path.components() {
         match comp {
-            Component::ParentDir => {
+            | Component::ParentDir => {
                 return Err(SandboxError::InvalidPath(user_path.to_path_buf()));
-            }
-            Component::Prefix(_) | Component::RootDir => {
+            },
+            | Component::Prefix(_) | Component::RootDir => {
                 // If it's absolute, check if it starts with /workspace
                 // We'll normalize later
-            }
-            Component::Normal(_) | Component::CurDir => {}
+            },
+            | Component::Normal(_) | Component::CurDir => {},
         }
     }
 
@@ -58,7 +66,11 @@ pub fn resolve_safe_path(base_dir: &Path, user_path: &Path) -> Result<PathBuf> {
 }
 
 /// Save file content to workspace
-pub fn write_file_safe(base_dir: &Path, rel_path: &Path, content: &[u8]) -> Result<()> {
+pub fn write_file_safe(
+    base_dir: &Path,
+    rel_path: &Path,
+    content: &[u8],
+) -> Result<()> {
     let target = resolve_safe_path(base_dir, rel_path)?;
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
@@ -68,14 +80,20 @@ pub fn write_file_safe(base_dir: &Path, rel_path: &Path, content: &[u8]) -> Resu
 }
 
 /// Read file content from workspace
-pub fn read_file_safe(base_dir: &Path, rel_path: &Path) -> Result<Vec<u8>> {
+pub fn read_file_safe(
+    base_dir: &Path,
+    rel_path: &Path,
+) -> Result<Vec<u8>> {
     let target = resolve_safe_path(base_dir, rel_path)?;
     let bytes = fs::read(target)?;
     Ok(bytes)
 }
 
 /// Check if file exists in workspace
-pub fn file_exists_safe(base_dir: &Path, rel_path: &Path) -> bool {
+pub fn file_exists_safe(
+    base_dir: &Path,
+    rel_path: &Path,
+) -> bool {
     if let Ok(target) = resolve_safe_path(base_dir, rel_path) {
         target.exists()
     } else {
@@ -84,7 +102,10 @@ pub fn file_exists_safe(base_dir: &Path, rel_path: &Path) -> bool {
 }
 
 /// Delete file in workspace
-pub fn remove_file_safe(base_dir: &Path, rel_path: &Path) -> Result<()> {
+pub fn remove_file_safe(
+    base_dir: &Path,
+    rel_path: &Path,
+) -> Result<()> {
     let target = resolve_safe_path(base_dir, rel_path)?;
     if target.is_dir() {
         fs::remove_dir_all(target)?;
@@ -95,14 +116,20 @@ pub fn remove_file_safe(base_dir: &Path, rel_path: &Path) -> Result<()> {
 }
 
 /// Create directory hierarchy in workspace
-pub fn create_dir_all_safe(base_dir: &Path, rel_path: &Path) -> Result<()> {
+pub fn create_dir_all_safe(
+    base_dir: &Path,
+    rel_path: &Path,
+) -> Result<()> {
     let target = resolve_safe_path(base_dir, rel_path)?;
     fs::create_dir_all(target)?;
     Ok(())
 }
 
 /// List files in workspace directory
-pub fn list_dir_safe(base_dir: &Path, rel_path: &Path) -> Result<Vec<FileEntry>> {
+pub fn list_dir_safe(
+    base_dir: &Path,
+    rel_path: &Path,
+) -> Result<Vec<FileEntry>> {
     let target = resolve_safe_path(base_dir, rel_path)?;
     if !target.exists() {
         return Ok(Vec::new());

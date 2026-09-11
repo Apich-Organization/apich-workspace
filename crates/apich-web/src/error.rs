@@ -1,8 +1,7 @@
-use axum::{
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    Json,
-};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::response::Response;
+use axum::Json;
 use serde_json::json;
 use thiserror::Error;
 
@@ -53,34 +52,53 @@ pub enum WebError {
 impl IntoResponse for WebError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            WebError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
-            WebError::InvalidCredentials => (StatusCode::UNAUTHORIZED, self.to_string()),
-            WebError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
-            WebError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
-            WebError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
-            WebError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
-            WebError::PasskeyError(msg) => (StatusCode::BAD_REQUEST, format!("Passkey error: {}", msg)),
-            WebError::OAuthError(msg) => (StatusCode::BAD_REQUEST, format!("OAuth error: {}", msg)),
-            WebError::Database(err) => {
+            | WebError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            | WebError::InvalidCredentials => (StatusCode::UNAUTHORIZED, self.to_string()),
+            | WebError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
+            | WebError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            | WebError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            | WebError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
+            | WebError::PasskeyError(msg) => {
+                (StatusCode::BAD_REQUEST, format!("Passkey error: {}", msg))
+            },
+            | WebError::OAuthError(msg) => {
+                (StatusCode::BAD_REQUEST, format!("OAuth error: {}", msg))
+            },
+            | WebError::Database(err) => {
                 tracing::error!(%err, "Database error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "A database error occurred".to_string())
-            }
-            WebError::Sqlx(err) => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "A database error occurred".to_string(),
+                )
+            },
+            | WebError::Sqlx(err) => {
                 tracing::error!(%err, "SQLx error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "A database error occurred".to_string())
-            }
-            WebError::Sandbox(err) => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "A database error occurred".to_string(),
+                )
+            },
+            | WebError::Sandbox(err) => {
                 tracing::error!(%err, "Sandbox error");
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Sandbox error: {}", err))
-            }
-            WebError::Vcs(err) => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Sandbox error: {}", err),
+                )
+            },
+            | WebError::Vcs(err) => {
                 tracing::error!(%err, "VCS error");
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("VCS error: {}", err))
-            }
-            WebError::Internal(err) => {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("VCS error: {}", err),
+                )
+            },
+            | WebError::Internal(err) => {
                 tracing::error!(%err, "Internal server error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "An internal server error occurred".to_string())
-            }
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "An internal server error occurred".to_string(),
+                )
+            },
         };
 
         let body = Json(json!({

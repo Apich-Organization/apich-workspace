@@ -1,7 +1,10 @@
 use crate::container::PostgresContainer;
-use crate::error::{DbError, Result};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use crate::error::DbError;
+use crate::error::Result;
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -18,17 +21,17 @@ pub enum BackupFormat {
 impl BackupFormat {
     pub fn extension(&self) -> &'static str {
         match self {
-            BackupFormat::Custom => "dump",
-            BackupFormat::Sql => "sql",
-            BackupFormat::Tar => "tar",
+            | BackupFormat::Custom => "dump",
+            | BackupFormat::Sql => "sql",
+            | BackupFormat::Tar => "tar",
         }
     }
 
     pub fn flag(&self) -> &'static str {
         match self {
-            BackupFormat::Custom => "-Fc",
-            BackupFormat::Sql => "-Fp",
-            BackupFormat::Tar => "-Ft",
+            | BackupFormat::Custom => "-Fc",
+            | BackupFormat::Sql => "-Fp",
+            | BackupFormat::Tar => "-Ft",
         }
     }
 }
@@ -71,7 +74,10 @@ impl<'a> BackupManager<'a> {
     }
 
     /// Create a database backup using `pg_dump` inside the container
-    pub async fn create_backup(&self, opts: BackupOptions) -> Result<BackupInfo> {
+    pub async fn create_backup(
+        &self,
+        opts: BackupOptions,
+    ) -> Result<BackupInfo> {
         let db = opts
             .target_db
             .unwrap_or_else(|| self.container.config().database.clone());
@@ -142,7 +148,11 @@ impl<'a> BackupManager<'a> {
     }
 
     /// Restore database from an existing backup file
-    pub async fn restore_backup(&self, filename: &str, target_db: Option<&str>) -> Result<()> {
+    pub async fn restore_backup(
+        &self,
+        filename: &str,
+        target_db: Option<&str>,
+    ) -> Result<()> {
         let host_backup_path = self.container.config().host_backup_dir.join(filename);
         if !host_backup_path.exists() {
             return Err(DbError::BackupNotFound(host_backup_path));
@@ -233,7 +243,10 @@ impl<'a> BackupManager<'a> {
     }
 
     /// Delete a specific backup file
-    pub fn delete_backup(&self, filename: &str) -> Result<()> {
+    pub fn delete_backup(
+        &self,
+        filename: &str,
+    ) -> Result<()> {
         let path = self.container.config().host_backup_dir.join(filename);
         if path.exists() {
             fs::remove_file(path)?;
@@ -242,7 +255,10 @@ impl<'a> BackupManager<'a> {
     }
 
     /// Prune old backups, keeping only the latest `keep_latest` backups
-    pub fn cleanup_old_backups(&self, keep_latest: usize) -> Result<usize> {
+    pub fn cleanup_old_backups(
+        &self,
+        keep_latest: usize,
+    ) -> Result<usize> {
         let backups = self.list_backups()?;
         let mut deleted = 0;
         if backups.len() > keep_latest {

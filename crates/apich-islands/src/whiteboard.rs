@@ -22,7 +22,8 @@
 //! silently pretending it's full playback.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 fn default_alpha() -> f64 {
     1.0
@@ -107,14 +108,28 @@ fn load_elements(json: &str) -> Vec<Element> {
     if let Some(v) = parsed.get("strokes").cloned() {
         if let Ok(strokes) = serde_json::from_value::<Vec<OldStroke>>(v) {
             for s in strokes {
-                out.push(Element::Stroke { color: s.color, width: s.width, alpha: 1.0, points: s.points });
+                out.push(Element::Stroke {
+                    color: s.color,
+                    width: s.width,
+                    alpha: 1.0,
+                    points: s.points,
+                });
             }
         }
     }
     if let Some(v) = parsed.get("texts").cloned() {
         if let Ok(texts) = serde_json::from_value::<Vec<OldText>>(v) {
             for t in texts {
-                out.push(Element::Text { x: t.x, y: t.y, text: t.text, color: t.color, bg_color: t.bg_color, bold: t.bold, italic: t.italic, font_size: t.font_size });
+                out.push(Element::Text {
+                    x: t.x,
+                    y: t.y,
+                    text: t.text,
+                    color: t.color,
+                    bg_color: t.bg_color,
+                    bold: t.bold,
+                    italic: t.italic,
+                    font_size: t.font_size,
+                });
             }
         }
     }
@@ -128,10 +143,10 @@ const MAX_UNDO_DEPTH: usize = 50;
 /// slider next to it still allows fine-tuning on top of whichever preset is selected.
 fn brush_preset(name: &str) -> (f64, f64) {
     match name {
-        "fine" => (1.5, 1.0),
-        "marker" => (8.0, 0.9),
-        "highlighter" => (20.0, 0.35),
-        _ => (3.0, 1.0), // "pen"
+        | "fine" => (1.5, 1.0),
+        | "marker" => (8.0, 0.9),
+        | "highlighter" => (20.0, 0.35),
+        | _ => (3.0, 1.0), // "pen"
     }
 }
 
@@ -198,7 +213,9 @@ pub fn WhiteboardIsland(
 
     let on_undo = {
         move |_| {
-            let Some(prev) = undo_stack.try_update_value(|s| s.pop()).flatten() else { return };
+            let Some(prev) = undo_stack.try_update_value(|s| s.pop()).flatten() else {
+                return;
+            };
             redo_stack.update_value(|s| {
                 elements.with_value(|els| s.push(els.clone()));
             });
@@ -210,7 +227,9 @@ pub fn WhiteboardIsland(
     };
     let on_redo = {
         move |_| {
-            let Some(next) = redo_stack.try_update_value(|s| s.pop()).flatten() else { return };
+            let Some(next) = redo_stack.try_update_value(|s| s.pop()).flatten() else {
+                return;
+            };
             undo_stack.update_value(|s| {
                 elements.with_value(|els| s.push(els.clone()));
             });
@@ -221,7 +240,17 @@ pub fn WhiteboardIsland(
         }
     };
 
-    let on_clear = clear_handler(canvas_ref, elements, zoom, view_x, view_y, Box::new(push_undo), can_undo, can_redo, redo_stack);
+    let on_clear = clear_handler(
+        canvas_ref,
+        elements,
+        zoom,
+        view_x,
+        view_y,
+        Box::new(push_undo),
+        can_undo,
+        can_redo,
+        redo_stack,
+    );
     let on_export = export_handler(canvas_ref, file_path.clone());
     let on_save = save_handler(elements, save_status, project_id.clone(), file_path.clone());
 
@@ -235,7 +264,9 @@ pub fn WhiteboardIsland(
 
     let commit_text = {
         move || {
-            let Some((x, y)) = pending_text.get_untracked() else { return };
+            let Some((x, y)) = pending_text.get_untracked() else {
+                return;
+            };
             let text = pending_draft.get_untracked();
             pending_text.set(None);
             pending_draft.set(String::new());
@@ -261,8 +292,22 @@ pub fn WhiteboardIsland(
         }
     };
 
-    let on_image_file = image_file_handler(canvas_ref, elements, zoom, view_x, view_y, Box::new(push_undo));
-    let on_video_file = video_file_handler(canvas_ref, elements, zoom, view_x, view_y, Box::new(push_undo));
+    let on_image_file = image_file_handler(
+        canvas_ref,
+        elements,
+        zoom,
+        view_x,
+        view_y,
+        Box::new(push_undo),
+    );
+    let on_video_file = video_file_handler(
+        canvas_ref,
+        elements,
+        zoom,
+        view_x,
+        view_y,
+        Box::new(push_undo),
+    );
 
     let shape_btn = move |kind: &'static str, icon: &'static str, title: &'static str| {
         view! {
@@ -470,7 +515,13 @@ pub fn WhiteboardIsland(
 // no-ops so the server can still render the static HTML shell above without those deps.
 
 #[cfg(feature = "hydrate")]
-fn screen_to_world(x: f64, y: f64, zoom: f64, vx: f64, vy: f64) -> (f64, f64) {
+fn screen_to_world(
+    x: f64,
+    y: f64,
+    zoom: f64,
+    vx: f64,
+    vy: f64,
+) -> (f64, f64) {
     ((x - vx) / zoom, (y - vy) / zoom)
 }
 
@@ -481,9 +532,23 @@ fn screen_to_world(x: f64, y: f64, zoom: f64, vx: f64, vy: f64) -> (f64, f64) {
 #[cfg(feature = "hydrate")]
 enum DragState {
     None,
-    Stroke { color: String, width: f64, alpha: f64, points: Vec<(f64, f64)> },
-    Shape { kind: String, x1: f64, y1: f64, x2: f64, y2: f64 },
-    Pan { start_screen: (f64, f64), start_view: (f64, f64) },
+    Stroke {
+        color: String,
+        width: f64,
+        alpha: f64,
+        points: Vec<(f64, f64)>,
+    },
+    Shape {
+        kind: String,
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+    },
+    Pan {
+        start_screen: (f64, f64),
+        start_view: (f64, f64),
+    },
 }
 
 #[cfg(feature = "hydrate")]
@@ -507,20 +572,30 @@ fn wire_canvas(
     let push_undo = std::rc::Rc::new(push_undo);
 
     Effect::new(move |_| {
-        let Some(canvas) = canvas_ref.get() else { return };
+        let Some(canvas) = canvas_ref.get() else {
+            return;
+        };
         redraw_all(canvas_ref, elements, zoom, view_x, view_y);
 
         let drag = std::rc::Rc::new(std::cell::RefCell::new(DragState::None));
 
-        let pos_from_mouse = |ev: &web_sys::MouseEvent, canvas: &web_sys::HtmlCanvasElement| -> (f64, f64) {
-            let rect = canvas.get_bounding_client_rect();
-            (ev.client_x() as f64 - rect.left(), ev.client_y() as f64 - rect.top())
-        };
-        let pos_from_touch = |ev: &web_sys::TouchEvent, canvas: &web_sys::HtmlCanvasElement| -> Option<(f64, f64)> {
-            let touch = ev.touches().get(0)?;
-            let rect = canvas.get_bounding_client_rect();
-            Some((touch.client_x() as f64 - rect.left(), touch.client_y() as f64 - rect.top()))
-        };
+        let pos_from_mouse =
+            |ev: &web_sys::MouseEvent, canvas: &web_sys::HtmlCanvasElement| -> (f64, f64) {
+                let rect = canvas.get_bounding_client_rect();
+                (
+                    ev.client_x() as f64 - rect.left(),
+                    ev.client_y() as f64 - rect.top(),
+                )
+            };
+        let pos_from_touch =
+            |ev: &web_sys::TouchEvent, canvas: &web_sys::HtmlCanvasElement| -> Option<(f64, f64)> {
+                let touch = ev.touches().get(0)?;
+                let rect = canvas.get_bounding_client_rect();
+                Some((
+                    touch.client_x() as f64 - rect.left(),
+                    touch.client_y() as f64 - rect.top(),
+                ))
+            };
 
         let start_action = {
             let drag = drag.clone();
@@ -535,19 +610,40 @@ fn wire_canvas(
                     return;
                 }
                 if m == "pan" {
-                    *drag.borrow_mut() = DragState::Pan { start_screen: (sx, sy), start_view: (vx, vy) };
+                    *drag.borrow_mut() = DragState::Pan {
+                        start_screen: (sx, sy),
+                        start_view: (vx, vy),
+                    };
                     return;
                 }
                 let (wx, wy) = screen_to_world(sx, sy, z, vx, vy);
                 if matches!(m.as_str(), "rect" | "ellipse" | "line" | "arrow") {
-                    *drag.borrow_mut() = DragState::Shape { kind: m, x1: wx, y1: wy, x2: wx, y2: wy };
+                    *drag.borrow_mut() = DragState::Shape {
+                        kind: m,
+                        x1: wx,
+                        y1: wy,
+                        x2: wx,
+                        y2: wy,
+                    };
                     return;
                 }
                 let is_eraser = m == "eraser";
-                let (w, a) = if is_eraser { (brush_width.get_untracked().max(12.0), 1.0) } else { brush_preset(&brush.get_untracked()) };
-                let width = if is_eraser { w } else { brush_width.get_untracked() };
+                let (w, a) = if is_eraser {
+                    (brush_width.get_untracked().max(12.0), 1.0)
+                } else {
+                    brush_preset(&brush.get_untracked())
+                };
+                let width = if is_eraser {
+                    w
+                } else {
+                    brush_width.get_untracked()
+                };
                 *drag.borrow_mut() = DragState::Stroke {
-                    color: if is_eraser { "#ffffff".to_string() } else { color.get_untracked() },
+                    color: if is_eraser {
+                        "#ffffff".to_string()
+                    } else {
+                        color.get_untracked()
+                    },
                     width,
                     alpha: if is_eraser { 1.0 } else { a },
                     points: vec![(wx, wy)],
@@ -561,14 +657,28 @@ fn wire_canvas(
             move |sx: f64, sy: f64| {
                 let z = zoom.get_untracked();
                 match &mut *drag.borrow_mut() {
-                    DragState::None => {}
-                    DragState::Pan { start_screen, start_view } => {
+                    | DragState::None => {},
+                    | DragState::Pan {
+                        start_screen,
+                        start_view,
+                    } => {
                         view_x.set(start_view.0 + (sx - start_screen.0));
                         view_y.set(start_view.1 + (sy - start_screen.1));
                         redraw_all(canvas_ref, elements, zoom, view_x, view_y);
-                    }
-                    DragState::Stroke { points, color, width, alpha } => {
-                        let (wx, wy) = screen_to_world(sx, sy, z, view_x.get_untracked(), view_y.get_untracked());
+                    },
+                    | DragState::Stroke {
+                        points,
+                        color,
+                        width,
+                        alpha,
+                    } => {
+                        let (wx, wy) = screen_to_world(
+                            sx,
+                            sy,
+                            z,
+                            view_x.get_untracked(),
+                            view_y.get_untracked(),
+                        );
                         points.push((wx, wy));
                         let n = points.len();
                         if n >= 2 {
@@ -576,12 +686,25 @@ fn wire_canvas(
                             ctx.save();
                             let _ = ctx.translate(view_x.get_untracked(), view_y.get_untracked());
                             let _ = ctx.scale(z, z);
-                            paint_segment(&ctx, color, *width, *alpha, points[n - 2], points[n - 1]);
+                            paint_segment(
+                                &ctx,
+                                color,
+                                *width,
+                                *alpha,
+                                points[n - 2],
+                                points[n - 1],
+                            );
                             ctx.restore();
                         }
-                    }
-                    DragState::Shape { kind, x1, y1, x2, y2 } => {
-                        let (wx, wy) = screen_to_world(sx, sy, z, view_x.get_untracked(), view_y.get_untracked());
+                    },
+                    | DragState::Shape { kind, x1, y1, x2, y2 } => {
+                        let (wx, wy) = screen_to_world(
+                            sx,
+                            sy,
+                            z,
+                            view_x.get_untracked(),
+                            view_y.get_untracked(),
+                        );
                         *x2 = wx;
                         *y2 = wy;
                         redraw_all(canvas_ref, elements, zoom, view_x, view_y);
@@ -589,10 +712,22 @@ fn wire_canvas(
                         ctx.save();
                         let _ = ctx.translate(view_x.get_untracked(), view_y.get_untracked());
                         let _ = ctx.scale(z, z);
-                        let fill = fill_enabled.get_untracked().then(|| fill_color.get_untracked());
-                        paint_shape(&ctx, kind, *x1, *y1, *x2, *y2, &color.get_untracked(), fill.as_deref(), brush_width.get_untracked());
+                        let fill = fill_enabled
+                            .get_untracked()
+                            .then(|| fill_color.get_untracked());
+                        paint_shape(
+                            &ctx,
+                            kind,
+                            *x1,
+                            *y1,
+                            *x2,
+                            *y2,
+                            &color.get_untracked(),
+                            fill.as_deref(),
+                            brush_width.get_untracked(),
+                        );
                         ctx.restore();
-                    }
+                    },
                 }
             }
         };
@@ -603,23 +738,48 @@ fn wire_canvas(
             move || {
                 let taken = std::mem::replace(&mut *drag.borrow_mut(), DragState::None);
                 match taken {
-                    DragState::None | DragState::Pan { .. } => {}
-                    DragState::Stroke { color, width, alpha, points } => {
+                    | DragState::None | DragState::Pan { .. } => {},
+                    | DragState::Stroke {
+                        color,
+                        width,
+                        alpha,
+                        points,
+                    } => {
                         if points.len() > 1 {
                             push_undo();
-                            elements.update_value(|e| e.push(Element::Stroke { color, width, alpha, points }));
+                            elements.update_value(|e| {
+                                e.push(Element::Stroke {
+                                    color,
+                                    width,
+                                    alpha,
+                                    points,
+                                })
+                            });
                         }
-                    }
-                    DragState::Shape { kind, x1, y1, x2, y2 } => {
+                    },
+                    | DragState::Shape { kind, x1, y1, x2, y2 } => {
                         if (x1 - x2).abs() > 1.0 || (y1 - y2).abs() > 1.0 {
                             push_undo();
-                            let fill = fill_enabled.get_untracked().then(|| fill_color.get_untracked());
-                            elements.update_value(|e| e.push(Element::Shape { shape: kind, x1, y1, x2, y2, color: color.get_untracked(), fill, width: brush_width.get_untracked() }));
+                            let fill = fill_enabled
+                                .get_untracked()
+                                .then(|| fill_color.get_untracked());
+                            elements.update_value(|e| {
+                                e.push(Element::Shape {
+                                    shape: kind,
+                                    x1,
+                                    y1,
+                                    x2,
+                                    y2,
+                                    color: color.get_untracked(),
+                                    fill,
+                                    width: brush_width.get_untracked(),
+                                })
+                            });
                             redraw_all(canvas_ref, elements, zoom, view_x, view_y);
                         } else {
                             redraw_all(canvas_ref, elements, zoom, view_x, view_y);
                         }
-                    }
+                    },
                 }
             }
         };
@@ -628,68 +788,99 @@ fn wire_canvas(
 
         let md_canvas = canvas_el.clone();
         let start_action_md = start_action.clone();
-        let on_mousedown = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MouseEvent)>::new(move |ev: web_sys::MouseEvent| {
-            let (x, y) = pos_from_mouse(&ev, &md_canvas);
-            start_action_md(x, y);
-        });
-        canvas_el.add_event_listener_with_callback("mousedown", on_mousedown.as_ref().unchecked_ref()).ok();
+        let on_mousedown = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MouseEvent)>::new(
+            move |ev: web_sys::MouseEvent| {
+                let (x, y) = pos_from_mouse(&ev, &md_canvas);
+                start_action_md(x, y);
+            },
+        );
+        canvas_el
+            .add_event_listener_with_callback("mousedown", on_mousedown.as_ref().unchecked_ref())
+            .ok();
         on_mousedown.forget();
 
         let mm_canvas = canvas_el.clone();
         let move_action_mm = move_action.clone();
-        let on_mousemove = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MouseEvent)>::new(move |ev: web_sys::MouseEvent| {
-            let (x, y) = pos_from_mouse(&ev, &mm_canvas);
-            move_action_mm(x, y);
-        });
-        canvas_el.add_event_listener_with_callback("mousemove", on_mousemove.as_ref().unchecked_ref()).ok();
+        let on_mousemove = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MouseEvent)>::new(
+            move |ev: web_sys::MouseEvent| {
+                let (x, y) = pos_from_mouse(&ev, &mm_canvas);
+                move_action_mm(x, y);
+            },
+        );
+        canvas_el
+            .add_event_listener_with_callback("mousemove", on_mousemove.as_ref().unchecked_ref())
+            .ok();
         on_mousemove.forget();
 
         let end_action_mu = end_action.clone();
-        let on_mouseup = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MouseEvent)>::new(move |_ev: web_sys::MouseEvent| {
-            end_action_mu();
-        });
+        let on_mouseup = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::MouseEvent)>::new(
+            move |_ev: web_sys::MouseEvent| {
+                end_action_mu();
+            },
+        );
         if let Some(win) = web_sys::window() {
-            win.add_event_listener_with_callback("mouseup", on_mouseup.as_ref().unchecked_ref()).ok();
+            win.add_event_listener_with_callback("mouseup", on_mouseup.as_ref().unchecked_ref())
+                .ok();
         }
         on_mouseup.forget();
 
         let wheel_canvas = canvas_el.clone();
-        let on_wheel = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::WheelEvent)>::new(move |ev: web_sys::WheelEvent| {
-            ev.prevent_default();
-            let factor = if ev.delta_y() < 0.0 { 1.1 } else { 1.0 / 1.1 };
-            zoom.update(|z| *z = (*z * factor).clamp(0.25, 4.0));
-            redraw_all(canvas_ref, elements, zoom, view_x, view_y);
-        });
-        wheel_canvas.add_event_listener_with_callback("wheel", on_wheel.as_ref().unchecked_ref()).ok();
+        let on_wheel = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::WheelEvent)>::new(
+            move |ev: web_sys::WheelEvent| {
+                ev.prevent_default();
+                let factor = if ev.delta_y() < 0.0 {
+                    1.1
+                } else {
+                    1.0 / 1.1
+                };
+                zoom.update(|z| *z = (*z * factor).clamp(0.25, 4.0));
+                redraw_all(canvas_ref, elements, zoom, view_x, view_y);
+            },
+        );
+        wheel_canvas
+            .add_event_listener_with_callback("wheel", on_wheel.as_ref().unchecked_ref())
+            .ok();
         on_wheel.forget();
 
         let ts_canvas = canvas_el.clone();
         let start_action_ts = start_action.clone();
-        let on_touchstart = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::TouchEvent)>::new(move |ev: web_sys::TouchEvent| {
-            ev.prevent_default();
-            if let Some((x, y)) = pos_from_touch(&ev, &ts_canvas) {
-                start_action_ts(x, y);
-            }
-        });
-        canvas_el.add_event_listener_with_callback("touchstart", on_touchstart.as_ref().unchecked_ref()).ok();
+        let on_touchstart = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::TouchEvent)>::new(
+            move |ev: web_sys::TouchEvent| {
+                ev.prevent_default();
+                if let Some((x, y)) = pos_from_touch(&ev, &ts_canvas) {
+                    start_action_ts(x, y);
+                }
+            },
+        );
+        canvas_el
+            .add_event_listener_with_callback("touchstart", on_touchstart.as_ref().unchecked_ref())
+            .ok();
         on_touchstart.forget();
 
         let tm_canvas = canvas_el.clone();
         let move_action_tm = move_action.clone();
-        let on_touchmove = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::TouchEvent)>::new(move |ev: web_sys::TouchEvent| {
-            ev.prevent_default();
-            if let Some((x, y)) = pos_from_touch(&ev, &tm_canvas) {
-                move_action_tm(x, y);
-            }
-        });
-        canvas_el.add_event_listener_with_callback("touchmove", on_touchmove.as_ref().unchecked_ref()).ok();
+        let on_touchmove = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::TouchEvent)>::new(
+            move |ev: web_sys::TouchEvent| {
+                ev.prevent_default();
+                if let Some((x, y)) = pos_from_touch(&ev, &tm_canvas) {
+                    move_action_tm(x, y);
+                }
+            },
+        );
+        canvas_el
+            .add_event_listener_with_callback("touchmove", on_touchmove.as_ref().unchecked_ref())
+            .ok();
         on_touchmove.forget();
 
         let end_action_te = end_action.clone();
-        let on_touchend = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::TouchEvent)>::new(move |_ev: web_sys::TouchEvent| {
-            end_action_te();
-        });
-        canvas_el.add_event_listener_with_callback("touchend", on_touchend.as_ref().unchecked_ref()).ok();
+        let on_touchend = wasm_bindgen::closure::Closure::<dyn Fn(web_sys::TouchEvent)>::new(
+            move |_ev: web_sys::TouchEvent| {
+                end_action_te();
+            },
+        );
+        canvas_el
+            .add_event_listener_with_callback("touchend", on_touchend.as_ref().unchecked_ref())
+            .ok();
         on_touchend.forget();
     });
 }
@@ -725,7 +916,14 @@ fn canvas_context(canvas: &web_sys::HtmlCanvasElement) -> web_sys::CanvasRenderi
 }
 
 #[cfg(feature = "hydrate")]
-fn paint_segment(ctx: &web_sys::CanvasRenderingContext2d, color: &str, width: f64, alpha: f64, from: (f64, f64), to: (f64, f64)) {
+fn paint_segment(
+    ctx: &web_sys::CanvasRenderingContext2d,
+    color: &str,
+    width: f64,
+    alpha: f64,
+    from: (f64, f64),
+    to: (f64, f64),
+) {
     ctx.set_global_alpha(alpha);
     ctx.set_stroke_style_str(color);
     ctx.set_line_width(width);
@@ -740,13 +938,23 @@ fn paint_segment(ctx: &web_sys::CanvasRenderingContext2d, color: &str, width: f6
 
 #[cfg(feature = "hydrate")]
 #[allow(clippy::too_many_arguments)]
-fn paint_shape(ctx: &web_sys::CanvasRenderingContext2d, kind: &str, x1: f64, y1: f64, x2: f64, y2: f64, color: &str, fill: Option<&str>, width: f64) {
+fn paint_shape(
+    ctx: &web_sys::CanvasRenderingContext2d,
+    kind: &str,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    color: &str,
+    fill: Option<&str>,
+    width: f64,
+) {
     ctx.set_stroke_style_str(color);
     ctx.set_line_width(width);
     ctx.set_line_cap("round");
     ctx.set_line_join("round");
     match kind {
-        "rect" => {
+        | "rect" => {
             let (rx, ry) = (x1.min(x2), y1.min(y2));
             let (rw, rh) = ((x1 - x2).abs(), (y1 - y2).abs());
             if let Some(f) = fill {
@@ -754,8 +962,8 @@ fn paint_shape(ctx: &web_sys::CanvasRenderingContext2d, kind: &str, x1: f64, y1:
                 ctx.fill_rect(rx, ry, rw, rh);
             }
             ctx.stroke_rect(rx, ry, rw, rh);
-        }
-        "ellipse" => {
+        },
+        | "ellipse" => {
             let cx = (x1 + x2) / 2.0;
             let cy = (y1 + y2) / 2.0;
             let rx = ((x1 - x2).abs() / 2.0).max(0.01);
@@ -767,14 +975,14 @@ fn paint_shape(ctx: &web_sys::CanvasRenderingContext2d, kind: &str, x1: f64, y1:
                 ctx.fill();
             }
             ctx.stroke();
-        }
-        "line" => {
+        },
+        | "line" => {
             ctx.begin_path();
             ctx.move_to(x1, y1);
             ctx.line_to(x2, y2);
             ctx.stroke();
-        }
-        "arrow" => {
+        },
+        | "arrow" => {
             ctx.begin_path();
             ctx.move_to(x1, y1);
             ctx.line_to(x2, y2);
@@ -789,8 +997,8 @@ fn paint_shape(ctx: &web_sys::CanvasRenderingContext2d, kind: &str, x1: f64, y1:
             ctx.move_to(x2, y2);
             ctx.line_to(x2 + head_len * a2.cos(), y2 + head_len * a2.sin());
             ctx.stroke();
-        }
-        _ => {}
+        },
+        | _ => {},
     }
 }
 
@@ -799,8 +1007,16 @@ fn paint_shape(ctx: &web_sys::CanvasRenderingContext2d, kind: &str, x1: f64, y1:
 /// pan/zoom tick, so the visible canvas never drifts from the `elements` model or the current
 /// view.
 #[cfg(feature = "hydrate")]
-fn redraw_all(canvas_ref: NodeRef<leptos::html::Canvas>, elements: StoredValue<Vec<Element>>, zoom: RwSignal<f64>, view_x: RwSignal<f64>, view_y: RwSignal<f64>) {
-    let Some(canvas) = canvas_ref.get_untracked() else { return };
+fn redraw_all(
+    canvas_ref: NodeRef<leptos::html::Canvas>,
+    elements: StoredValue<Vec<Element>>,
+    zoom: RwSignal<f64>,
+    view_x: RwSignal<f64>,
+    view_y: RwSignal<f64>,
+) {
+    let Some(canvas) = canvas_ref.get_untracked() else {
+        return;
+    };
     let ctx = canvas_context(&canvas);
     ctx.clear_rect(0.0, 0.0, canvas.width() as f64, canvas.height() as f64);
     ctx.save();
@@ -810,7 +1026,12 @@ fn redraw_all(canvas_ref: NodeRef<leptos::html::Canvas>, elements: StoredValue<V
     elements.with_value(|all| {
         for el in all {
             match el {
-                Element::Stroke { color, width, alpha, points } => {
+                | Element::Stroke {
+                    color,
+                    width,
+                    alpha,
+                    points,
+                } => {
                     if points.len() < 2 {
                         continue;
                     }
@@ -826,14 +1047,33 @@ fn redraw_all(canvas_ref: NodeRef<leptos::html::Canvas>, elements: StoredValue<V
                     }
                     ctx.stroke();
                     ctx.set_global_alpha(1.0);
-                }
-                Element::Shape { shape, x1, y1, x2, y2, color, fill, width } => {
-                    paint_shape(&ctx, shape, *x1, *y1, *x2, *y2, color, fill.as_deref(), *width);
-                }
-                Element::Text { .. } => paint_text(&ctx, el),
-                Element::Image { x, y, w, h, data_url } => {
+                },
+                | Element::Shape {
+                    shape,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    color,
+                    fill,
+                    width,
+                } => {
+                    paint_shape(
+                        &ctx,
+                        shape,
+                        *x1,
+                        *y1,
+                        *x2,
+                        *y2,
+                        color,
+                        fill.as_deref(),
+                        *width,
+                    );
+                },
+                | Element::Text { .. } => paint_text(&ctx, el),
+                | Element::Image { x, y, w, h, data_url } => {
                     paint_image(&ctx, *x, *y, *w, *h, data_url);
-                }
+                },
             }
         }
     });
@@ -841,13 +1081,39 @@ fn redraw_all(canvas_ref: NodeRef<leptos::html::Canvas>, elements: StoredValue<V
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn redraw_all(_canvas_ref: NodeRef<leptos::html::Canvas>, _elements: StoredValue<Vec<Element>>, _zoom: RwSignal<f64>, _view_x: RwSignal<f64>, _view_y: RwSignal<f64>) {}
+fn redraw_all(
+    _canvas_ref: NodeRef<leptos::html::Canvas>,
+    _elements: StoredValue<Vec<Element>>,
+    _zoom: RwSignal<f64>,
+    _view_x: RwSignal<f64>,
+    _view_y: RwSignal<f64>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-fn paint_text(ctx: &web_sys::CanvasRenderingContext2d, el: &Element) {
-    let Element::Text { x, y, text, color, bg_color, bold, italic, font_size } = el else { return };
+fn paint_text(
+    ctx: &web_sys::CanvasRenderingContext2d,
+    el: &Element,
+) {
+    let Element::Text {
+        x,
+        y,
+        text,
+        color,
+        bg_color,
+        bold,
+        italic,
+        font_size,
+    } = el
+    else {
+        return;
+    };
     let weight = if *bold { "700" } else { "400" };
-    let style = if *italic { "italic" } else { "normal" };
+    let style = if *italic {
+        "italic"
+    } else {
+        "normal"
+    };
     ctx.set_font(&format!("{} {} {}px sans-serif", style, weight, font_size));
     ctx.set_text_baseline("top");
     if let Some(bg) = bg_color {
@@ -868,9 +1134,18 @@ fn paint_text(ctx: &web_sys::CanvasRenderingContext2d, el: &Element) {
 /// the decode and redraws just this one image once it completes, which is a harmless extra paint
 /// given how infrequently this actually fires (once per image element per `redraw_all` call).
 #[cfg(feature = "hydrate")]
-fn paint_image(ctx: &web_sys::CanvasRenderingContext2d, x: f64, y: f64, w: f64, h: f64, data_url: &str) {
+fn paint_image(
+    ctx: &web_sys::CanvasRenderingContext2d,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    data_url: &str,
+) {
     use wasm_bindgen::JsCast;
-    let Ok(img) = web_sys::HtmlImageElement::new() else { return };
+    let Ok(img) = web_sys::HtmlImageElement::new() else {
+        return;
+    };
     img.set_src(data_url);
     let ctx = ctx.clone();
     let img_for_closure = img.clone();
@@ -934,13 +1209,26 @@ fn export_handler(
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use wasm_bindgen::JsCast;
     move |_| {
-        let Some(el) = canvas_ref.get_untracked() else { return };
-        let Ok(data_url) = el.to_data_url() else { return };
-        let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
-        let Ok(anchor) = document.create_element("a") else { return };
-        let Ok(anchor) = anchor.dyn_into::<web_sys::HtmlAnchorElement>() else { return };
+        let Some(el) = canvas_ref.get_untracked() else {
+            return;
+        };
+        let Ok(data_url) = el.to_data_url() else {
+            return;
+        };
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        let Ok(anchor) = document.create_element("a") else {
+            return;
+        };
+        let Ok(anchor) = anchor.dyn_into::<web_sys::HtmlAnchorElement>() else {
+            return;
+        };
         anchor.set_href(&data_url);
-        anchor.set_download(&format!("whiteboard-{}.png", file_path.replace(['/', '\\'], "_")));
+        anchor.set_download(&format!(
+            "whiteboard-{}.png",
+            file_path.replace(['/', '\\'], "_")
+        ));
         anchor.click();
     }
 }
@@ -963,21 +1251,23 @@ fn save_handler(
     move |_| {
         save_status.set("Saving...".to_string());
         let json = elements.with_value(|e| {
-            serde_json::to_string(&serde_json::json!({ "elements": e })).unwrap_or_else(|_| "{\"elements\":[]}".to_string())
+            serde_json::to_string(&serde_json::json!({ "elements": e }))
+                .unwrap_or_else(|_| "{\"elements\":[]}".to_string())
         });
         let project_id = project_id.clone();
         let file_path = file_path.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let body = serde_json::json!({ "file": file_path, "whiteboard_json": json });
-            let result = gloo_net::http::Request::post(&format!("/projects/{}/note/whiteboard", project_id))
-                .json(&body)
-                .expect("serializable body")
-                .send()
-                .await;
+            let result =
+                gloo_net::http::Request::post(&format!("/projects/{}/note/whiteboard", project_id))
+                    .json(&body)
+                    .expect("serializable body")
+                    .send()
+                    .await;
             match result {
-                Ok(resp) if resp.ok() => save_status.set("Saved".to_string()),
-                Ok(resp) => save_status.set(format!("Save failed ({})", resp.status())),
-                Err(e) => save_status.set(format!("Save failed: {e}")),
+                | Ok(resp) if resp.ok() => save_status.set("Saved".to_string()),
+                | Ok(resp) => save_status.set(format!("Save failed ({})", resp.status())),
+                | Err(e) => save_status.set(format!("Save failed: {e}")),
             }
         });
     }
@@ -1012,16 +1302,35 @@ fn image_file_handler(
     use wasm_bindgen::JsCast;
     let push_undo = std::rc::Rc::new(push_undo);
     move |ev: leptos::ev::Event| {
-        let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) else { return };
+        let Some(input) = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+        else {
+            return;
+        };
         let Some(files) = input.files() else { return };
         let Some(file) = files.get(0) else { return };
-        let Ok(reader) = web_sys::FileReader::new() else { return };
+        let Ok(reader) = web_sys::FileReader::new() else {
+            return;
+        };
         let reader_for_closure = reader.clone();
         let push_undo = push_undo.clone();
         let onload = wasm_bindgen::closure::Closure::<dyn Fn()>::new(move || {
-            let Ok(result) = reader_for_closure.result() else { return };
-            let Some(data_url) = result.as_string() else { return };
-            place_image_from_data_url(canvas_ref, elements, zoom, view_x, view_y, push_undo.clone(), data_url);
+            let Ok(result) = reader_for_closure.result() else {
+                return;
+            };
+            let Some(data_url) = result.as_string() else {
+                return;
+            };
+            place_image_from_data_url(
+                canvas_ref,
+                elements,
+                zoom,
+                view_x,
+                view_y,
+                push_undo.clone(),
+                data_url,
+            );
         });
         reader.set_onload(Some(onload.as_ref().unchecked_ref()));
         onload.forget();
@@ -1055,17 +1364,35 @@ fn place_image_from_data_url(
     data_url: String,
 ) {
     use wasm_bindgen::JsCast;
-    let Ok(img) = web_sys::HtmlImageElement::new() else { return };
+    let Ok(img) = web_sys::HtmlImageElement::new() else {
+        return;
+    };
     img.set_src(&data_url);
     let img_for_closure = img.clone();
     let onload = wasm_bindgen::closure::Closure::<dyn Fn()>::new(move || {
         let natural_w = img_for_closure.natural_width().max(1) as f64;
         let natural_h = img_for_closure.natural_height().max(1) as f64;
-        let scale = (MAX_PLACED_DIM / natural_w).min(MAX_PLACED_DIM / natural_h).min(1.0);
+        let scale = (MAX_PLACED_DIM / natural_w)
+            .min(MAX_PLACED_DIM / natural_h)
+            .min(1.0);
         let (w, h) = (natural_w * scale, natural_h * scale);
-        let (x, y) = screen_to_world(120.0, 80.0, zoom.get_untracked(), view_x.get_untracked(), view_y.get_untracked());
+        let (x, y) = screen_to_world(
+            120.0,
+            80.0,
+            zoom.get_untracked(),
+            view_x.get_untracked(),
+            view_y.get_untracked(),
+        );
         push_undo();
-        elements.update_value(|e| e.push(Element::Image { x, y, w, h, data_url: data_url.clone() }));
+        elements.update_value(|e| {
+            e.push(Element::Image {
+                x,
+                y,
+                w,
+                h,
+                data_url: data_url.clone(),
+            })
+        });
         redraw_all(canvas_ref, elements, zoom, view_x, view_y);
     });
     img.set_onload(Some(onload.as_ref().unchecked_ref()));
@@ -1084,13 +1411,26 @@ fn video_file_handler(
     use wasm_bindgen::JsCast;
     let push_undo = std::rc::Rc::new(push_undo);
     move |ev: leptos::ev::Event| {
-        let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) else { return };
+        let Some(input) = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+        else {
+            return;
+        };
         let Some(files) = input.files() else { return };
         let Some(file) = files.get(0) else { return };
-        let Ok(object_url) = web_sys::Url::create_object_url_with_blob(&file) else { return };
-        let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
-        let Ok(video) = document.create_element("video") else { return };
-        let Ok(video) = video.dyn_into::<web_sys::HtmlVideoElement>() else { return };
+        let Ok(object_url) = web_sys::Url::create_object_url_with_blob(&file) else {
+            return;
+        };
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        let Ok(video) = document.create_element("video") else {
+            return;
+        };
+        let Ok(video) = video.dyn_into::<web_sys::HtmlVideoElement>() else {
+            return;
+        };
         video.set_src(&object_url);
         video.set_muted(true);
         let video_for_seek = video.clone();
@@ -1111,15 +1451,32 @@ fn video_file_handler(
         let on_seeked = wasm_bindgen::closure::Closure::<dyn Fn()>::new(move || {
             let vw = video_for_seeked.video_width().max(1) as f64;
             let vh = video_for_seeked.video_height().max(1) as f64;
-            let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
-            let Ok(off_canvas) = document.create_element("canvas") else { return };
-            let Ok(off_canvas) = off_canvas.dyn_into::<web_sys::HtmlCanvasElement>() else { return };
+            let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+                return;
+            };
+            let Ok(off_canvas) = document.create_element("canvas") else {
+                return;
+            };
+            let Ok(off_canvas) = off_canvas.dyn_into::<web_sys::HtmlCanvasElement>() else {
+                return;
+            };
             off_canvas.set_width(vw as u32);
             off_canvas.set_height(vh as u32);
             let off_ctx = canvas_context(&off_canvas);
-            if off_ctx.draw_image_with_html_video_element(&video_for_seeked, 0.0, 0.0).is_ok() {
+            if off_ctx
+                .draw_image_with_html_video_element(&video_for_seeked, 0.0, 0.0)
+                .is_ok()
+            {
                 if let Ok(data_url) = off_canvas.to_data_url() {
-                    place_image_from_data_url(canvas_ref, elements, zoom, view_x, view_y, push_undo.clone(), data_url);
+                    place_image_from_data_url(
+                        canvas_ref,
+                        elements,
+                        zoom,
+                        view_x,
+                        view_y,
+                        push_undo.clone(),
+                        data_url,
+                    );
                 }
             }
             let _ = web_sys::Url::revoke_object_url(&object_url_for_cleanup);

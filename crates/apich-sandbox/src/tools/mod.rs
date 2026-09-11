@@ -6,9 +6,12 @@ pub mod r;
 pub mod rust;
 pub mod typst;
 
-pub use agent::{AgentKind, AgentToolchain, LoginSupport};
+pub use agent::AgentKind;
+pub use agent::AgentToolchain;
+pub use agent::LoginSupport;
 pub use git::GitToolchain;
-pub use latex::{LatexEngine, LatexToolchain};
+pub use latex::LatexEngine;
+pub use latex::LatexToolchain;
 pub use python::PythonToolchain;
 pub use r::RToolchain;
 pub use rust::RustToolchain;

@@ -1,11 +1,18 @@
 use crate::config::PostgresConfig;
-use crate::error::{DbError, Result};
-use apich_sandbox::{ContainerStatus, ExecOptions, ExecResult, PodmanDriver};
+use crate::error::DbError;
+use crate::error::Result;
+use apich_sandbox::ContainerStatus;
+use apich_sandbox::ExecOptions;
+use apich_sandbox::ExecResult;
+use apich_sandbox::PodmanDriver;
 use std::fs;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tracing::{debug, info, warn};
+use std::time::Duration;
+use std::time::Instant;
+use tracing::debug;
+use tracing::info;
+use tracing::warn;
 
 /// Manages the containerized PostgreSQL instance via Podman
 #[derive(Clone)]
@@ -22,7 +29,10 @@ impl PostgresContainer {
         }
     }
 
-    pub fn with_driver(mut self, driver: PodmanDriver) -> Self {
+    pub fn with_driver(
+        mut self,
+        driver: PodmanDriver,
+    ) -> Self {
         self.driver = Arc::new(driver);
         self
     }
@@ -65,7 +75,7 @@ impl PostgresContainer {
 
         let container_name = &self.config.container_name;
         match self.driver.inspect(container_name).await? {
-            Some(info) => {
+            | Some(info) => {
                 if info.is_running {
                     info!(container = %container_name, "Postgres container is already running");
                     return Ok(());
@@ -76,11 +86,11 @@ impl PostgresContainer {
                     let _ = self.driver.remove(container_name, true).await;
                     self.spawn_container().await?;
                 }
-            }
-            None => {
+            },
+            | None => {
                 info!(container = %container_name, "Spawning new Postgres container via Podman");
                 self.spawn_container().await?;
-            }
+            },
         }
 
         Ok(())
@@ -153,7 +163,10 @@ impl PostgresContainer {
     }
 
     /// Wait for PostgreSQL inside container to be fully initialized and accepting connections
-    pub async fn wait_ready(&self, timeout: Duration) -> Result<()> {
+    pub async fn wait_ready(
+        &self,
+        timeout: Duration,
+    ) -> Result<()> {
         let start = Instant::now();
         let check_cmd = vec![
             "pg_isready",
@@ -189,7 +202,10 @@ impl PostgresContainer {
     }
 
     /// Gracefully stop the database container
-    pub async fn stop(&self, timeout_secs: u32) -> Result<()> {
+    pub async fn stop(
+        &self,
+        timeout_secs: u32,
+    ) -> Result<()> {
         self.driver
             .stop(&self.config.container_name, timeout_secs)
             .await?;
@@ -197,7 +213,10 @@ impl PostgresContainer {
     }
 
     /// Restart the database container
-    pub async fn restart(&self, timeout_secs: u32) -> Result<()> {
+    pub async fn restart(
+        &self,
+        timeout_secs: u32,
+    ) -> Result<()> {
         self.stop(timeout_secs).await?;
         self.driver.start(&self.config.container_name).await?;
         Ok(())
@@ -212,7 +231,10 @@ impl PostgresContainer {
     }
 
     /// Execute command inside the postgres container
-    pub async fn exec<I, S>(&self, cmd: I) -> Result<ExecResult>
+    pub async fn exec<I, S>(
+        &self,
+        cmd: I,
+    ) -> Result<ExecResult>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -222,7 +244,10 @@ impl PostgresContainer {
     }
 
     /// Execute command inside the postgres container with explicit ExecOptions
-    pub async fn exec_with_options(&self, opts: &ExecOptions) -> Result<ExecResult> {
+    pub async fn exec_with_options(
+        &self,
+        opts: &ExecOptions,
+    ) -> Result<ExecResult> {
         let res = self.driver.exec(&self.config.container_name, opts).await?;
         Ok(res)
     }

@@ -21,11 +21,22 @@
 /// and returns a selection covering just the placeholder, so the user can type straight over it --
 /// the same "insert with the fill-in part pre-selected" behavior every markdown-toolbar editor
 /// uses. Returns (new_full_text, new_selection_start, new_selection_end).
-pub fn wrap_selection(text: &str, start: usize, end: usize, prefix: &str, suffix: &str, placeholder: &str) -> (String, usize, usize) {
+pub fn wrap_selection(
+    text: &str,
+    start: usize,
+    end: usize,
+    prefix: &str,
+    suffix: &str,
+    placeholder: &str,
+) -> (String, usize, usize) {
     let (start, end) = (start.min(text.len()), end.min(text.len()));
     let (start, end) = (start.min(end), start.max(end));
     let selected = &text[start..end];
-    let inner = if selected.is_empty() { placeholder } else { selected };
+    let inner = if selected.is_empty() {
+        placeholder
+    } else {
+        selected
+    };
 
     let mut out = String::with_capacity(text.len() + prefix.len() + suffix.len() + inner.len());
     out.push_str(&text[..start]);
@@ -42,11 +53,18 @@ pub fn wrap_selection(text: &str, start: usize, end: usize, prefix: &str, suffix
 /// Extends a (start, end) byte range to cover every full line it touches -- back to the start of
 /// the line `start` is in, forward to the end of the line `end` is in (not including the
 /// terminating newline itself).
-fn expand_to_full_lines(text: &str, start: usize, end: usize) -> (usize, usize) {
+fn expand_to_full_lines(
+    text: &str,
+    start: usize,
+    end: usize,
+) -> (usize, usize) {
     let (start, end) = (start.min(text.len()), end.min(text.len()));
     let (start, end) = (start.min(end), start.max(end));
     let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_end = text[end..].find('\n').map(|i| end + i).unwrap_or(text.len());
+    let line_end = text[end..]
+        .find('\n')
+        .map(|i| end + i)
+        .unwrap_or(text.len());
     (line_start, line_end)
 }
 
@@ -56,10 +74,19 @@ fn expand_to_full_lines(text: &str, start: usize, end: usize) -> (usize, usize) 
 /// exactly this prefix, so clicking the same button twice undoes it, the same as a rich-text
 /// toolbar's "active" toggle state. Returns (new_full_text, new_selection_start, new_selection_end)
 /// covering the whole affected block.
-pub fn toggle_line_prefix(text: &str, start: usize, end: usize, prefix: &str) -> (String, usize, usize) {
+pub fn toggle_line_prefix(
+    text: &str,
+    start: usize,
+    end: usize,
+    prefix: &str,
+) -> (String, usize, usize) {
     let (line_start, line_end) = expand_to_full_lines(text, start, end);
     let block = &text[line_start..line_end];
-    let lines: Vec<&str> = if block.is_empty() { vec![""] } else { block.split('\n').collect() };
+    let lines: Vec<&str> = if block.is_empty() {
+        vec![""]
+    } else {
+        block.split('\n').collect()
+    };
 
     let all_have_prefix = lines.iter().all(|l| l.starts_with(prefix));
     let new_lines: Vec<String> = lines
@@ -87,15 +114,25 @@ pub fn toggle_line_prefix(text: &str, start: usize, end: usize, prefix: &str) ->
 /// can't reuse the constant-prefix toggle above. Always numbers from 1 (this note's own list
 /// context, e.g. "continue numbering from an existing list above", isn't tracked -- scoped out
 /// deliberately to keep this predictable rather than guessing at intent).
-pub fn numbered_list(text: &str, start: usize, end: usize) -> (String, usize, usize) {
+pub fn numbered_list(
+    text: &str,
+    start: usize,
+    end: usize,
+) -> (String, usize, usize) {
     let (line_start, line_end) = expand_to_full_lines(text, start, end);
     let block = &text[line_start..line_end];
-    let lines: Vec<&str> = if block.is_empty() { vec![""] } else { block.split('\n').collect() };
+    let lines: Vec<&str> = if block.is_empty() {
+        vec![""]
+    } else {
+        block.split('\n').collect()
+    };
 
     // Toggle off if every line already looks like "<number>. " -- mirrors toggle_line_prefix's
     // own toggle behavior for the constant-prefix cases.
     let already_numbered = lines.iter().all(|l| {
-        let Some(dot) = l.find(". ") else { return false };
+        let Some(dot) = l.find(". ") else {
+            return false;
+        };
         l[..dot].chars().all(|c| c.is_ascii_digit()) && !l[..dot].is_empty()
     });
 
@@ -108,7 +145,11 @@ pub fn numbered_list(text: &str, start: usize, end: usize) -> (String, usize, us
             })
             .collect()
     } else {
-        lines.iter().enumerate().map(|(i, l)| format!("{}. {}", i + 1, l)).collect()
+        lines
+            .iter()
+            .enumerate()
+            .map(|(i, l)| format!("{}. {}", i + 1, l))
+            .collect()
     };
     let new_block = new_lines.join("\n");
 
@@ -122,7 +163,12 @@ pub fn numbered_list(text: &str, start: usize, end: usize) -> (String, usize, us
 
 /// Replaces the current selection (or inserts at the caret) with a fixed multi-line snippet --
 /// used for the table-skeleton button. Cursor lands at the end of the inserted snippet.
-pub fn insert_block(text: &str, start: usize, end: usize, snippet: &str) -> (String, usize, usize) {
+pub fn insert_block(
+    text: &str,
+    start: usize,
+    end: usize,
+    snippet: &str,
+) -> (String, usize, usize) {
     let (start, end) = (start.min(text.len()), end.min(text.len()));
     let (start, end) = (start.min(end), start.max(end));
     let mut out = String::with_capacity(text.len() + snippet.len());

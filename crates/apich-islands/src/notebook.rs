@@ -16,7 +16,8 @@
 //! cells present at initial page load.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotebookCellImageData {
@@ -52,13 +53,15 @@ pub fn NotebookIsland(
 ) -> impl IntoView {
     let runtimes: Vec<CellRuntime> = cells
         .into_iter()
-        .map(|c| CellRuntime {
-            id: c.id,
-            language: c.language,
-            code: RwSignal::new(c.code),
-            output: RwSignal::new(c.output),
-            images: RwSignal::new(c.output_images),
-            running: RwSignal::new(false),
+        .map(|c| {
+            CellRuntime {
+                id: c.id,
+                language: c.language,
+                code: RwSignal::new(c.code),
+                output: RwSignal::new(c.output),
+                images: RwSignal::new(c.output_images),
+                running: RwSignal::new(false),
+            }
         })
         .collect();
     let runtimes = RwSignal::new(runtimes);
@@ -71,7 +74,16 @@ pub fn NotebookIsland(
             let file_path = file_path.clone();
             cell.running.set(true);
             cell.output.set("Running...".to_string());
-            run_notebook_cell_request(project_id, file_path, cell.id, cell.language.clone(), cell.code.get_untracked(), cell.output, cell.images, cell.running);
+            run_notebook_cell_request(
+                project_id,
+                file_path,
+                cell.id,
+                cell.language.clone(),
+                cell.code.get_untracked(),
+                cell.output,
+                cell.images,
+                cell.running,
+            );
         }
     };
 
@@ -218,39 +230,46 @@ async fn run_one_cell(
     images: RwSignal<Vec<NotebookCellImageData>>,
 ) {
     let body = serde_json::json!({ "file": file_path, "cell_id": cell_id, "language": language, "code": code });
-    let result = gloo_net::http::Request::post(&format!("/projects/{}/table/notebook/run-cell", project_id))
-        .json(&body)
-        .expect("valid json body")
-        .send()
-        .await;
+    let result =
+        gloo_net::http::Request::post(&format!("/projects/{}/table/notebook/run-cell", project_id))
+            .json(&body)
+            .expect("valid json body")
+            .send()
+            .await;
     match result {
-        Ok(resp) => match resp.json::<serde_json::Value>().await {
-            Ok(data) => {
-                if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
-                    output.set(format!("Error: {err}"));
-                } else {
-                    let out = data.get("output").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                    output.set(out);
-                    let imgs: Vec<NotebookCellImageData> = data
-                        .get("output_images")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|i| {
-                                    Some(NotebookCellImageData {
-                                        name: i.get("name")?.as_str()?.to_string(),
-                                        data_uri: i.get("data_uri")?.as_str()?.to_string(),
+        | Ok(resp) => {
+            match resp.json::<serde_json::Value>().await {
+                | Ok(data) => {
+                    if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                        output.set(format!("Error: {err}"));
+                    } else {
+                        let out = data
+                            .get("output")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        output.set(out);
+                        let imgs: Vec<NotebookCellImageData> = data
+                            .get("output_images")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|i| {
+                                        Some(NotebookCellImageData {
+                                            name: i.get("name")?.as_str()?.to_string(),
+                                            data_uri: i.get("data_uri")?.as_str()?.to_string(),
+                                        })
                                     })
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    images.set(imgs);
-                }
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        images.set(imgs);
+                    }
+                },
+                | Err(e) => output.set(format!("Request failed: {e}")),
             }
-            Err(e) => output.set(format!("Request failed: {e}")),
         },
-        Err(e) => output.set(format!("Request failed: {e}")),
+        | Err(e) => output.set(format!("Request failed: {e}")),
     }
 }
 
@@ -267,7 +286,16 @@ fn run_notebook_cell_request(
     running: RwSignal<bool>,
 ) {
     wasm_bindgen_futures::spawn_local(async move {
-        run_one_cell(&project_id, &file_path, cell_id, &language, code, output, images).await;
+        run_one_cell(
+            &project_id,
+            &file_path,
+            cell_id,
+            &language,
+            code,
+            output,
+            images,
+        )
+        .await;
         running.set(false);
     });
 }
@@ -290,15 +318,33 @@ fn run_notebook_cell_request(
 /// running them all at once would needlessly pile up concurrent processes there for no benefit,
 /// since cells don't share state anyway).
 #[cfg(feature = "hydrate")]
-fn spawn_local_run_all(project_id: String, file_path: String, cells: Vec<CellRuntime>) {
+fn spawn_local_run_all(
+    project_id: String,
+    file_path: String,
+    cells: Vec<CellRuntime>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         for cell in cells {
             cell.running.set(true);
             cell.output.set("Running...".to_string());
-            run_one_cell(&project_id, &file_path, cell.id, &cell.language, cell.code.get_untracked(), cell.output, cell.images).await;
+            run_one_cell(
+                &project_id,
+                &file_path,
+                cell.id,
+                &cell.language,
+                cell.code.get_untracked(),
+                cell.output,
+                cell.images,
+            )
+            .await;
             cell.running.set(false);
         }
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn spawn_local_run_all(_project_id: String, _file_path: String, _cells: Vec<CellRuntime>) {}
+fn spawn_local_run_all(
+    _project_id: String,
+    _file_path: String,
+    _cells: Vec<CellRuntime>,
+) {
+}

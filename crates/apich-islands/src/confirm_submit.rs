@@ -19,7 +19,10 @@ pub fn ConfirmSubmitButton(
 }
 
 #[cfg(feature = "hydrate")]
-fn confirm_or_prevent(ev: leptos::ev::MouseEvent, message: String) {
+fn confirm_or_prevent(
+    ev: leptos::ev::MouseEvent,
+    message: String,
+) {
     let confirmed = web_sys::window()
         .and_then(|w| w.confirm_with_message(&message).ok())
         .unwrap_or(false);
@@ -28,4 +31,8 @@ fn confirm_or_prevent(ev: leptos::ev::MouseEvent, message: String) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn confirm_or_prevent(_ev: leptos::ev::MouseEvent, _message: String) {}
+fn confirm_or_prevent(
+    _ev: leptos::ev::MouseEvent,
+    _message: String,
+) {
+}

@@ -17,14 +17,24 @@ where
     F: FnOnce() -> IV + 'static,
     IV: IntoView,
 {
-    let owner = Owner::new_root(Some(std::sync::Arc::new(hydration_context::SsrSharedContext::new_islands())));
+    let owner = Owner::new_root(Some(std::sync::Arc::new(
+        hydration_context::SsrSharedContext::new_islands(),
+    )));
     owner.with(|| format!("<!DOCTYPE html>{}", view_fn().to_html()))
 }
 
 /// Standalone page shell (auth pages): doctype + head + centered body, no sidebar.
 #[component]
-pub fn PageShell(title: String, i18n: I18n, children: Children) -> impl IntoView {
-    let lang_attr = if i18n.is_zh() { "zh-CN" } else { "en" };
+pub fn PageShell(
+    title: String,
+    i18n: I18n,
+    children: Children,
+) -> impl IntoView {
+    let lang_attr = if i18n.is_zh() {
+        "zh-CN"
+    } else {
+        "en"
+    };
     view! {
         <html lang=lang_attr>
             <head>
@@ -89,7 +99,10 @@ pub enum ActiveNav {
 }
 
 impl ActiveNav {
-    fn is(&self, other: ActiveNav) -> bool {
+    fn is(
+        &self,
+        other: ActiveNav,
+    ) -> bool {
         *self == other
     }
 }
@@ -109,7 +122,11 @@ pub fn AppShell(
     i18n: I18n,
     children: Children,
 ) -> impl IntoView {
-    let lang_attr = if i18n.is_zh() { "zh-CN" } else { "en" };
+    let lang_attr = if i18n.is_zh() {
+        "zh-CN"
+    } else {
+        "en"
+    };
     let user_initial = user
         .display_name
         .chars()
@@ -232,12 +249,23 @@ pub fn AppShell(
 /// e.g. `onclick="window.dispatchEvent(new CustomEvent('apich-open-share-modal', {detail:
 /// {path: 'foo.typ', mode: 'private', role: 'read', users: 'alice,bob'}}))"`.
 #[component]
-pub fn FileShareModal(project_id: Uuid, redirect_to: String, all_users: Vec<User>, owner_id: Uuid, i18n: I18n) -> impl IntoView {
+pub fn FileShareModal(
+    project_id: Uuid,
+    redirect_to: String,
+    all_users: Vec<User>,
+    owner_id: Uuid,
+    i18n: I18n,
+) -> impl IntoView {
     let _ = i18n;
     let shareable_users: Vec<apich_islands::ShareableUser> = all_users
         .into_iter()
         .filter(|u| u.id != owner_id)
-        .map(|u| apich_islands::ShareableUser { username: u.username, display_name: u.display_name })
+        .map(|u| {
+            apich_islands::ShareableUser {
+                username: u.username,
+                display_name: u.display_name,
+            }
+        })
         .collect();
 
     view! {
@@ -255,6 +283,9 @@ pub fn FileShareModal(project_id: Uuid, redirect_to: String, all_users: Vec<User
 /// it to answer questions about a specific open file, but agent runs are always project-scoped,
 /// so the drawer works the same with no file open (e.g. mounted on the project dashboard).
 #[component]
-pub fn AiDrawer(project_id: Uuid, #[prop(optional)] file_path: Option<String>) -> impl IntoView {
+pub fn AiDrawer(
+    project_id: Uuid,
+    #[prop(optional)] file_path: Option<String>,
+) -> impl IntoView {
     view! { <apich_islands::AiDrawerIsland project_id=project_id.to_string() file_path=file_path /> }
 }

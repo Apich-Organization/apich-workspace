@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -16,9 +18,9 @@ pub enum UserRole {
 impl UserRole {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Admin => "admin",
-            Self::Member => "member",
-            Self::Guest => "guest",
+            | Self::Admin => "admin",
+            | Self::Member => "member",
+            | Self::Guest => "guest",
         }
     }
 }
@@ -28,9 +30,9 @@ impl std::str::FromStr for UserRole {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "admin" => Self::Admin,
-            "guest" => Self::Guest,
-            _ => Self::Member,
+            | "admin" => Self::Admin,
+            | "guest" => Self::Guest,
+            | _ => Self::Member,
         })
     }
 }

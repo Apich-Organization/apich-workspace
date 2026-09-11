@@ -1,13 +1,17 @@
 use crate::autosave::AutosaveConfig as RuntimeAutosaveConfig;
 use crate::chunking::FastCdcConfig;
-use crate::error::{Result, VcsError};
+use crate::error::Result;
+use crate::error::VcsError;
 use crate::git::LfsPolicy;
 use crate::history::RetentionPolicy;
-use crate::ignore::{IgnoreFilter, IgnoreProfile};
+use crate::ignore::IgnoreFilter;
+use crate::ignore::IgnoreProfile;
 use chrono::Duration;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 fn default_true() -> bool {
     true
@@ -85,10 +89,10 @@ impl VcsConfig {
         };
 
         if let Some(path) = target_file {
-            let content = fs::read_to_string(&path)
-                .map_err(VcsError::Io)?;
-            let cfg: VcsConfig = toml::from_str(&content)
-                .map_err(|e| VcsError::Internal(format!("Failed to parse config {}: {}", path.display(), e)))?;
+            let content = fs::read_to_string(&path).map_err(VcsError::Io)?;
+            let cfg: VcsConfig = toml::from_str(&content).map_err(|e| {
+                VcsError::Internal(format!("Failed to parse config {}: {}", path.display(), e))
+            })?;
             Ok(cfg)
         } else {
             Ok(Self::default())
@@ -96,7 +100,10 @@ impl VcsConfig {
     }
 
     /// Save configuration to project directory (.apich/config.toml or apich.toml if present)
-    pub fn save_to_project(&self, project_root: impl AsRef<Path>) -> Result<PathBuf> {
+    pub fn save_to_project(
+        &self,
+        project_root: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
         let root = project_root.as_ref();
         let target_path = if root.join("apich.toml").exists() {
             root.join("apich.toml")
@@ -113,7 +120,10 @@ impl VcsConfig {
     }
 
     /// Convert ignore config into a live IgnoreFilter
-    pub fn to_ignore_filter(&self, project_root: impl AsRef<Path>) -> Result<IgnoreFilter> {
+    pub fn to_ignore_filter(
+        &self,
+        project_root: impl AsRef<Path>,
+    ) -> Result<IgnoreFilter> {
         let mut filter = IgnoreFilter::empty();
 
         if self.ignore.academic_profile {
@@ -165,7 +175,10 @@ impl VcsConfig {
     }
 
     /// Convert LFS config into a live LfsPolicy
-    pub fn to_lfs_policy(&self, project_root: impl AsRef<Path>) -> LfsPolicy {
+    pub fn to_lfs_policy(
+        &self,
+        project_root: impl AsRef<Path>,
+    ) -> LfsPolicy {
         let mut policy = LfsPolicy::new(self.lfs.size_threshold_bytes, self.lfs.patterns.clone());
 
         if self.lfs.load_gitattributes {
@@ -182,9 +195,9 @@ impl VcsConfig {
     /// Convert FastCDC chunking config into runtime parameters
     pub fn to_cdc_config(&self) -> FastCdcConfig {
         match self.chunking.profile.as_str() {
-            "large_file" => FastCdcConfig::large_file(),
-            "default" => FastCdcConfig::default(),
-            _ => {
+            | "large_file" => FastCdcConfig::large_file(),
+            | "default" => FastCdcConfig::default(),
+            | _ => {
                 // If custom bounds provided
                 if let (Some(min), Some(avg), Some(max)) = (
                     self.chunking.min_size,
@@ -199,7 +212,7 @@ impl VcsConfig {
                 } else {
                     FastCdcConfig::document()
                 }
-            }
+            },
         }
     }
 
@@ -249,31 +262,38 @@ pub struct IgnoreConfig {
 
 impl IgnoreConfig {
     /// Get/set profile toggles by `IgnoreProfile` id, for generic UI wiring
-    pub fn profile_enabled(&self, profile: IgnoreProfile) -> bool {
+    pub fn profile_enabled(
+        &self,
+        profile: IgnoreProfile,
+    ) -> bool {
         match profile {
-            IgnoreProfile::Academic => self.academic_profile,
-            IgnoreProfile::Python => self.python_profile,
-            IgnoreProfile::R => self.r_profile,
-            IgnoreProfile::Development => self.development_profile,
-            IgnoreProfile::Rust => self.rust_profile,
-            IgnoreProfile::JavaScript => self.javascript_profile,
-            IgnoreProfile::Java => self.java_profile,
-            IgnoreProfile::CCpp => self.ccpp_profile,
-            IgnoreProfile::Editor => self.editor_profile,
+            | IgnoreProfile::Academic => self.academic_profile,
+            | IgnoreProfile::Python => self.python_profile,
+            | IgnoreProfile::R => self.r_profile,
+            | IgnoreProfile::Development => self.development_profile,
+            | IgnoreProfile::Rust => self.rust_profile,
+            | IgnoreProfile::JavaScript => self.javascript_profile,
+            | IgnoreProfile::Java => self.java_profile,
+            | IgnoreProfile::CCpp => self.ccpp_profile,
+            | IgnoreProfile::Editor => self.editor_profile,
         }
     }
 
-    pub fn set_profile_enabled(&mut self, profile: IgnoreProfile, enabled: bool) {
+    pub fn set_profile_enabled(
+        &mut self,
+        profile: IgnoreProfile,
+        enabled: bool,
+    ) {
         match profile {
-            IgnoreProfile::Academic => self.academic_profile = enabled,
-            IgnoreProfile::Python => self.python_profile = enabled,
-            IgnoreProfile::R => self.r_profile = enabled,
-            IgnoreProfile::Development => self.development_profile = enabled,
-            IgnoreProfile::Rust => self.rust_profile = enabled,
-            IgnoreProfile::JavaScript => self.javascript_profile = enabled,
-            IgnoreProfile::Java => self.java_profile = enabled,
-            IgnoreProfile::CCpp => self.ccpp_profile = enabled,
-            IgnoreProfile::Editor => self.editor_profile = enabled,
+            | IgnoreProfile::Academic => self.academic_profile = enabled,
+            | IgnoreProfile::Python => self.python_profile = enabled,
+            | IgnoreProfile::R => self.r_profile = enabled,
+            | IgnoreProfile::Development => self.development_profile = enabled,
+            | IgnoreProfile::Rust => self.rust_profile = enabled,
+            | IgnoreProfile::JavaScript => self.javascript_profile = enabled,
+            | IgnoreProfile::Java => self.java_profile = enabled,
+            | IgnoreProfile::CCpp => self.ccpp_profile = enabled,
+            | IgnoreProfile::Editor => self.editor_profile = enabled,
         }
     }
 }

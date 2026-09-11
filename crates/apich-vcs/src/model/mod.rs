@@ -8,4 +8,6 @@ pub use branch::Branch;
 pub use chunk::ChunkRef;
 pub use conflict::Conflict;
 pub use snapshot::Snapshot;
-pub use tree::{FileEntry, TreeDiff, VcsTree};
+pub use tree::FileEntry;
+pub use tree::TreeDiff;
+pub use tree::VcsTree;

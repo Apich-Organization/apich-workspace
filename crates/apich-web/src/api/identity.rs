@@ -1,17 +1,20 @@
-use crate::{
-    auth::AuthUser,
-    error::WebResult,
-    state::AppState,
-};
-use apich_db::{
-    CreateOrganizationDto, CreateTeamDto, OrgMemberWithUser, Organization, Team,
-    TeamMemberWithUser, TeamTreeNode,
-};
-use axum::{
-    extract::{Path, State},
-    routing::{delete, get, post},
-    Json, Router,
-};
+use crate::auth::AuthUser;
+use crate::error::WebResult;
+use crate::state::AppState;
+use apich_db::CreateOrganizationDto;
+use apich_db::CreateTeamDto;
+use apich_db::OrgMemberWithUser;
+use apich_db::Organization;
+use apich_db::Team;
+use apich_db::TeamMemberWithUser;
+use apich_db::TeamTreeNode;
+use axum::extract::Path;
+use axum::extract::State;
+use axum::routing::delete;
+use axum::routing::get;
+use axum::routing::post;
+use axum::Json;
+use axum::Router;
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -21,13 +24,19 @@ pub fn router() -> Router<AppState> {
         // Organizations
         .route("/orgs", post(create_org).get(list_user_orgs))
         .route("/orgs/:id", get(get_org))
-        .route("/orgs/:id/members", get(list_org_members).post(add_org_member))
+        .route(
+            "/orgs/:id/members",
+            get(list_org_members).post(add_org_member),
+        )
         .route("/orgs/:id/members/:user_id", delete(remove_org_member))
         .route("/orgs/:id/teams", get(list_org_teams))
         .route("/orgs/:id/team-tree", get(get_team_tree))
         // Teams
         .route("/teams", post(create_team))
-        .route("/teams/:id/members", get(list_team_members).post(add_team_member))
+        .route(
+            "/teams/:id/members",
+            get(list_team_members).post(add_team_member),
+        )
         .route("/teams/:id/members/:user_id", delete(remove_team_member))
 }
 
@@ -42,7 +51,10 @@ async fn create_org(
     State(state): State<AppState>,
     Json(dto): Json<CreateOrganizationDto>,
 ) -> WebResult<Json<Organization>> {
-    let org = state.identity_service.create_organization(user.id, dto).await?;
+    let org = state
+        .identity_service
+        .create_organization(user.id, dto)
+        .await?;
     Ok(Json(org))
 }
 
@@ -50,7 +62,10 @@ async fn list_user_orgs(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
 ) -> WebResult<Json<Vec<Organization>>> {
-    let orgs = state.identity_service.list_user_organizations(user.id).await?;
+    let orgs = state
+        .identity_service
+        .list_user_organizations(user.id)
+        .await?;
     Ok(Json(orgs))
 }
 
@@ -103,7 +118,10 @@ async fn list_org_teams(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<Team>>> {
-    let teams = state.identity_service.list_teams_by_org(user.id, id).await?;
+    let teams = state
+        .identity_service
+        .list_teams_by_org(user.id, id)
+        .await?;
     Ok(Json(teams))
 }
 
@@ -112,7 +130,10 @@ async fn get_team_tree(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<TeamTreeNode>>> {
-    let tree = state.identity_service.get_team_tree_for_org(user.id, id).await?;
+    let tree = state
+        .identity_service
+        .get_team_tree_for_org(user.id, id)
+        .await?;
     Ok(Json(tree))
 }
 
@@ -130,7 +151,10 @@ async fn list_team_members(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> WebResult<Json<Vec<TeamMemberWithUser>>> {
-    let members = state.identity_service.list_team_members(user.id, id).await?;
+    let members = state
+        .identity_service
+        .list_team_members(user.id, id)
+        .await?;
     Ok(Json(members))
 }
 

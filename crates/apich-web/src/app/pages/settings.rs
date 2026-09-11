@@ -1,6 +1,11 @@
-use crate::app::components::{ActiveNav, AppShell};
+use crate::app::components::ActiveNav;
+use crate::app::components::AppShell;
 use crate::ui::i18n::I18n;
-use apich_db::{Fido2Credential, GpgPublicKey, PersonalAccessToken, SshPublicKey, User};
+use apich_db::Fido2Credential;
+use apich_db::GpgPublicKey;
+use apich_db::PersonalAccessToken;
+use apich_db::SshPublicKey;
+use apich_db::User;
 use apich_islands::PasskeyEnrollIsland;
 use leptos::prelude::*;
 
@@ -33,7 +38,11 @@ pub fn SettingsPage(
         i18n.researcher().to_string()
     };
 
-    let no_passkeys_text = if i18n.is_zh() { "尚未注册任何通行密钥" } else { "No passkeys registered yet" };
+    let no_passkeys_text = if i18n.is_zh() {
+        "尚未注册任何通行密钥"
+    } else {
+        "No passkeys registered yet"
+    };
     let passkey_list = if passkeys.is_empty() {
         view! {
             <p class="text-muted" style="font-size:0.85rem;">{no_passkeys_text}</p>

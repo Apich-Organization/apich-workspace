@@ -1,5 +1,7 @@
-use apich_sandbox::tools::{AgentKind, LoginSupport};
-use apich_sandbox::{OutputChunk, SandboxManager};
+use apich_sandbox::tools::AgentKind;
+use apich_sandbox::tools::LoginSupport;
+use apich_sandbox::OutputChunk;
+use apich_sandbox::SandboxManager;
 use tempfile::tempdir;
 
 /// Real end-to-end check against the full toolchain image (`docker/Containerfile.sandbox`,
@@ -10,18 +12,33 @@ use tempfile::tempdir;
 #[tokio::test]
 async fn test_agent_availability_on_real_image() {
     let temp = tempdir().unwrap();
-    let manager = SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
+    let manager =
+        SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
 
     let user_id = "test_user_agent_availability";
-    let container = manager.ensure_running(user_id).await.expect("Failed to ensure running");
+    let container = manager
+        .ensure_running(user_id)
+        .await
+        .expect("Failed to ensure running");
 
-    let availability = container.agents().availability().await.expect("Failed to check agent availability");
+    let availability = container
+        .agents()
+        .availability()
+        .await
+        .expect("Failed to check agent availability");
     assert_eq!(availability.len(), 6);
     for (kind, available) in &availability {
-        assert!(*available, "{} should be installed in apich-sandbox:latest", kind.display_name());
+        assert!(
+            *available,
+            "{} should be installed in apich-sandbox:latest",
+            kind.display_name()
+        );
     }
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }
 
 /// Verifies the exec plumbing (binary resolution, argv construction, env var credential
@@ -31,10 +48,14 @@ async fn test_agent_availability_on_real_image() {
 #[tokio::test]
 async fn test_agent_run_reaches_real_binary() {
     let temp = tempdir().unwrap();
-    let manager = SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
+    let manager =
+        SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
 
     let user_id = "test_user_agent_run";
-    let container = manager.ensure_running(user_id).await.expect("Failed to ensure running");
+    let container = manager
+        .ensure_running(user_id)
+        .await
+        .expect("Failed to ensure running");
 
     let res = container
         .agents()
@@ -47,11 +68,15 @@ async fn test_agent_run_reaches_real_binary() {
     // non-zero exit) is an acceptable real response from the real CLI with no credentials.
     let combined = format!("{}{}", res.stdout_lossy(), res.stderr_lossy());
     assert!(
-        !combined.to_lowercase().contains("command not found") && !combined.to_lowercase().contains("no such file"),
+        !combined.to_lowercase().contains("command not found")
+            && !combined.to_lowercase().contains("no such file"),
         "claude CLI should have been found and invoked: {combined}"
     );
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }
 
 /// Regression test for a real argv-ordering bug in `agy`'s (Google Antigravity CLI) flag
@@ -64,20 +89,29 @@ async fn test_agent_run_reaches_real_binary() {
 #[tokio::test]
 async fn test_agy_non_interactive_argv_does_not_swallow_flags() {
     let temp = tempdir().unwrap();
-    let manager = SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
+    let manager =
+        SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
 
     let user_id = "test_user_agy_argv";
-    let container = manager.ensure_running(user_id).await.expect("Failed to ensure running");
+    let container = manager
+        .ensure_running(user_id)
+        .await
+        .expect("Failed to ensure running");
 
     let res = container
         .agents()
-        .run(AgentKind::Agy, "say hi", Some("fake-test-key-for-argv-verification"))
+        .run(
+            AgentKind::Agy,
+            "say hi",
+            Some("fake-test-key-for-argv-verification"),
+        )
         .await
         .expect("exec itself should succeed even if the agent turn fails");
 
     let combined = format!("{}{}", res.stdout_lossy(), res.stderr_lossy());
     assert!(
-        !combined.to_lowercase().contains("command not found") && !combined.to_lowercase().contains("no such file"),
+        !combined.to_lowercase().contains("command not found")
+            && !combined.to_lowercase().contains("no such file"),
         "agy CLI should have been found and invoked: {combined}"
     );
     assert!(
@@ -85,7 +119,10 @@ async fn test_agy_non_interactive_argv_does_not_swallow_flags() {
         "the --print/--mode argv-ordering bug regressed: {combined}"
     );
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }
 
 /// Verifies `AgentToolchain::login` actually drives Codex's real device-code account-login flow
@@ -97,14 +134,18 @@ async fn test_agy_non_interactive_argv_does_not_swallow_flags() {
 #[tokio::test]
 async fn test_agent_login_device_code_flow_reaches_real_binary() {
     assert_eq!(AgentKind::Codex.login_support(), LoginSupport::DeviceCode);
-    assert_eq!(AgentKind::ClaudeCode.login_support(), LoginSupport::PasteCodeBack);
+    assert_eq!(
+        AgentKind::ClaudeCode.login_support(),
+        LoginSupport::PasteCodeBack
+    );
     assert_eq!(AgentKind::Agy.login_support(), LoginSupport::PasteCodeBack);
     assert_eq!(AgentKind::OpenCode.login_support(), LoginSupport::None);
     assert_eq!(AgentKind::Aider.login_support(), LoginSupport::None);
     assert_eq!(AgentKind::Goose.login_support(), LoginSupport::None);
 
     let temp = tempdir().unwrap();
-    let manager = SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
+    let manager =
+        SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
     let container = manager
         .ensure_running("test_user_agent_login")
         .await
@@ -125,22 +166,30 @@ async fn test_agent_login_device_code_flow_reaches_real_binary() {
             break;
         }
         match tokio::time::timeout(std::time::Duration::from_secs(20), stream.next_chunk()).await {
-            Ok(Some(OutputChunk::Stdout(bytes))) | Ok(Some(OutputChunk::Stderr(bytes))) => {
+            | Ok(Some(OutputChunk::Stdout(bytes))) | Ok(Some(OutputChunk::Stderr(bytes))) => {
                 buf.extend_from_slice(&bytes);
                 let text = String::from_utf8_lossy(&buf);
-                if text.contains("auth.openai.com/codex/device") && text.to_lowercase().contains("code") {
+                if text.contains("auth.openai.com/codex/device")
+                    && text.to_lowercase().contains("code")
+                {
                     break;
                 }
-            }
-            Ok(Some(OutputChunk::Exit(_))) | Ok(None) => break,
-            Err(_) => break,
+            },
+            | Ok(Some(OutputChunk::Exit(_))) | Ok(None) => break,
+            | Err(_) => break,
         }
     }
 
     let text = String::from_utf8_lossy(&buf);
-    assert!(text.contains("auth.openai.com/codex/device"), "should print the real device-auth URL: {text}");
+    assert!(
+        text.contains("auth.openai.com/codex/device"),
+        "should print the real device-auth URL: {text}"
+    );
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }
 
 /// Verifies `AgentToolchain::login` reaches agy's real OAuth URL. Unlike Codex/Claude, agy has
@@ -172,7 +221,8 @@ async fn test_agent_login_device_code_flow_reaches_real_binary() {
 #[tokio::test]
 async fn test_agent_login_agy_paste_code_flow_reaches_real_binary() {
     let temp = tempdir().unwrap();
-    let manager = SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
+    let manager =
+        SandboxManager::new(temp.path(), "localhost/apich-sandbox:latest").with_selinux(true);
     let container = manager
         .ensure_running("test_user_agy_login")
         .await
@@ -199,15 +249,15 @@ async fn test_agent_login_agy_paste_code_flow_reaches_real_binary() {
             break;
         }
         match tokio::time::timeout(std::time::Duration::from_secs(180), stream.next_chunk()).await {
-            Ok(Some(OutputChunk::Stdout(bytes))) | Ok(Some(OutputChunk::Stderr(bytes))) => {
+            | Ok(Some(OutputChunk::Stdout(bytes))) | Ok(Some(OutputChunk::Stderr(bytes))) => {
                 buf.extend_from_slice(&bytes);
                 let text = String::from_utf8_lossy(&buf);
                 if text.contains("accounts.google.com/o/oauth2/auth") {
                     break;
                 }
-            }
-            Ok(Some(OutputChunk::Exit(_))) | Ok(None) => break,
-            Err(_) => break,
+            },
+            | Ok(Some(OutputChunk::Exit(_))) | Ok(None) => break,
+            | Err(_) => break,
         }
     }
 
@@ -217,5 +267,8 @@ async fn test_agent_login_agy_paste_code_flow_reaches_real_binary() {
         "should get past the login-method menu and print the real OAuth URL: {text}"
     );
 
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }

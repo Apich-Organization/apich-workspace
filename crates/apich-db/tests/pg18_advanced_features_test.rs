@@ -1,8 +1,12 @@
 mod common;
-use apich_db::{
-    CreateDocumentDto, CreateUserDto, CreateWorkspaceDto, Database, DocType, PostgresConfig,
-    PostgresContainer, WorkspaceVisibility,
-};
+use apich_db::CreateDocumentDto;
+use apich_db::CreateUserDto;
+use apich_db::CreateWorkspaceDto;
+use apich_db::Database;
+use apich_db::DocType;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::WorkspaceVisibility;
 use common::test_temp_dir;
 use std::time::Duration;
 

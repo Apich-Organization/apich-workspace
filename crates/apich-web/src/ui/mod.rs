@@ -4,4 +4,6 @@ pub mod template_handlers;
 pub mod views;
 
 pub use handlers::build_ui_router;
-pub use i18n::{resolve_language, I18n, Lang};
+pub use i18n::resolve_language;
+pub use i18n::I18n;
+pub use i18n::Lang;

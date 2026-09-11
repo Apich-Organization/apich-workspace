@@ -52,19 +52,19 @@
 /// well-known grammar, rather than guessing wrong.
 pub(crate) fn prism_lang_for_ext(ext: &str) -> &'static str {
     match ext {
-        "py" => "python",
-        "r" => "r",
-        "rs" => "rust",
-        "tex" | "latex" => "latex",
-        "sh" | "bash" => "bash",
-        "js" => "javascript",
-        "ts" => "typescript",
-        "md" | "markdown" => "markdown",
-        "typ" => "typst",
-        "json" => "json",
-        "toml" => "toml",
-        "yaml" | "yml" => "yaml",
-        _ => "",
+        | "py" => "python",
+        | "r" => "r",
+        | "rs" => "rust",
+        | "tex" | "latex" => "latex",
+        | "sh" | "bash" => "bash",
+        | "js" => "javascript",
+        | "ts" => "typescript",
+        | "md" | "markdown" => "markdown",
+        | "typ" => "typst",
+        | "json" => "json",
+        | "toml" => "toml",
+        | "yaml" | "yml" => "yaml",
+        | _ => "",
     }
 }
 

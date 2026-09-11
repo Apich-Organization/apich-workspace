@@ -1,5 +1,7 @@
 mod common;
-use apich_vcs::{BundleOptions, LfsPolicy, ProjectVcs};
+use apich_vcs::BundleOptions;
+use apich_vcs::LfsPolicy;
+use apich_vcs::ProjectVcs;
 use common::test_temp_dir;
 use git2::Repository;
 use std::fs;
@@ -7,7 +9,10 @@ use std::path::Path;
 use std::process::Command;
 
 /// Helper to create a valid SQLite3 database with realistic tables and data
-fn create_sqlite_db(path: &Path, initial_rows: usize) {
+fn create_sqlite_db(
+    path: &Path,
+    initial_rows: usize,
+) {
     let script = format!(
         "import sqlite3\n\
         conn = sqlite3.connect('{}')\n\
@@ -29,7 +34,10 @@ fn create_sqlite_db(path: &Path, initial_rows: usize) {
 }
 
 /// Helper to append new records to an existing SQLite database
-fn append_sqlite_db(path: &Path, additional_rows: usize) {
+fn append_sqlite_db(
+    path: &Path,
+    additional_rows: usize,
+) {
     let script = format!(
         "import sqlite3\n\
         conn = sqlite3.connect('{}')\n\
@@ -80,8 +88,8 @@ fn sample_png_bytes() -> Vec<u8> {
         0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, // 8-bit RGBA
         0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, // IDAT header
         0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0x00, // compressed pixel data
-        0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D,
-        0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, // IEND header
+        0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+        0x4E, // IEND header
         0x44, 0xAE, 0x42, 0x60, 0x82,
     ]
 }
@@ -308,7 +316,8 @@ fn test_e2e_gateway_bundle_and_local_work_restoration() {
     fs::write(&png_path, sample_png_bytes()).unwrap();
 
     vcs.snapshot("Version 1.0 in cloud").unwrap();
-    vcs.create_milestone("release-1.0", "Cloud release").unwrap();
+    vcs.create_milestone("release-1.0", "Cloud release")
+        .unwrap();
 
     // 2. Gateway exports bundle for local work
     let bundle_path = server_temp.path().join("cloud_project.apich-bundle");

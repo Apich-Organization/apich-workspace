@@ -1,6 +1,8 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Resource constraints for the container
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -84,7 +86,10 @@ pub struct SandboxConfigBuilder {
 }
 
 impl SandboxConfigBuilder {
-    pub fn new(user_id: impl Into<String>, host_workspace_dir: impl AsRef<Path>) -> Self {
+    pub fn new(
+        user_id: impl Into<String>,
+        host_workspace_dir: impl AsRef<Path>,
+    ) -> Self {
         let uid = user_id.into();
         let default_name = SandboxConfig::default_container_name(&uid);
         let mut labels = HashMap::new();
@@ -108,72 +113,116 @@ impl SandboxConfigBuilder {
         }
     }
 
-    pub fn container_name(mut self, name: impl Into<String>) -> Self {
+    pub fn container_name(
+        mut self,
+        name: impl Into<String>,
+    ) -> Self {
         self.container_name = Some(name.into());
         self
     }
 
-    pub fn image(mut self, image: impl Into<String>) -> Self {
+    pub fn image(
+        mut self,
+        image: impl Into<String>,
+    ) -> Self {
         self.image = image.into();
         self
     }
 
-    pub fn container_workspace_dir(mut self, dir: impl AsRef<Path>) -> Self {
+    pub fn container_workspace_dir(
+        mut self,
+        dir: impl AsRef<Path>,
+    ) -> Self {
         self.container_workspace_dir = dir.as_ref().to_path_buf();
         self
     }
 
-    pub fn memory_limit(mut self, memory: impl Into<String>) -> Self {
+    pub fn memory_limit(
+        mut self,
+        memory: impl Into<String>,
+    ) -> Self {
         self.resources.memory = Some(memory.into());
         self
     }
 
-    pub fn cpu_limit(mut self, cpus: f64) -> Self {
+    pub fn cpu_limit(
+        mut self,
+        cpus: f64,
+    ) -> Self {
         self.resources.cpus = Some(cpus);
         self
     }
 
-    pub fn pids_limit(mut self, pids: u64) -> Self {
+    pub fn pids_limit(
+        mut self,
+        pids: u64,
+    ) -> Self {
         self.resources.pids_limit = Some(pids);
         self
     }
 
-    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn env(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
         self.env.insert(key.into(), value.into());
         self
     }
 
-    pub fn envs(mut self, envs: HashMap<String, String>) -> Self {
+    pub fn envs(
+        mut self,
+        envs: HashMap<String, String>,
+    ) -> Self {
         self.env.extend(envs);
         self
     }
 
-    pub fn add_mount(mut self, mount: MountSpec) -> Self {
+    pub fn add_mount(
+        mut self,
+        mount: MountSpec,
+    ) -> Self {
         self.extra_mounts.push(mount);
         self
     }
 
-    pub fn add_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn add_label(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
         self.labels.insert(key.into(), value.into());
         self
     }
 
-    pub fn network(mut self, network: impl Into<String>) -> Self {
+    pub fn network(
+        mut self,
+        network: impl Into<String>,
+    ) -> Self {
         self.network = Some(network.into());
         self
     }
 
-    pub fn selinux_relabel(mut self, enable: bool) -> Self {
+    pub fn selinux_relabel(
+        mut self,
+        enable: bool,
+    ) -> Self {
         self.selinux_relabel = enable;
         self
     }
 
-    pub fn keep_id(mut self, enable: bool) -> Self {
+    pub fn keep_id(
+        mut self,
+        enable: bool,
+    ) -> Self {
         self.keep_id = enable;
         self
     }
 
-    pub fn init_process(mut self, enable: bool) -> Self {
+    pub fn init_process(
+        mut self,
+        enable: bool,
+    ) -> Self {
         self.init_process = enable;
         self
     }

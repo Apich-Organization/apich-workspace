@@ -1,8 +1,12 @@
-use crate::error::{Result, VcsError};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use crate::error::Result;
+use crate::error::VcsError;
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Record of an external Git repository cloned into the project as research material

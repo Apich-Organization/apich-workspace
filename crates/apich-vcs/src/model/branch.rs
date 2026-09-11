@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use uuid::Uuid;
 
 /// Named branch pointer to a specific snapshot in the project timeline
@@ -16,7 +18,10 @@ pub struct Branch {
 }
 
 impl Branch {
-    pub fn new(name: impl Into<String>, head_snapshot_id: Uuid) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        head_snapshot_id: Uuid,
+    ) -> Self {
         Self {
             name: name.into(),
             head_snapshot_id,

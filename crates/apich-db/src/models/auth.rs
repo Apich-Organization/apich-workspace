@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -39,9 +41,9 @@ pub enum RegistrationMode {
 impl RegistrationMode {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Open => "open",
-            Self::InviteOnly => "invite_only",
-            Self::AdminOnly => "admin_only",
+            | Self::Open => "open",
+            | Self::InviteOnly => "invite_only",
+            | Self::AdminOnly => "admin_only",
         }
     }
 }
@@ -51,9 +53,9 @@ impl std::str::FromStr for RegistrationMode {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s {
-            "open" => Self::Open,
-            "admin_only" => Self::AdminOnly,
-            _ => Self::InviteOnly,
+            | "open" => Self::Open,
+            | "admin_only" => Self::AdminOnly,
+            | _ => Self::InviteOnly,
         })
     }
 }

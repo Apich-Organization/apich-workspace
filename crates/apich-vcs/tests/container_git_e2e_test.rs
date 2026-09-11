@@ -1,5 +1,6 @@
 use apich_sandbox::SandboxManager;
-use apich_vcs::{ProjectVcs, RepositoryLock};
+use apich_vcs::ProjectVcs;
+use apich_vcs::RepositoryLock;
 use std::fs;
 use tempfile::tempdir;
 
@@ -9,8 +10,8 @@ async fn test_container_and_git_e2e_integration() {
     let workspace_root = temp.path().to_path_buf();
 
     // 1. Start sandbox container with bind-mounted workspace
-    let manager = SandboxManager::new(&workspace_root, "localhost/apich-sandbox:test")
-        .with_selinux(true);
+    let manager =
+        SandboxManager::new(&workspace_root, "localhost/apich-sandbox:test").with_selinux(true);
 
     let unique_suffix = &uuid::Uuid::now_v7().to_string()[..8];
     let user_id = format!("e2e_{}", unique_suffix);
@@ -47,7 +48,9 @@ print('Simulation complete')
     // 4. Verify host VCS immediately sees the file via Linux Inode bind-mount
     assert!(vcs.has_changes().unwrap());
     let status_before_exec = vcs.status().unwrap();
-    assert!(status_before_exec.added.contains(&"simulate.py".to_string()));
+    assert!(status_before_exec
+        .added
+        .contains(&"simulate.py".to_string()));
 
     // 5. In container: execute Python script via container toolchain
     let exec_res = container
@@ -63,7 +66,9 @@ print('Simulation complete')
 
     // 6. Host VCS sees generated 'metrics.json'
     let status_after_exec = vcs.status().unwrap();
-    assert!(status_after_exec.added.contains(&"metrics.json".to_string()));
+    assert!(status_after_exec
+        .added
+        .contains(&"metrics.json".to_string()));
 
     // 7. Commit snapshot from host
     let s1 = vcs
@@ -102,7 +107,10 @@ print('Simulation complete')
 
     // 11. In container: modify a file and commit using container's native Git CLI
     container
-        .save_file_str("notes.md", "# Lab Experiment Notes\nConfirmed high precision.\n")
+        .save_file_str(
+            "notes.md",
+            "# Lab Experiment Notes\nConfirmed high precision.\n",
+        )
         .await
         .unwrap();
 
@@ -130,7 +138,8 @@ print('Simulation complete')
         let _lock = RepositoryLock::acquire(&user_workspace).expect("Should acquire lock");
         assert!(user_workspace.join(".apich").join("lock").exists());
         // Nested acquire in same thread succeeds due to reentrant design
-        let _nested = RepositoryLock::acquire(&user_workspace).expect("Reentrant lock should succeed");
+        let _nested =
+            RepositoryLock::acquire(&user_workspace).expect("Reentrant lock should succeed");
     }
 
     // 14. Test apich CLI commands directly against the container workspace
@@ -210,5 +219,8 @@ print('Simulation complete')
     assert!(oplog_out.contains("Redo"));
 
     // 15. Stop and destroy container
-    container.destroy().await.expect("Failed to destroy container");
+    container
+        .destroy()
+        .await
+        .expect("Failed to destroy container");
 }

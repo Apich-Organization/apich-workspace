@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::path::PathBuf;
 
 /// Git authentication mechanism
@@ -27,7 +28,11 @@ pub struct GitRemoteConfig {
 }
 
 impl GitRemoteConfig {
-    pub fn new(name: impl Into<String>, url: impl Into<String>, auth: GitAuth) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        url: impl Into<String>,
+        auth: GitAuth,
+    ) -> Self {
         Self {
             name: name.into(),
             url: url.into(),

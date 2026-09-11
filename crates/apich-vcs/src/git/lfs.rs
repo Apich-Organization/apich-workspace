@@ -1,4 +1,6 @@
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::Glob;
+use globset::GlobSet;
+use globset::GlobSetBuilder;
 use sha2::Digest;
 use std::fs;
 use std::path::Path;
@@ -31,7 +33,10 @@ impl Default for LfsPolicy {
 
 impl LfsPolicy {
     /// Create a new LfsPolicy with a size threshold and glob patterns
-    pub fn new(size_threshold: u64, patterns: Vec<String>) -> Self {
+    pub fn new(
+        size_threshold: u64,
+        patterns: Vec<String>,
+    ) -> Self {
         let glob_set = Self::compile_globs(&patterns);
         Self {
             size_threshold,
@@ -56,7 +61,10 @@ impl LfsPolicy {
     }
 
     /// Add a wildcard or glob pattern candidate for LFS (e.g. "models/**/*.onnx" or "data/*.db")
-    pub fn add_pattern(&mut self, pattern: impl Into<String>) {
+    pub fn add_pattern(
+        &mut self,
+        pattern: impl Into<String>,
+    ) {
         let p = pattern.into();
         let trimmed = p.trim();
         if !trimmed.is_empty() && !trimmed.starts_with('#') {
@@ -66,13 +74,19 @@ impl LfsPolicy {
     }
 
     /// Configure the size threshold in bytes for automatic LFS pointer generation
-    pub fn set_size_threshold(&mut self, size_threshold: u64) {
+    pub fn set_size_threshold(
+        &mut self,
+        size_threshold: u64,
+    ) {
         self.size_threshold = size_threshold;
     }
 
     /// Load LFS rules from a `.gitattributes` file
     /// Parses lines containing `filter=lfs`
-    pub fn load_gitattributes(&mut self, path: impl AsRef<Path>) -> std::io::Result<()> {
+    pub fn load_gitattributes(
+        &mut self,
+        path: impl AsRef<Path>,
+    ) -> std::io::Result<()> {
         if let Ok(content) = fs::read_to_string(path.as_ref()) {
             for line in content.lines() {
                 let trimmed = line.trim();
@@ -91,7 +105,11 @@ impl LfsPolicy {
     }
 
     /// Check if a file should be stored via Git LFS pointers when exporting to Git
-    pub fn is_lfs_file(&self, path: &str, size: u64) -> bool {
+    pub fn is_lfs_file(
+        &self,
+        path: &str,
+        size: u64,
+    ) -> bool {
         if size >= self.size_threshold {
             return true;
         }
@@ -134,14 +152,18 @@ impl LfsPolicy {
         }
 
         match (oid, size) {
-            (Some(o), Some(s)) => Some((o, s)),
-            _ => None,
+            | (Some(o), Some(s)) => Some((o, s)),
+            | _ => None,
         }
     }
 }
 
 mod hex {
     pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
+        bytes
+            .as_ref()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect()
     }
 }

@@ -6,7 +6,8 @@
 //! shared across the outline/code/preview panels, not independent widgets.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeadingItem {
@@ -30,7 +31,11 @@ pub fn DocumentEditorIsland(
     #[prop(into)] is_latex_preview: bool,
 ) -> impl IntoView {
     let prism_lang = {
-        let ext = std::path::Path::new(&file_path).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let ext = std::path::Path::new(&file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         crate::code_highlight::prism_lang_for_ext(&ext).to_string()
     };
     let code_ref = NodeRef::<leptos::html::Textarea>::new();
@@ -136,7 +141,14 @@ pub fn DocumentEditorIsland(
         }
     };
 
-    wire_keyboard_shortcuts(form_ref, current_slide, presenting, pages, is_slide, is_script);
+    wire_keyboard_shortcuts(
+        form_ref,
+        current_slide,
+        presenting,
+        pages,
+        is_slide,
+        is_script,
+    );
     // Only the LaTeX PDF preview needs this: PDF.js (an external JS library with no Rust/WASM
     // equivalent, see `LATEX_PDF_VIEWER_JS`'s doc comment) can't call a Rust closure directly, so
     // it dispatches a `CustomEvent` that this listener receives and forwards into the same
@@ -150,11 +162,36 @@ pub fn DocumentEditorIsland(
         let file_path = file_path.clone();
         move |_| {
             if is_typst_preview {
-                debounced_typst_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, pages, compile_error_sig, current_slide, headings_sig);
+                debounced_typst_preview(
+                    code_ref,
+                    project_id.clone(),
+                    file_path.clone(),
+                    debounce_gen,
+                    pages,
+                    compile_error_sig,
+                    current_slide,
+                    headings_sig,
+                );
             } else if is_latex_preview {
-                debounced_latex_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, latex_reload_gen, latex_error, latex_engine, headings_sig);
+                debounced_latex_preview(
+                    code_ref,
+                    project_id.clone(),
+                    file_path.clone(),
+                    debounce_gen,
+                    latex_reload_gen,
+                    latex_error,
+                    latex_engine,
+                    headings_sig,
+                );
             } else if !is_script {
-                debounced_markdown_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, markdown_html_sig, headings_sig);
+                debounced_markdown_preview(
+                    code_ref,
+                    project_id.clone(),
+                    file_path.clone(),
+                    debounce_gen,
+                    markdown_html_sig,
+                    headings_sig,
+                );
             }
         }
     };
@@ -323,10 +360,14 @@ pub fn DocumentEditorIsland(
 fn handle_reverse_search_click(ev: leptos::ev::MouseEvent) {
     use wasm_bindgen::JsCast;
     let Some(target) = ev.target() else { return };
-    let Ok(el) = target.dyn_into::<web_sys::Element>() else { return };
+    let Ok(el) = target.dyn_into::<web_sys::Element>() else {
+        return;
+    };
 
     if let Some(link) = el.closest("a").ok().flatten() {
-        let href = link.get_attribute("href").or_else(|| link.get_attribute("xlink:href"));
+        let href = link
+            .get_attribute("href")
+            .or_else(|| link.get_attribute("xlink:href"));
         if let Some(line_str) = href.as_deref().and_then(|h| h.strip_prefix("sync:line:")) {
             if let Ok(line) = line_str.parse::<u32>() {
                 ev.prevent_default();
@@ -365,10 +406,18 @@ fn handle_reverse_search_click(_ev: leptos::ev::MouseEvent) {}
 fn handle_data_line_click(ev: leptos::ev::MouseEvent) {
     use wasm_bindgen::JsCast;
     let Some(target) = ev.target() else { return };
-    let Ok(el) = target.dyn_into::<web_sys::Element>() else { return };
-    let Some(with_line) = el.closest("[data-line]").ok().flatten() else { return };
-    let Some(line_str) = with_line.get_attribute("data-line") else { return };
-    let Ok(line) = line_str.parse::<u32>() else { return };
+    let Ok(el) = target.dyn_into::<web_sys::Element>() else {
+        return;
+    };
+    let Some(with_line) = el.closest("[data-line]").ok().flatten() else {
+        return;
+    };
+    let Some(line_str) = with_line.get_attribute("data-line") else {
+        return;
+    };
+    let Ok(line) = line_str.parse::<u32>() else {
+        return;
+    };
     crate::jump_to_line::jump_to_line_in_dom("code-editor-input", line);
 }
 #[cfg(not(feature = "hydrate"))]
@@ -570,8 +619,12 @@ fn render_typst_preview(
     }
 }
 
-fn render_script_console(project_id: String, file_path: String) -> impl IntoView {
-    let output = RwSignal::new("Ready to execute. Click \"Run Script\" or press Ctrl+Enter.".to_string());
+fn render_script_console(
+    project_id: String,
+    file_path: String,
+) -> impl IntoView {
+    let output =
+        RwSignal::new("Ready to execute. Click \"Run Script\" or press Ctrl+Enter.".to_string());
     let status = RwSignal::new(None::<(bool, i64)>);
     let time_ms = RwSignal::new(None::<f64>);
     let plots = RwSignal::new(Vec::<(String, String)>::new());
@@ -585,7 +638,16 @@ fn render_script_console(project_id: String, file_path: String) -> impl IntoView
         busy.set(true);
         output.set("Executing...".to_string());
         status.set(None);
-        run_script(project_id.clone(), file_path.clone(), args.get_untracked(), output, status, time_ms, plots, busy);
+        run_script(
+            project_id.clone(),
+            file_path.clone(),
+            args.get_untracked(),
+            output,
+            status,
+            time_ms,
+            plots,
+            busy,
+        );
     };
     let run_click = run.clone();
 
@@ -644,7 +706,10 @@ fn render_script_console(project_id: String, file_path: String) -> impl IntoView
 }
 
 #[cfg(feature = "hydrate")]
-fn select_substring(ta: &web_sys::HtmlTextAreaElement, needle: &str) {
+fn select_substring(
+    ta: &web_sys::HtmlTextAreaElement,
+    needle: &str,
+) {
     let value = ta.value();
     if let Some(idx) = value.find(needle) {
         let start = value[..idx].encode_utf16().count() as u32;
@@ -655,7 +720,11 @@ fn select_substring(ta: &web_sys::HtmlTextAreaElement, needle: &str) {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn select_substring(_ta: &leptos::web_sys::HtmlTextAreaElement, _needle: &str) {}
+fn select_substring(
+    _ta: &leptos::web_sys::HtmlTextAreaElement,
+    _needle: &str,
+) {
+}
 
 #[cfg(feature = "hydrate")]
 fn request_submit(form: &web_sys::HtmlFormElement) {
@@ -677,32 +746,44 @@ fn wire_keyboard_shortcuts(
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
 
-    let closure = Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(move |ev: web_sys::KeyboardEvent| {
-        let key = ev.key();
-        if key == "F11" && is_slide {
-            ev.prevent_default();
-            presenting.set(true);
-            current_slide.set(1);
-        } else if key == "Escape" {
-            presenting.set(false);
-        } else if (key == "ArrowRight" || key == " ") && presenting.get_untracked() {
-            { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s += 1 }); }
-        } else if key == "ArrowLeft" && presenting.get_untracked() {
-            current_slide.update(|s| if *s > 1 { *s -= 1 });
-        } else if (ev.ctrl_key() || ev.meta_key()) && key == "s" {
-            ev.prevent_default();
-            if let Some(form) = form_ref.get_untracked() {
-                request_submit(&form);
-            }
-        } else if (ev.ctrl_key() || ev.meta_key()) && key == "Enter" && is_script {
-            ev.prevent_default();
-            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-                if let Some(btn) = doc.get_element_by_id("script-run-trigger") {
-                    let _ = btn.dyn_into::<web_sys::HtmlElement>().map(|b| b.click());
+    let closure =
+        Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(move |ev: web_sys::KeyboardEvent| {
+            let key = ev.key();
+            if key == "F11" && is_slide {
+                ev.prevent_default();
+                presenting.set(true);
+                current_slide.set(1);
+            } else if key == "Escape" {
+                presenting.set(false);
+            } else if (key == "ArrowRight" || key == " ") && presenting.get_untracked() {
+                {
+                    let n = pages.with(|p| p.len().max(1));
+                    current_slide.update(|s| {
+                        if *s < n {
+                            *s += 1
+                        }
+                    });
+                }
+            } else if key == "ArrowLeft" && presenting.get_untracked() {
+                current_slide.update(|s| {
+                    if *s > 1 {
+                        *s -= 1
+                    }
+                });
+            } else if (ev.ctrl_key() || ev.meta_key()) && key == "s" {
+                ev.prevent_default();
+                if let Some(form) = form_ref.get_untracked() {
+                    request_submit(&form);
+                }
+            } else if (ev.ctrl_key() || ev.meta_key()) && key == "Enter" && is_script {
+                ev.prevent_default();
+                if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                    if let Some(btn) = doc.get_element_by_id("script-run-trigger") {
+                        let _ = btn.dyn_into::<web_sys::HtmlElement>().map(|b| b.click());
+                    }
                 }
             }
-        }
-    });
+        });
     if let Some(win) = web_sys::window() {
         let _ = win.add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
     }
@@ -740,61 +821,73 @@ fn run_script(
             .await;
 
         match result {
-            Ok(resp) => {
+            | Ok(resp) => {
                 let status_code = resp.status();
                 match resp.json::<serde_json::Value>().await {
-                Ok(data) => {
-                    // A non-2xx response still parses as valid JSON (`{"error": "..."}"`), which
-                    // silently fell through the stdout/stderr extraction below (both absent on an
-                    // error body) straight to the generic "(Process exited with empty output)" --
-                    // exactly the "empty output, can't see why" symptom, for every real failure
-                    // (missing script, missing interpreter, spawn error), not just successful runs
-                    // with nothing printed. Surface the real message first.
-                    if let Some(err_msg) = data.get("error").and_then(|v| v.as_str()) {
-                        output.set(format!("Server error ({status_code}): {err_msg}"));
-                        status.set(Some((false, -1)));
-                        busy.set(false);
-                        return;
-                    }
-                    let stdout = data.get("stdout").and_then(|v| v.as_str()).unwrap_or_default();
-                    let stderr = data.get("stderr").and_then(|v| v.as_str()).unwrap_or_default();
-                    let mut text = stdout.to_string();
-                    if !stderr.is_empty() {
-                        if !text.is_empty() {
-                            text.push('\n');
+                    | Ok(data) => {
+                        // A non-2xx response still parses as valid JSON (`{"error": "..."}"`), which
+                        // silently fell through the stdout/stderr extraction below (both absent on an
+                        // error body) straight to the generic "(Process exited with empty output)" --
+                        // exactly the "empty output, can't see why" symptom, for every real failure
+                        // (missing script, missing interpreter, spawn error), not just successful runs
+                        // with nothing printed. Surface the real message first.
+                        if let Some(err_msg) = data.get("error").and_then(|v| v.as_str()) {
+                            output.set(format!("Server error ({status_code}): {err_msg}"));
+                            status.set(Some((false, -1)));
+                            busy.set(false);
+                            return;
                         }
-                        text.push_str("[STDERR]:\n");
-                        text.push_str(stderr);
-                    }
-                    if text.is_empty() {
-                        text = "(Process exited with empty output)".to_string();
-                    }
-                    output.set(text);
+                        let stdout = data
+                            .get("stdout")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let stderr = data
+                            .get("stderr")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let mut text = stdout.to_string();
+                        if !stderr.is_empty() {
+                            if !text.is_empty() {
+                                text.push('\n');
+                            }
+                            text.push_str("[STDERR]:\n");
+                            text.push_str(stderr);
+                        }
+                        if text.is_empty() {
+                            text = "(Process exited with empty output)".to_string();
+                        }
+                        output.set(text);
 
-                    let success = data.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let exit_code = data.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(if success { 0 } else { 1 });
-                    status.set(Some((success, exit_code)));
-                    time_ms.set(data.get("execution_time_ms").and_then(|v| v.as_f64()));
+                        let success = data
+                            .get("success")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let exit_code = data
+                            .get("exit_code")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(if success { 0 } else { 1 });
+                        status.set(Some((success, exit_code)));
+                        time_ms.set(data.get("execution_time_ms").and_then(|v| v.as_f64()));
 
-                    let imgs: Vec<(String, String)> = data
-                        .get("output_images")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|img| {
-                                    let name = img.get("name")?.as_str()?.to_string();
-                                    let data_uri = img.get("data_uri")?.as_str()?.to_string();
-                                    Some((name, data_uri))
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    plots.set(imgs);
+                        let imgs: Vec<(String, String)> = data
+                            .get("output_images")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|img| {
+                                        let name = img.get("name")?.as_str()?.to_string();
+                                        let data_uri = img.get("data_uri")?.as_str()?.to_string();
+                                        Some((name, data_uri))
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        plots.set(imgs);
+                    },
+                    | Err(e) => output.set(format!("Error parsing response: {e}")),
                 }
-                Err(e) => output.set(format!("Error parsing response: {e}")),
-            }
-            }
-            Err(e) => output.set(format!("Error executing script: {e}")),
+            },
+            | Err(e) => output.set(format!("Error executing script: {e}")),
         }
         busy.set(false);
     });
@@ -857,20 +950,31 @@ fn debounced_typst_preview(
         if debounce_gen.get_value() != my_gen {
             return;
         }
-        let Some(ta) = code_ref.get_untracked() else { return };
+        let Some(ta) = code_ref.get_untracked() else {
+            return;
+        };
         let content = ta.value();
         let body = serde_json::json!({ "file": file_path, "content": content });
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
+        let result =
+            gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
+                .json(&body)
+                .expect("valid json body")
+                .send()
+                .await;
         let Ok(resp) = result else { return };
-        let Ok(data) = resp.json::<serde_json::Value>().await else { return };
+        let Ok(data) = resp.json::<serde_json::Value>().await else {
+            return;
+        };
 
-        let success = data.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        let success = data
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if !success {
-            let err = data.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let err = data
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             compile_error.set(err.or_else(|| Some("Compilation failed".to_string())));
             return;
         }
@@ -879,7 +983,11 @@ fn debounced_typst_preview(
         let new_pages: Vec<String> = data
             .get("pages")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|p| p.as_str().map(|s| s.to_string())).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|p| p.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         let new_count = new_pages.len();
         pages.set(new_pages);
@@ -927,24 +1035,35 @@ fn debounced_latex_preview(
         if debounce_gen.get_value() != my_gen {
             return;
         }
-        let Some(ta) = code_ref.get_untracked() else { return };
+        let Some(ta) = code_ref.get_untracked() else {
+            return;
+        };
         let content = ta.value();
         let engine = latex_engine.get_untracked();
         let body = serde_json::json!({ "file": file_path, "content": content, "engine": engine });
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
+        let result =
+            gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
+                .json(&body)
+                .expect("valid json body")
+                .send()
+                .await;
         let Ok(resp) = result else { return };
-        let Ok(data) = resp.json::<serde_json::Value>().await else { return };
+        let Ok(data) = resp.json::<serde_json::Value>().await else {
+            return;
+        };
         headings.set(parse_headings(&data));
-        let success = data.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        let success = data
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if success {
             latex_error.set(None);
             latex_reload_gen.update(|g| *g = g.wrapping_add(1));
         } else {
-            let err = data.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let err = data
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             latex_error.set(err.or_else(|| Some("Compilation failed".to_string())));
         }
     });
@@ -982,16 +1101,21 @@ fn debounced_markdown_preview(
         if debounce_gen.get_value() != my_gen {
             return;
         }
-        let Some(ta) = code_ref.get_untracked() else { return };
+        let Some(ta) = code_ref.get_untracked() else {
+            return;
+        };
         let content = ta.value();
         let body = serde_json::json!({ "file": file_path, "content": content });
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
+        let result =
+            gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
+                .json(&body)
+                .expect("valid json body")
+                .send()
+                .await;
         let Ok(resp) = result else { return };
-        let Ok(data) = resp.json::<serde_json::Value>().await else { return };
+        let Ok(data) = resp.json::<serde_json::Value>().await else {
+            return;
+        };
         headings.set(parse_headings(&data));
         if let Some(html) = data.get("html").and_then(|v| v.as_str()) {
             markdown_html.set(html.to_string());

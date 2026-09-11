@@ -1,7 +1,9 @@
-use crate::error::{Result, SandboxError};
+use crate::error::Result;
+use crate::error::SandboxError;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -37,32 +39,51 @@ impl ExecOptions {
         }
     }
 
-    pub fn working_dir(mut self, dir: impl AsRef<Path>) -> Self {
+    pub fn working_dir(
+        mut self,
+        dir: impl AsRef<Path>,
+    ) -> Self {
         self.working_dir = Some(dir.as_ref().to_path_buf());
         self
     }
 
-    pub fn env(mut self, key: impl Into<String>, val: impl Into<String>) -> Self {
+    pub fn env(
+        mut self,
+        key: impl Into<String>,
+        val: impl Into<String>,
+    ) -> Self {
         self.env.insert(key.into(), val.into());
         self
     }
 
-    pub fn envs(mut self, envs: HashMap<String, String>) -> Self {
+    pub fn envs(
+        mut self,
+        envs: HashMap<String, String>,
+    ) -> Self {
         self.env.extend(envs);
         self
     }
 
-    pub fn user(mut self, user: impl Into<String>) -> Self {
+    pub fn user(
+        mut self,
+        user: impl Into<String>,
+    ) -> Self {
         self.user = Some(user.into());
         self
     }
 
-    pub fn tty(mut self, tty: bool) -> Self {
+    pub fn tty(
+        mut self,
+        tty: bool,
+    ) -> Self {
         self.tty = tty;
         self
     }
 
-    pub fn timeout(mut self, timeout: Duration) -> Self {
+    pub fn timeout(
+        mut self,
+        timeout: Duration,
+    ) -> Self {
         self.timeout = Some(timeout);
         self
     }
@@ -98,7 +119,10 @@ impl ExecResult {
         String::from_utf8_lossy(&self.stderr)
     }
 
-    pub fn ensure_success(&self, container: &str) -> Result<()> {
+    pub fn ensure_success(
+        &self,
+        container: &str,
+    ) -> Result<()> {
         if self.success() {
             Ok(())
         } else {
@@ -135,16 +159,19 @@ impl ExecStream {
     }
 
     /// Read all output from stream until completion and assemble into an ExecResult
-    pub async fn collect_result(mut self, start_time: std::time::Instant) -> ExecResult {
+    pub async fn collect_result(
+        mut self,
+        start_time: std::time::Instant,
+    ) -> ExecResult {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let mut exit_code = 0;
 
         while let Some(chunk) = self.receiver.recv().await {
             match chunk {
-                OutputChunk::Stdout(bytes) => stdout.extend_from_slice(&bytes),
-                OutputChunk::Stderr(bytes) => stderr.extend_from_slice(&bytes),
-                OutputChunk::Exit(code) => exit_code = code,
+                | OutputChunk::Stdout(bytes) => stdout.extend_from_slice(&bytes),
+                | OutputChunk::Stderr(bytes) => stderr.extend_from_slice(&bytes),
+                | OutputChunk::Exit(code) => exit_code = code,
             }
         }
 

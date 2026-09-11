@@ -4,11 +4,19 @@
 //! review" isn't good enough, since the CGI bridge to `git http-backend` has to get header/body
 //! framing exactly right for a real Git client to accept it.
 
-use apich_db::{CreateUserDto, Database, PostgresConfig, PostgresContainer, UserRole};
+use apich_db::CreateUserDto;
+use apich_db::Database;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::UserRole;
 use apich_sandbox::SandboxManager;
-use apich_web::{create_app, AppState};
+use apich_web::create_app;
+use apich_web::AppState;
 use reqwest::StatusCode;
-use std::{path::PathBuf, process::Stdio, sync::Arc, time::Duration};
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::process::Command;
 
@@ -23,7 +31,10 @@ fn test_temp_dir() -> TempDir {
     tempfile::tempdir_in(&base).unwrap_or_else(|_| tempfile::tempdir().unwrap())
 }
 
-async fn run_git(args: &[&str], cwd: &std::path::Path) -> std::process::Output {
+async fn run_git(
+    args: &[&str],
+    cwd: &std::path::Path,
+) -> std::process::Output {
     Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -51,8 +62,14 @@ async fn test_git_http_server_real_clone_and_push() {
         .build();
 
     let container = PostgresContainer::new(config.clone());
-    container.ensure_running().await.expect("Failed to start container");
-    container.wait_ready(Duration::from_secs(30)).await.expect("Postgres not ready");
+    container
+        .ensure_running()
+        .await
+        .expect("Failed to start container");
+    container
+        .wait_ready(Duration::from_secs(30))
+        .await
+        .expect("Postgres not ready");
 
     let db = Arc::new(
         Database::connect_admin(&config, "localhost")
@@ -61,9 +78,11 @@ async fn test_git_http_server_real_clone_and_push() {
     );
     let _ = db.run_migrations().await;
     let repo = db.repository();
-    let _ = sqlx::query("TRUNCATE TABLE users, organizations, oauth_clients, system_settings, invitations CASCADE")
-        .execute(db.pool())
-        .await;
+    let _ = sqlx::query(
+        "TRUNCATE TABLE users, organizations, oauth_clients, system_settings, invitations CASCADE",
+    )
+    .execute(db.pool())
+    .await;
 
     let _admin = repo
         .create_user(CreateUserDto {
@@ -80,10 +99,13 @@ async fn test_git_http_server_real_clone_and_push() {
 
     let temp_workspace = test_temp_dir();
     let sandbox_manager = Arc::new(
-        SandboxManager::new(temp_workspace.path(), "docker.io/library/alpine:latest").with_selinux(true),
+        SandboxManager::new(temp_workspace.path(), "docker.io/library/alpine:latest")
+            .with_selinux(true),
     );
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
     let server_port = listener.local_addr().expect("local_addr").port();
     let base_url = format!("http://127.0.0.1:{}", server_port);
 
@@ -108,16 +130,35 @@ async fn test_git_http_server_real_clone_and_push() {
 
     let login_res = session_client
         .post(format!("{}/login", base_url))
-        .form(&[("login", "dr_gitserver"), ("password", "SuperSecretPass123!")])
+        .form(&[
+            ("login", "dr_gitserver"),
+            ("password", "SuperSecretPass123!"),
+        ])
         .send()
         .await
         .unwrap();
     assert_eq!(login_res.status(), StatusCode::SEE_OTHER);
 
-    let create_demo_res = session_client.post(format!("{}/projects/demo/create", base_url)).send().await.unwrap();
+    let create_demo_res = session_client
+        .post(format!("{}/projects/demo/create", base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(create_demo_res.status(), StatusCode::SEE_OTHER);
-    let demo_proj_loc = create_demo_res.headers().get("location").unwrap().to_str().unwrap();
-    let proj_id = demo_proj_loc.split('/').nth(2).unwrap().split('?').next().unwrap().to_string();
+    let demo_proj_loc = create_demo_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let proj_id = demo_proj_loc
+        .split('/')
+        .nth(2)
+        .unwrap()
+        .split('?')
+        .next()
+        .unwrap()
+        .to_string();
 
     // Seed the working `.git` and push it into the bare mirror via the existing "Sync to Git"
     // action (this is what makes the bare mirror non-empty for the clone below).
@@ -137,24 +178,50 @@ async fn test_git_http_server_real_clone_and_push() {
         .await
         .unwrap();
     assert_eq!(create_pat_res.status(), StatusCode::SEE_OTHER);
-    let pat_location = create_pat_res.headers().get("location").unwrap().to_str().unwrap().to_string();
-    let token_encoded = pat_location.split("new_pat_token=").nth(1).expect("token in redirect").split('#').next().unwrap();
-    let pat = urlencoding::decode(token_encoded).expect("decode token").into_owned();
+    let pat_location = create_pat_res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let token_encoded = pat_location
+        .split("new_pat_token=")
+        .nth(1)
+        .expect("token in redirect")
+        .split('#')
+        .next()
+        .unwrap();
+    let pat = urlencoding::decode(token_encoded)
+        .expect("decode token")
+        .into_owned();
 
     // --- Unauthenticated clone must be rejected ---
     let clone_url_noauth = format!("{}/git/{}.git", base_url, proj_id);
     let unauth_dest = test_temp_dir();
     let unauth_out = run_git(
-        &["clone", &clone_url_noauth, unauth_dest.path().join("x").to_str().unwrap()],
+        &[
+            "clone",
+            &clone_url_noauth,
+            unauth_dest.path().join("x").to_str().unwrap(),
+        ],
         unauth_dest.path(),
-    ).await;
+    )
+    .await;
     assert!(!unauth_out.status.success(), "anonymous clone must fail");
 
     // --- Real `git clone` over HTTP with PAT-as-password Basic auth ---
-    let clone_url = format!("http://dr_gitserver:{}@127.0.0.1:{}/git/{}.git", pat, server_port, proj_id);
+    let clone_url = format!(
+        "http://dr_gitserver:{}@127.0.0.1:{}/git/{}.git",
+        pat, server_port, proj_id
+    );
     let clone_workdir = test_temp_dir();
     let clone_dest = clone_workdir.path().join("cloned");
-    let clone_out = run_git(&["clone", &clone_url, clone_dest.to_str().unwrap()], clone_workdir.path()).await;
+    let clone_out = run_git(
+        &["clone", &clone_url, clone_dest.to_str().unwrap()],
+        clone_workdir.path(),
+    )
+    .await;
     assert!(
         clone_out.status.success(),
         "git clone failed:\nstdout: {}\nstderr: {}",
@@ -162,20 +229,41 @@ async fn test_git_http_server_real_clone_and_push() {
         String::from_utf8_lossy(&clone_out.stderr),
     );
     assert!(clone_dest.join(".git").exists());
-    assert!(clone_dest.join("slides.typ").exists(), "cloned repo should contain the demo project's real files");
+    assert!(
+        clone_dest.join("slides.typ").exists(),
+        "cloned repo should contain the demo project's real files"
+    );
 
     // --- Real `git push` back over HTTP ---
-    std::fs::write(clone_dest.join("pushed_from_real_git.txt"), "hello from a real git client\n").unwrap();
+    std::fs::write(
+        clone_dest.join("pushed_from_real_git.txt"),
+        "hello from a real git client\n",
+    )
+    .unwrap();
     let add_out = run_git(&["add", "pushed_from_real_git.txt"], &clone_dest).await;
     assert!(add_out.status.success());
     let commit_out = Command::new("git")
-        .args(["-c", "user.email=test@apich.local", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-m", "real git push test"])
+        .args([
+            "-c",
+            "user.email=test@apich.local",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "real git push test",
+        ])
         .current_dir(&clone_dest)
         .env("HOME", clone_workdir.path())
         .output()
         .await
         .unwrap();
-    assert!(commit_out.status.success(), "commit failed: {}", String::from_utf8_lossy(&commit_out.stderr));
+    assert!(
+        commit_out.status.success(),
+        "commit failed: {}",
+        String::from_utf8_lossy(&commit_out.stderr)
+    );
 
     let push_out = run_git(&["push", "origin", "HEAD"], &clone_dest).await;
     assert!(
@@ -192,9 +280,13 @@ async fn test_git_http_server_real_clone_and_push() {
         .await
         .unwrap()
         .unwrap();
-    let pushed_file = std::path::PathBuf::from(&proj_after.storage_path).join("pushed_from_real_git.txt");
+    let pushed_file =
+        std::path::PathBuf::from(&proj_after.storage_path).join("pushed_from_real_git.txt");
     // Sync-back runs synchronously inside the push request handler, so it must already be there.
-    assert!(pushed_file.exists(), "pushed file should be checked out into the real project working directory");
+    assert!(
+        pushed_file.exists(),
+        "pushed file should be checked out into the real project working directory"
+    );
     assert_eq!(
         std::fs::read_to_string(&pushed_file).unwrap(),
         "hello from a real git client\n"
@@ -203,8 +295,16 @@ async fn test_git_http_server_real_clone_and_push() {
     // --- A second, fresh clone must also see the pushed file (proves the bare mirror itself has it) ---
     let second_clone_workdir = test_temp_dir();
     let second_clone_dest = second_clone_workdir.path().join("cloned_again");
-    let second_clone_out = run_git(&["clone", &clone_url, second_clone_dest.to_str().unwrap()], second_clone_workdir.path()).await;
-    assert!(second_clone_out.status.success(), "second clone failed: {}", String::from_utf8_lossy(&second_clone_out.stderr));
+    let second_clone_out = run_git(
+        &["clone", &clone_url, second_clone_dest.to_str().unwrap()],
+        second_clone_workdir.path(),
+    )
+    .await;
+    assert!(
+        second_clone_out.status.success(),
+        "second clone failed: {}",
+        String::from_utf8_lossy(&second_clone_out.stderr)
+    );
     assert_eq!(
         std::fs::read_to_string(second_clone_dest.join("pushed_from_real_git.txt")).unwrap(),
         "hello from a real git client\n"

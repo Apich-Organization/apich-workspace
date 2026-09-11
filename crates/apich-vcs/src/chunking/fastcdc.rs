@@ -22,9 +22,9 @@ impl FastCdcConfig {
     /// Configuration optimized for smaller documents (Markdown, Typst, LaTeX)
     pub fn document() -> Self {
         Self {
-            min_size: 4 * 1024,   // 4 KB
-            avg_size: 16 * 1024,  // 16 KB
-            max_size: 64 * 1024,  // 64 KB
+            min_size: 4 * 1024,  // 4 KB
+            avg_size: 16 * 1024, // 16 KB
+            max_size: 64 * 1024, // 64 KB
         }
     }
 
@@ -56,7 +56,10 @@ pub struct FastCdc<'a> {
 }
 
 impl<'a> FastCdc<'a> {
-    pub fn new(data: &'a [u8], config: FastCdcConfig) -> Self {
+    pub fn new(
+        data: &'a [u8],
+        config: FastCdcConfig,
+    ) -> Self {
         // Calculate logarithmic power for masks
         let bits = (config.avg_size as f64).log2().round() as u32;
         let mask_s = (1u64 << (bits + 1)) - 1;

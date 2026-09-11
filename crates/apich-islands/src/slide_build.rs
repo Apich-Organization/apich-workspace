@@ -6,7 +6,8 @@
 //! it's done, then offer the finished binary as a download.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BuildStatusResponse {
@@ -17,7 +18,10 @@ struct BuildStatusResponse {
 }
 
 #[island]
-pub fn SlideBuildIsland(#[prop(into)] project_id: String, #[prop(into)] file_path: String) -> impl IntoView {
+pub fn SlideBuildIsland(
+    #[prop(into)] project_id: String,
+    #[prop(into)] file_path: String,
+) -> impl IntoView {
     let target = RwSignal::new("host".to_string());
     let job_id = RwSignal::new(None::<String>);
     let percent = RwSignal::new(0u8);
@@ -129,18 +133,27 @@ fn start_build_request(
 ) {
     wasm_bindgen_futures::spawn_local(async move {
         let body = serde_json::json!({ "file": file_path, "target": target });
-        let start_result = gloo_net::http::Request::post(&format!("/projects/{}/editor/slide-binary/start", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
+        let start_result = gloo_net::http::Request::post(&format!(
+            "/projects/{}/editor/slide-binary/start",
+            project_id
+        ))
+        .json(&body)
+        .expect("valid json body")
+        .send()
+        .await;
 
         let job = match start_result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(data) => data.get("job_id").and_then(|v| v.as_str()).map(str::to_string),
-                Err(_) => None,
+            | Ok(resp) => {
+                match resp.json::<serde_json::Value>().await {
+                    | Ok(data) => {
+                        data.get("job_id")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                    },
+                    | Err(_) => None,
+                }
             },
-            Err(_) => None,
+            | Err(_) => None,
         };
         let Some(job) = job else {
             error_msg.set(Some("Failed to start build".to_string()));
@@ -159,25 +172,29 @@ fn start_build_request(
             .await;
 
             let Ok(resp) = poll_result else { continue };
-            let Ok(data) = resp.json::<BuildStatusResponse>().await else { continue };
+            let Ok(data) = resp.json::<BuildStatusResponse>().await else {
+                continue;
+            };
 
             match data.status.as_str() {
-                "running" => {
+                | "running" => {
                     percent.set(data.percent.unwrap_or(0));
                     status_text.set(data.message.unwrap_or_default());
-                }
-                "done" => {
+                },
+                | "done" => {
                     percent.set(100);
                     is_running.set(false);
                     is_done.set(true);
                     break;
-                }
-                "failed" => {
-                    error_msg.set(Some(data.error.unwrap_or_else(|| "Build failed".to_string())));
+                },
+                | "failed" => {
+                    error_msg.set(Some(
+                        data.error.unwrap_or_else(|| "Build failed".to_string()),
+                    ));
                     is_running.set(false);
                     break;
-                }
-                _ => {}
+                },
+                | _ => {},
             }
         }
     });

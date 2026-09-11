@@ -1,6 +1,8 @@
 use super::chunk::ChunkRef;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// Metadata and chunk references for a tracked file
@@ -40,13 +42,19 @@ impl VcsTree {
     }
 
     /// Add or update a file entry and recalculate the canonical tree hash
-    pub fn insert(&mut self, entry: FileEntry) {
+    pub fn insert(
+        &mut self,
+        entry: FileEntry,
+    ) {
         self.entries.insert(entry.path.clone(), entry);
         self.recompute_hash();
     }
 
     /// Remove a file by relative path
-    pub fn remove(&mut self, path: &str) -> Option<FileEntry> {
+    pub fn remove(
+        &mut self,
+        path: &str,
+    ) -> Option<FileEntry> {
         let removed = self.entries.remove(path);
         if removed.is_some() {
             self.recompute_hash();
@@ -55,7 +63,10 @@ impl VcsTree {
     }
 
     /// Get file entry by relative path
-    pub fn get(&self, path: &str) -> Option<&FileEntry> {
+    pub fn get(
+        &self,
+        path: &str,
+    ) -> Option<&FileEntry> {
         self.entries.get(path)
     }
 
@@ -72,19 +83,22 @@ impl VcsTree {
     }
 
     /// Compute structural diff between this tree and another base tree
-    pub fn diff<'a>(&'a self, other: &'a VcsTree) -> TreeDiff<'a> {
+    pub fn diff<'a>(
+        &'a self,
+        other: &'a VcsTree,
+    ) -> TreeDiff<'a> {
         let mut added = Vec::new();
         let mut modified = Vec::new();
         let mut removed = Vec::new();
 
         for (path, entry) in &self.entries {
             match other.entries.get(path) {
-                None => added.push(entry),
-                Some(other_entry) => {
+                | None => added.push(entry),
+                | Some(other_entry) => {
                     if entry.blake3_hash != other_entry.blake3_hash {
                         modified.push((entry, other_entry));
                     }
-                }
+                },
             }
         }
 

@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Reference to a content-defined chunk stored in CAS
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

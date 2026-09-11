@@ -1,5 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -16,10 +18,10 @@ pub enum ProjectStatus {
 impl ProjectStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Active => "active",
-            Self::Paused => "paused",
-            Self::Archived => "archived",
-            Self::Deleted => "deleted",
+            | Self::Active => "active",
+            | Self::Paused => "paused",
+            | Self::Archived => "archived",
+            | Self::Deleted => "deleted",
         }
     }
 }
@@ -29,10 +31,10 @@ impl std::str::FromStr for ProjectStatus {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "paused" => Self::Paused,
-            "archived" => Self::Archived,
-            "deleted" => Self::Deleted,
-            _ => Self::Active,
+            | "paused" => Self::Paused,
+            | "archived" => Self::Archived,
+            | "deleted" => Self::Deleted,
+            | _ => Self::Active,
         })
     }
 }
@@ -49,9 +51,9 @@ pub enum SandboxStatus {
 impl SandboxStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Running => "running",
-            Self::Stopped => "stopped",
-            Self::Terminated => "terminated",
+            | Self::Running => "running",
+            | Self::Stopped => "stopped",
+            | Self::Terminated => "terminated",
         }
     }
 }
@@ -61,9 +63,9 @@ impl std::str::FromStr for SandboxStatus {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "running" => Self::Running,
-            "terminated" => Self::Terminated,
-            _ => Self::Stopped,
+            | "running" => Self::Running,
+            | "terminated" => Self::Terminated,
+            | _ => Self::Stopped,
         })
     }
 }
@@ -127,10 +129,10 @@ pub enum ProjectRole {
 impl ProjectRole {
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Owner => "owner",
-            Self::Admin => "admin",
-            Self::Editor => "editor",
-            Self::Viewer => "viewer",
+            | Self::Owner => "owner",
+            | Self::Admin => "admin",
+            | Self::Editor => "editor",
+            | Self::Viewer => "viewer",
         }
     }
 }
@@ -140,10 +142,10 @@ impl std::str::FromStr for ProjectRole {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Ok(match s.to_lowercase().as_str() {
-            "owner" => Self::Owner,
-            "admin" => Self::Admin,
-            "viewer" => Self::Viewer,
-            _ => Self::Editor,
+            | "owner" => Self::Owner,
+            | "admin" => Self::Admin,
+            | "viewer" => Self::Viewer,
+            | _ => Self::Editor,
         })
     }
 }
@@ -173,4 +175,3 @@ pub struct AddProjectMemberDto {
     pub user_id: Uuid,
     pub role: Option<String>,
 }
-

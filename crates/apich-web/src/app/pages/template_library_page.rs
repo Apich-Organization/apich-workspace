@@ -8,7 +8,9 @@
 
 use crate::services::template_library;
 use crate::ui::i18n::I18n;
-use apich_db::{Template, TemplateVersion, User};
+use apich_db::Template;
+use apich_db::TemplateVersion;
+use apich_db::User;
 use leptos::prelude::*;
 use uuid::Uuid;
 
@@ -50,12 +52,19 @@ pub fn TemplateGalleryPage(
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    use crate::app::components::{ActiveNav, AppShell};
+    use crate::app::components::ActiveNav;
+    use crate::app::components::AppShell;
 
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                .into_any()
+        })
     };
 
     let kinds = ["", "kanban", "note", "latex", "typst", "slides"];
@@ -94,7 +103,9 @@ pub fn TemplateGalleryPage(
         })
         .collect();
 
-    let empty_state = rows.is_empty().then(|| view! { <div class="empty-state"><p>{i18n.template_no_templates()}</p></div> });
+    let empty_state = rows
+        .is_empty()
+        .then(|| view! { <div class="empty-state"><p>{i18n.template_no_templates()}</p></div> });
 
     view! {
         <AppShell user=user.clone() is_org_or_team_admin=is_org_or_team_admin active_nav=ActiveNav::Templates current_path=current_path page_title=i18n.template_gallery_title().to_string() i18n=i18n>
@@ -126,12 +137,19 @@ pub fn TemplateDetailPage(
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    use crate::app::components::{ActiveNav, AppShell};
+    use crate::app::components::ActiveNav;
+    use crate::app::components::AppShell;
 
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                .into_any()
+        })
     };
 
     let template_id = template.id;
@@ -243,11 +261,19 @@ pub fn TemplateDetailPage(
 /// picker did (kanban board / note editor / document editor), which meant discovering a template
 /// here and then hunting for where to apply it. One project picker per version, routed to the
 /// kind-appropriate `/templates/apply-to-*` action (see `template_handlers.rs`).
-fn render_apply_to_project_form(kind: &str, version_id: Uuid, user_projects: &[apich_db::Project], i18n: I18n) -> impl IntoView {
+fn render_apply_to_project_form(
+    kind: &str,
+    version_id: Uuid,
+    user_projects: &[apich_db::Project],
+    i18n: I18n,
+) -> impl IntoView {
     if user_projects.is_empty() {
         return view! { <p class="text-muted" style="font-size:0.78rem; margin-top:0.5rem;">{i18n.template_no_projects_to_apply()}</p> }.into_any();
     }
-    let project_options: Vec<_> = user_projects.iter().map(|p| view! { <option value=p.id.to_string()>{p.name.clone()}</option> }).collect();
+    let project_options: Vec<_> = user_projects
+        .iter()
+        .map(|p| view! { <option value=p.id.to_string()>{p.name.clone()}</option> })
+        .collect();
 
     match kind {
         "kanban" => view! {
@@ -286,11 +312,19 @@ fn render_apply_to_project_form(kind: &str, version_id: Uuid, user_projects: &[a
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_version_content_preview(template_id: Uuid, version_id: Uuid, kind: &str, content: &serde_json::Value, compiled: Option<&CompiledPreview>, i18n: I18n) -> impl IntoView {
+fn render_version_content_preview(
+    template_id: Uuid,
+    version_id: Uuid,
+    kind: &str,
+    content: &serde_json::Value,
+    compiled: Option<&CompiledPreview>,
+    i18n: I18n,
+) -> impl IntoView {
     match kind {
-        "kanban" => match template_library::kanban_columns_from_content(content) {
-            Ok(columns) => {
-                let cols: Vec<_> = columns
+        | "kanban" => {
+            match template_library::kanban_columns_from_content(content) {
+                | Ok(columns) => {
+                    let cols: Vec<_> = columns
                     .iter()
                     .map(|c| {
                         view! {
@@ -301,39 +335,53 @@ fn render_version_content_preview(template_id: Uuid, version_id: Uuid, kind: &st
                         }
                     })
                     .collect();
-                view! { <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">{cols}</div> }.into_any()
+                    view! { <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">{cols}</div> }
+                        .into_any()
+                },
+                | Err(e) => {
+                    view! { <div class="alert alert-danger">{e.to_string()}</div> }.into_any()
+                },
             }
-            Err(e) => view! { <div class="alert alert-danger">{e.to_string()}</div> }.into_any(),
         },
-        "note" => match template_library::note_body_from_content(content) {
-            Ok(body) => {
-                let rendered = crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(&body, "template-preview.md", Uuid::nil());
-                view! { <div inner_html=rendered.html></div> }.into_any()
+        | "note" => {
+            match template_library::note_body_from_content(content) {
+                | Ok(body) => {
+                    let rendered = crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(&body, "template-preview.md", Uuid::nil());
+                    view! { <div inner_html=rendered.html></div> }.into_any()
+                },
+                | Err(e) => {
+                    view! { <div class="alert alert-danger">{e.to_string()}</div> }.into_any()
+                },
             }
-            Err(e) => view! { <div class="alert alert-danger">{e.to_string()}</div> }.into_any(),
         },
-        "typst" | "slides" => {
+        | "typst" | "slides" => {
             // Compiled ahead of time in the async handler (see `compile_typst_files_for_preview`)
             // -- Typst (and slides, which are Typst underneath) compiles natively with no sandbox
             // needed, unlike LaTeX, so these two kinds get a real rendered preview instead of a
             // source dump.
             match compiled {
-                Some(c) if c.error.is_none() && !c.svg_pages.is_empty() => {
+                | Some(c) if c.error.is_none() && !c.svg_pages.is_empty() => {
                     let pages: Vec<_> = c
                         .svg_pages
                         .iter()
                         .map(|svg| view! { <div class="svg-page-box" style="margin-bottom:0.75rem;" inner_html=svg.clone()></div> })
                         .collect();
                     view! { <div>{pages}</div> }.into_any()
-                }
-                Some(c) => {
-                    let msg = c.error.clone().unwrap_or_else(|| "Compilation produced no pages".to_string());
+                },
+                | Some(c) => {
+                    let msg = c
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "Compilation produced no pages".to_string());
                     view! { <div class="alert alert-danger" style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.8rem;">{msg}</div> }.into_any()
-                }
-                None => view! { <div class="alert alert-danger">"Preview not compiled"</div> }.into_any(),
+                },
+                | None => {
+                    view! { <div class="alert alert-danger">"Preview not compiled"</div> }
+                        .into_any()
+                },
             }
-        }
-        "latex" => {
+        },
+        | "latex" => {
             // Compiled on demand in a throwaway sandbox container (see
             // `latex_template_preview_pdf_action` / `ProjectManager::compile_latex_preview_ephemeral`)
             // -- real `pdflatex` output, not a source dump. The container only spins up once this
@@ -347,10 +395,11 @@ fn render_version_content_preview(template_id: Uuid, version_id: Uuid, kind: &st
                 ></iframe>
             }
             .into_any()
-        }
-        _ => match template_library::files_from_content(content) {
-            Ok(files) => {
-                let blocks: Vec<_> = files
+        },
+        | _ => {
+            match template_library::files_from_content(content) {
+                | Ok(files) => {
+                    let blocks: Vec<_> = files
                     .iter()
                     .map(|f| {
                         view! {
@@ -361,15 +410,18 @@ fn render_version_content_preview(template_id: Uuid, version_id: Uuid, kind: &st
                         }
                     })
                     .collect();
-                view! {
+                    view! {
                     <div>
                         <p class="text-muted" style="font-size:0.78rem;">{i18n.template_source_only_preview_note()}</p>
                         {blocks}
                     </div>
                 }
                 .into_any()
+                },
+                | Err(e) => {
+                    view! { <div class="alert alert-danger">{e.to_string()}</div> }.into_any()
+                },
             }
-            Err(e) => view! { <div class="alert alert-danger">{e.to_string()}</div> }.into_any(),
         },
     }
 }

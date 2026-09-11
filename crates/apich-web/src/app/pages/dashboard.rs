@@ -1,6 +1,8 @@
-use crate::app::components::{ActiveNav, AppShell};
+use crate::app::components::ActiveNav;
+use crate::app::components::AppShell;
 use crate::ui::i18n::I18n;
-use apich_db::{Project, User};
+use apich_db::Project;
+use apich_db::User;
 use leptos::prelude::*;
 
 #[component]

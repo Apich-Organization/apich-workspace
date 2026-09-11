@@ -14,12 +14,21 @@
 //! textarea into view across browsers.
 
 #[cfg(feature = "hydrate")]
-pub(crate) fn jump_to_line_in_dom(textarea_id: &str, line: u32) {
+pub(crate) fn jump_to_line_in_dom(
+    textarea_id: &str,
+    line: u32,
+) {
     use wasm_bindgen::JsCast;
-    let Some(window) = web_sys::window() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
     let Some(doc) = window.document() else { return };
-    let Some(el) = doc.get_element_by_id(textarea_id) else { return };
-    let Ok(ta) = el.dyn_into::<web_sys::HtmlTextAreaElement>() else { return };
+    let Some(el) = doc.get_element_by_id(textarea_id) else {
+        return;
+    };
+    let Ok(ta) = el.dyn_into::<web_sys::HtmlTextAreaElement>() else {
+        return;
+    };
 
     let value = ta.value();
     let lines: Vec<&str> = value.split('\n').collect();
@@ -28,7 +37,10 @@ pub(crate) fn jump_to_line_in_dom(textarea_id: &str, line: u32) {
     for l in lines.iter().take(idx) {
         pos += l.encode_utf16().count() as u32 + 1;
     }
-    let line_len = lines.get(idx).map(|l| l.encode_utf16().count() as u32).unwrap_or(0);
+    let line_len = lines
+        .get(idx)
+        .map(|l| l.encode_utf16().count() as u32)
+        .unwrap_or(0);
     let end_pos = pos + line_len;
 
     let _ = ta.focus();
@@ -44,7 +56,11 @@ pub(crate) fn jump_to_line_in_dom(textarea_id: &str, line: u32) {
     ta.set_scroll_top(((line as f64 - 4.0).max(0.0) * line_height_px) as i32);
 }
 #[cfg(not(feature = "hydrate"))]
-pub(crate) fn jump_to_line_in_dom(_textarea_id: &str, _line: u32) {}
+pub(crate) fn jump_to_line_in_dom(
+    _textarea_id: &str,
+    _line: u32,
+) {
+}
 
 /// Bridge for the LaTeX PDF viewer's click handler (plain JS, driving PDF.js) to reach the same
 /// `jump_to_line_in_dom` every other reverse-search surface calls directly. Not needed by, and not
@@ -60,7 +76,10 @@ pub(crate) fn wire_jump_to_line_listener(textarea_id: &'static str) {
         }
     });
     if let Some(win) = web_sys::window() {
-        let _ = win.add_event_listener_with_callback("apich-jump-to-line", closure.as_ref().unchecked_ref());
+        let _ = win.add_event_listener_with_callback(
+            "apich-jump-to-line",
+            closure.as_ref().unchecked_ref(),
+        );
     }
     closure.forget();
 }

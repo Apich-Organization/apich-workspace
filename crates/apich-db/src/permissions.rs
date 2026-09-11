@@ -1,6 +1,8 @@
 use crate::config::PostgresConfig;
-use crate::error::{DbError, Result};
-use sqlx::{PgPool, Row};
+use crate::error::DbError;
+use crate::error::Result;
+use sqlx::PgPool;
+use sqlx::Row;
 use tracing::info;
 
 /// Manages PostgreSQL security roles, authentication methods, and database privileges
@@ -8,7 +10,10 @@ pub struct PermissionManager;
 
 impl PermissionManager {
     /// Initialize application user and enforce the principle of least privilege
-    pub async fn setup_least_privilege(admin_pool: &PgPool, config: &PostgresConfig) -> Result<()> {
+    pub async fn setup_least_privilege(
+        admin_pool: &PgPool,
+        config: &PostgresConfig,
+    ) -> Result<()> {
         let app_user = &config.app_user;
         let app_password = &config.app_password;
         let database = &config.database;
@@ -95,7 +100,10 @@ impl PermissionManager {
     }
 
     /// Verify that application user has proper access but lacks superuser powers
-    pub async fn verify_permissions(app_pool: &PgPool, app_user: &str) -> Result<bool> {
+    pub async fn verify_permissions(
+        app_pool: &PgPool,
+        app_user: &str,
+    ) -> Result<bool> {
         // 1. Verify user can query current_user
         let row = sqlx::query("SELECT current_user AS username, rolsuper, rolcreatedb FROM pg_roles WHERE rolname = $1")
             .bind(app_user)
@@ -133,7 +141,10 @@ pub struct IdentityPermissionResolver;
 
 impl IdentityPermissionResolver {
     /// Check if user is a platform-wide administrator
-    pub async fn is_platform_admin(pool: &PgPool, user_id: uuid::Uuid) -> Result<bool> {
+    pub async fn is_platform_admin(
+        pool: &PgPool,
+        user_id: uuid::Uuid,
+    ) -> Result<bool> {
         let is_admin = sqlx::query_scalar::<_, bool>(
             "SELECT (is_platform_admin OR role = 'admin') FROM users WHERE id = $1 AND is_active = true",
         )
@@ -189,8 +200,8 @@ impl IdentityPermissionResolver {
                 .await?;
 
         let org_id = match org_id {
-            Some(id) => id,
-            None => return Ok(false),
+            | Some(id) => id,
+            | None => return Ok(false),
         };
 
         // 2. Org owner / admin has management rights over all teams in that org
@@ -268,8 +279,8 @@ impl IdentityPermissionResolver {
         .await?;
 
         let row = match row {
-            Some(r) => r,
-            None => return Ok(false),
+            | Some(r) => r,
+            | None => return Ok(false),
         };
 
         let owner_id: uuid::Uuid = row.try_get("owner_id")?;
@@ -316,12 +327,10 @@ impl IdentityPermissionResolver {
         }
 
         // Check if user is member of project's team
-        let row = sqlx::query(
-            "SELECT team_id FROM projects WHERE id = $1 AND status != 'deleted'",
-        )
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
+        let row = sqlx::query("SELECT team_id FROM projects WHERE id = $1 AND status != 'deleted'")
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await?;
 
         if let Some(r) = row {
             let team_id: Option<uuid::Uuid> = r.try_get("team_id")?;
@@ -366,16 +375,14 @@ impl IdentityPermissionResolver {
             return Ok(true);
         }
 
-        let row = sqlx::query(
-            "SELECT org_id FROM projects WHERE id = $1 AND status != 'deleted'",
-        )
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
+        let row = sqlx::query("SELECT org_id FROM projects WHERE id = $1 AND status != 'deleted'")
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await?;
 
         let row = match row {
-            Some(r) => r,
-            None => return Ok(false),
+            | Some(r) => r,
+            | None => return Ok(false),
         };
 
         let org_id: uuid::Uuid = row.try_get("org_id")?;
@@ -439,8 +446,8 @@ impl IdentityPermissionResolver {
 
         let visibility: String = row.try_get("visibility")?;
         match visibility.as_str() {
-            "public" => Ok(true),
-            "shared" => {
+            | "public" => Ok(true),
+            | "shared" => {
                 let is_shared = sqlx::query_scalar::<_, bool>(
                     r#"
                     SELECT EXISTS (
@@ -456,8 +463,8 @@ impl IdentityPermissionResolver {
                 .fetch_one(pool)
                 .await?;
                 Ok(is_shared)
-            }
-            _ => Ok(false), // 'private' (or anything unrecognized): owner-only, already checked above
+            },
+            | _ => Ok(false), /* 'private' (or anything unrecognized): owner-only, already checked above */
         }
     }
 
@@ -468,11 +475,12 @@ impl IdentityPermissionResolver {
         user_id: uuid::Uuid,
         template_id: uuid::Uuid,
     ) -> Result<bool> {
-        let owner_user_id = sqlx::query_scalar::<_, uuid::Uuid>("SELECT owner_user_id FROM templates WHERE id = $1")
-            .bind(template_id)
-            .fetch_optional(pool)
-            .await?;
+        let owner_user_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT owner_user_id FROM templates WHERE id = $1",
+        )
+        .bind(template_id)
+        .fetch_optional(pool)
+        .await?;
         Ok(owner_user_id == Some(user_id))
     }
 }
-

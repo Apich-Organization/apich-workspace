@@ -1,6 +1,10 @@
 mod common;
-use apich_vcs::{ProjectVcs, RetentionPolicy, Snapshot};
-use chrono::{Duration, TimeZone, Utc};
+use apich_vcs::ProjectVcs;
+use apich_vcs::RetentionPolicy;
+use apich_vcs::Snapshot;
+use chrono::Duration;
+use chrono::TimeZone;
+use chrono::Utc;
 use common::test_temp_dir;
 use std::fs;
 
@@ -52,9 +56,17 @@ fn test_retention_policy_decay_tiers() {
     // Milestones and Git push points from 200 days ago (MUST be kept permanently)
     let old_date = now - Duration::days(200);
     let s_milestone = make_snap(old_date, true, None);
-    let s_git_synced = make_snap(old_date - Duration::days(5), false, Some("c0ffee1234567890"));
+    let s_git_synced = make_snap(
+        old_date - Duration::days(5),
+        false,
+        Some("c0ffee1234567890"),
+    );
     let s_old_plain = make_snap(old_date - Duration::days(6), false, None);
-    let s_old_plain_2 = make_snap(old_date - Duration::days(6) - Duration::hours(2), false, None);
+    let s_old_plain_2 = make_snap(
+        old_date - Duration::days(6) - Duration::hours(2),
+        false,
+        None,
+    );
     snapshots.push(s_milestone.clone());
     snapshots.push(s_git_synced.clone());
     snapshots.push(s_old_plain.clone());

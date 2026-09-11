@@ -11,7 +11,8 @@
 //! preview pane covers every clickable element inside it via `Element::closest`.
 
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteHeadingItem {
@@ -49,7 +50,16 @@ pub fn NoteEditorIsland(
     let on_body_input = {
         let project_id = project_id.clone();
         let file_path = file_path.clone();
-        move |_| debounced_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, preview_html, headings_sig)
+        move |_| {
+            debounced_preview(
+                code_ref,
+                project_id.clone(),
+                file_path.clone(),
+                debounce_gen,
+                preview_html,
+                headings_sig,
+            )
+        }
     };
     // KaTeX's own auto-render only ever scans the DOM once, on its CDN script's `onload` (see
     // `KatexHead` in apich-web) -- fine for the initial server-rendered content, but math typed
@@ -126,7 +136,14 @@ pub fn NoteEditorIsland(
         let file_path = file_path.clone();
         move |action: ToolbarAction| {
             apply_toolbar_action(code_ref, action);
-            debounced_preview(code_ref, project_id.clone(), file_path.clone(), debounce_gen, preview_html, headings_sig);
+            debounced_preview(
+                code_ref,
+                project_id.clone(),
+                file_path.clone(),
+                debounce_gen,
+                preview_html,
+                headings_sig,
+            );
         }
     });
     let toolbar = view! {
@@ -215,10 +232,19 @@ enum ToolbarAction {
 /// `toggle_task` already does after its own programmatic `set_value` call, since that path
 /// doesn't fire a native `input` event on its own.
 #[cfg(feature = "hydrate")]
-fn apply_toolbar_action(code_ref: NodeRef<leptos::html::Textarea>, action: ToolbarAction) {
-    use crate::note_formatting::{insert_block, numbered_list, toggle_line_prefix, wrap_selection, TABLE_SNIPPET};
+fn apply_toolbar_action(
+    code_ref: NodeRef<leptos::html::Textarea>,
+    action: ToolbarAction,
+) {
+    use crate::note_formatting::insert_block;
+    use crate::note_formatting::numbered_list;
+    use crate::note_formatting::toggle_line_prefix;
+    use crate::note_formatting::wrap_selection;
+    use crate::note_formatting::TABLE_SNIPPET;
 
-    let Some(ta) = code_ref.get_untracked() else { return };
+    let Some(ta) = code_ref.get_untracked() else {
+        return;
+    };
     let value = ta.value();
     let sel_start_u16 = ta.selection_start().ok().flatten().unwrap_or(0) as usize;
     let sel_end_u16 = ta.selection_end().ok().flatten().unwrap_or(0) as usize;
@@ -226,17 +252,24 @@ fn apply_toolbar_action(code_ref: NodeRef<leptos::html::Textarea>, action: Toolb
     let end = utf16_offset_to_byte(&value, sel_end_u16);
 
     let (new_value, new_start, new_end) = match action {
-        ToolbarAction::Bold => wrap_selection(&value, start, end, "**", "**", "bold text"),
-        ToolbarAction::Italic => wrap_selection(&value, start, end, "*", "*", "italic text"),
-        ToolbarAction::Code => wrap_selection(&value, start, end, "`", "`", "code"),
-        ToolbarAction::Link => wrap_selection(&value, start, end, "[", "](url)", "link text"),
-        ToolbarAction::WikiLink => wrap_selection(&value, start, end, "[[", "]]", "Note Name"),
-        ToolbarAction::Heading(level) => toggle_line_prefix(&value, start, end, &format!("{} ", "#".repeat(level as usize))),
-        ToolbarAction::Quote => toggle_line_prefix(&value, start, end, "> "),
-        ToolbarAction::BulletList => toggle_line_prefix(&value, start, end, "- "),
-        ToolbarAction::Task => toggle_line_prefix(&value, start, end, "- [ ] "),
-        ToolbarAction::NumberedList => numbered_list(&value, start, end),
-        ToolbarAction::Table => insert_block(&value, start, end, TABLE_SNIPPET),
+        | ToolbarAction::Bold => wrap_selection(&value, start, end, "**", "**", "bold text"),
+        | ToolbarAction::Italic => wrap_selection(&value, start, end, "*", "*", "italic text"),
+        | ToolbarAction::Code => wrap_selection(&value, start, end, "`", "`", "code"),
+        | ToolbarAction::Link => wrap_selection(&value, start, end, "[", "](url)", "link text"),
+        | ToolbarAction::WikiLink => wrap_selection(&value, start, end, "[[", "]]", "Note Name"),
+        | ToolbarAction::Heading(level) => {
+            toggle_line_prefix(
+                &value,
+                start,
+                end,
+                &format!("{} ", "#".repeat(level as usize)),
+            )
+        },
+        | ToolbarAction::Quote => toggle_line_prefix(&value, start, end, "> "),
+        | ToolbarAction::BulletList => toggle_line_prefix(&value, start, end, "- "),
+        | ToolbarAction::Task => toggle_line_prefix(&value, start, end, "- [ ] "),
+        | ToolbarAction::NumberedList => numbered_list(&value, start, end),
+        | ToolbarAction::Table => insert_block(&value, start, end, TABLE_SNIPPET),
     };
 
     ta.set_value(&new_value);
@@ -247,14 +280,21 @@ fn apply_toolbar_action(code_ref: NodeRef<leptos::html::Textarea>, action: Toolb
     call_refresh_highlight("note-body-editor");
 }
 #[cfg(not(feature = "hydrate"))]
-fn apply_toolbar_action(_code_ref: NodeRef<leptos::html::Textarea>, _action: ToolbarAction) {}
+fn apply_toolbar_action(
+    _code_ref: NodeRef<leptos::html::Textarea>,
+    _action: ToolbarAction,
+) {
+}
 
 /// A `<textarea>`'s `selectionStart`/`selectionEnd` count UTF-16 code units (real JS string
 /// semantics, exposed as-is through web-sys), not the UTF-8 byte offsets Rust string slicing
 /// needs -- these two convert at that boundary so a CJK-heavy note's selection maps onto the
 /// right bytes instead of silently drifting or panicking on a non-char-boundary slice.
 #[cfg(feature = "hydrate")]
-fn utf16_offset_to_byte(s: &str, utf16_offset: usize) -> usize {
+fn utf16_offset_to_byte(
+    s: &str,
+    utf16_offset: usize,
+) -> usize {
     let mut units = 0usize;
     for (byte_idx, ch) in s.char_indices() {
         if units >= utf16_offset {
@@ -265,8 +305,13 @@ fn utf16_offset_to_byte(s: &str, utf16_offset: usize) -> usize {
     s.len()
 }
 #[cfg(feature = "hydrate")]
-fn byte_offset_to_utf16(s: &str, byte_offset: usize) -> usize {
-    s.get(..byte_offset).map(|s| s.encode_utf16().count()).unwrap_or_else(|| s.encode_utf16().count())
+fn byte_offset_to_utf16(
+    s: &str,
+    byte_offset: usize,
+) -> usize {
+    s.get(..byte_offset)
+        .map(|s| s.encode_utf16().count())
+        .unwrap_or_else(|| s.encode_utf16().count())
 }
 
 /// Handles both the task-checkbox toggle (a real POST that rewrites the physical note file
@@ -275,15 +320,27 @@ fn byte_offset_to_utf16(s: &str, byte_offset: usize) -> usize {
 /// (see `NoteEditorIsland`'s view), using `Element::closest` the same way the removed JS version
 /// did, just as normal Rust control flow instead of a `document`-level delegated listener.
 #[cfg(feature = "hydrate")]
-fn handle_preview_click(ev: leptos::ev::MouseEvent, code_ref: NodeRef<leptos::html::Textarea>, project_id: String) {
+fn handle_preview_click(
+    ev: leptos::ev::MouseEvent,
+    code_ref: NodeRef<leptos::html::Textarea>,
+    project_id: String,
+) {
     use wasm_bindgen::JsCast;
     let Some(target) = ev.target() else { return };
-    let Ok(el) = target.dyn_into::<web_sys::Element>() else { return };
+    let Ok(el) = target.dyn_into::<web_sys::Element>() else {
+        return;
+    };
 
     if let Some(checkbox) = el.closest("input.task-live-checkbox").ok().flatten() {
-        let Some(row) = checkbox.closest("[data-line][data-file]").ok().flatten() else { return };
-        let Some(line) = row.get_attribute("data-line") else { return };
-        let Some(file) = row.get_attribute("data-file") else { return };
+        let Some(row) = checkbox.closest("[data-line][data-file]").ok().flatten() else {
+            return;
+        };
+        let Some(line) = row.get_attribute("data-line") else {
+            return;
+        };
+        let Some(file) = row.get_attribute("data-file") else {
+            return;
+        };
         let checked = checkbox
             .dyn_ref::<web_sys::HtmlInputElement>()
             .map(|c| c.checked())
@@ -301,19 +358,38 @@ fn handle_preview_click(ev: leptos::ev::MouseEvent, code_ref: NodeRef<leptos::ht
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn handle_preview_click(_ev: leptos::ev::MouseEvent, _code_ref: NodeRef<leptos::html::Textarea>, _project_id: String) {}
+fn handle_preview_click(
+    _ev: leptos::ev::MouseEvent,
+    _code_ref: NodeRef<leptos::html::Textarea>,
+    _project_id: String,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-fn toggle_task(project_id: String, file: String, line: String, checked: bool, code_ref: NodeRef<leptos::html::Textarea>) {
+fn toggle_task(
+    project_id: String,
+    file: String,
+    line: String,
+    checked: bool,
+    code_ref: NodeRef<leptos::html::Textarea>,
+) {
     wasm_bindgen_futures::spawn_local(async move {
         let status = if checked { "done" } else { "todo" };
-        let body = format!("file={}&line_number={}&status={}", urlencode(&file), urlencode(&line), status);
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/knowledge/toggle-task-ajax", project_id))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .expect("valid form body")
-            .send()
-            .await;
+        let body = format!(
+            "file={}&line_number={}&status={}",
+            urlencode(&file),
+            urlencode(&line),
+            status
+        );
+        let result = gloo_net::http::Request::post(&format!(
+            "/projects/{}/knowledge/toggle-task-ajax",
+            project_id
+        ))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .expect("valid form body")
+        .send()
+        .await;
         if let Ok(resp) = result {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 if let Some(updated) = data.get("updated_body").and_then(|v| v.as_str()) {
@@ -339,15 +415,28 @@ fn toggle_task(project_id: String, file: String, line: String, checked: bool, co
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn toggle_task(_project_id: String, _file: String, _line: String, _checked: bool, _code_ref: NodeRef<leptos::html::Textarea>) {}
+fn toggle_task(
+    _project_id: String,
+    _file: String,
+    _line: String,
+    _checked: bool,
+    _code_ref: NodeRef<leptos::html::Textarea>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
 fn call_refresh_highlight(textarea_id: &str) {
     use wasm_bindgen::JsCast;
     if let Some(window) = web_sys::window() {
-        if let Ok(func) = js_sys::Reflect::get(&window, &wasm_bindgen::JsValue::from_str("__apichRefreshHighlight")) {
+        if let Ok(func) = js_sys::Reflect::get(
+            &window,
+            &wasm_bindgen::JsValue::from_str("__apichRefreshHighlight"),
+        ) {
             if let Ok(func) = func.dyn_into::<js_sys::Function>() {
-                let _ = func.call1(&wasm_bindgen::JsValue::NULL, &wasm_bindgen::JsValue::from_str(textarea_id));
+                let _ = func.call1(
+                    &wasm_bindgen::JsValue::NULL,
+                    &wasm_bindgen::JsValue::from_str(textarea_id),
+                );
             }
         }
     }
@@ -358,8 +447,10 @@ fn urlencode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{:02X}", b)),
+            | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            },
+            | _ => out.push_str(&format!("%{:02X}", b)),
         }
     }
     out
@@ -385,14 +476,17 @@ fn debounced_preview(
         if debounce_gen.get_value() != my_gen {
             return; // a newer keystroke superseded this one
         }
-        let Some(ta) = code_ref.get_untracked() else { return };
+        let Some(ta) = code_ref.get_untracked() else {
+            return;
+        };
         let content = ta.value();
         let body = serde_json::json!({ "file": file_path, "content": content });
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
+        let result =
+            gloo_net::http::Request::post(&format!("/projects/{}/render/preview", project_id))
+                .json(&body)
+                .expect("valid json body")
+                .send()
+                .await;
         if let Ok(resp) = result {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 if let Some(html) = data.get("html").and_then(|v| v.as_str()) {
@@ -438,18 +532,35 @@ fn debounced_preview(
 #[cfg(feature = "hydrate")]
 fn rerun_katex_on_preview() {
     use wasm_bindgen::JsCast;
-    let Some(window) = web_sys::window() else { return };
-    let Some(document) = window.document() else { return };
-    let Some(el) = document.get_element_by_id("note-preview-pane") else { return };
-    let Ok(func) = js_sys::Reflect::get(&window, &wasm_bindgen::JsValue::from_str("renderMathInElement")) else { return };
-    let Ok(func) = func.dyn_into::<js_sys::Function>() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
+    let Some(el) = document.get_element_by_id("note-preview-pane") else {
+        return;
+    };
+    let Ok(func) = js_sys::Reflect::get(
+        &window,
+        &wasm_bindgen::JsValue::from_str("renderMathInElement"),
+    ) else {
+        return;
+    };
+    let Ok(func) = func.dyn_into::<js_sys::Function>() else {
+        return;
+    };
     let options = js_sys::Object::new();
     let delimiters = js_sys::Array::new();
     let mk = |left: &str, right: &str, display: bool| {
         let d = js_sys::Object::new();
         let _ = js_sys::Reflect::set(&d, &"left".into(), &left.into());
         let _ = js_sys::Reflect::set(&d, &"right".into(), &right.into());
-        let _ = js_sys::Reflect::set(&d, &"display".into(), &wasm_bindgen::JsValue::from_bool(display));
+        let _ = js_sys::Reflect::set(
+            &d,
+            &"display".into(),
+            &wasm_bindgen::JsValue::from_bool(display),
+        );
         d
     };
     delimiters.push(&mk("$$", "$$", true));

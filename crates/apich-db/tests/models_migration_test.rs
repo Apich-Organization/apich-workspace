@@ -1,9 +1,17 @@
 mod common;
-use apich_db::{
-    CreateAuditLogDto, CreateDocumentDto, CreateKnowledgeEdgeDto, CreateKnowledgeNodeDto,
-    CreateUserDto, CreateWorkspaceDto, Database, DocType, MemberRole, PostgresConfig,
-    PostgresContainer, UserRole, WorkspaceVisibility,
-};
+use apich_db::CreateAuditLogDto;
+use apich_db::CreateDocumentDto;
+use apich_db::CreateKnowledgeEdgeDto;
+use apich_db::CreateKnowledgeNodeDto;
+use apich_db::CreateUserDto;
+use apich_db::CreateWorkspaceDto;
+use apich_db::Database;
+use apich_db::DocType;
+use apich_db::MemberRole;
+use apich_db::PostgresConfig;
+use apich_db::PostgresContainer;
+use apich_db::UserRole;
+use apich_db::WorkspaceVisibility;
 use common::test_temp_dir;
 use std::time::Duration;
 
@@ -131,7 +139,10 @@ async fn test_models_and_schema_migrations() {
         .expect("Failed to create document");
     assert_eq!(doc.rel_path, "papers/main.typ");
     assert_eq!(doc.doc_type, DocType::Typst);
-    assert_eq!(doc.content, "= Quantum Mechanics\n\nIntro to quantum theory.");
+    assert_eq!(
+        doc.content,
+        "= Quantum Mechanics\n\nIntro to quantum theory."
+    );
 
     let fetched_doc = repo
         .get_document_by_path(ws.id, "papers/main.typ")

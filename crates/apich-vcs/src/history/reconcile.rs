@@ -1,6 +1,8 @@
 use crate::chunking::FastCdcConfig;
 use crate::error::Result;
-use crate::model::{Conflict, FileEntry, VcsTree};
+use crate::model::Conflict;
+use crate::model::FileEntry;
+use crate::model::VcsTree;
 use crate::storage::ContentAddressableStorage;
 use std::collections::BTreeSet;
 
@@ -22,7 +24,10 @@ pub struct Reconciler<'a> {
 }
 
 impl<'a> Reconciler<'a> {
-    pub fn new(cas: &'a ContentAddressableStorage, cdc_config: FastCdcConfig) -> Self {
+    pub fn new(
+        cas: &'a ContentAddressableStorage,
+        cdc_config: FastCdcConfig,
+    ) -> Self {
         Self { cas, cdc_config }
     }
 
@@ -58,7 +63,7 @@ impl<'a> Reconciler<'a> {
 
             match (ours_entry, theirs_entry, base_entry) {
                 // Case 1: Exists in both ours and theirs
-                (Some(o), Some(t), b_opt) => {
+                | (Some(o), Some(t), b_opt) => {
                     if o.blake3_hash == t.blake3_hash {
                         // Identical on both sides
                         merged_tree.insert(o.clone());
@@ -84,8 +89,9 @@ impl<'a> Reconciler<'a> {
                                 let (merged_text, has_conflict) =
                                     self.merge_text_3way(o_str, t_str, b_str);
 
-                                let (new_chunks, blake3_hash, git_sha1) =
-                                    self.cas.put_file_data(merged_text.as_bytes(), self.cdc_config)?;
+                                let (new_chunks, blake3_hash, git_sha1) = self
+                                    .cas
+                                    .put_file_data(merged_text.as_bytes(), self.cdc_config)?;
 
                                 let merged_entry = FileEntry {
                                     path: path.to_string(),
@@ -129,21 +135,21 @@ impl<'a> Reconciler<'a> {
                             None,
                         ));
                     }
-                }
+                },
 
                 // Case 2: Added on ours only
-                (Some(o), None, None) => {
+                | (Some(o), None, None) => {
                     merged_tree.insert(o.clone());
-                }
+                },
 
                 // Case 3: Added on theirs only
-                (None, Some(t), None) => {
+                | (None, Some(t), None) => {
                     merged_tree.insert(t.clone());
                     auto_merged_count += 1;
-                }
+                },
 
                 // Case 4: Removed on theirs, unchanged on ours
-                (Some(o), None, Some(b)) => {
+                | (Some(o), None, Some(b)) => {
                     if o.blake3_hash == b.blake3_hash {
                         // Accept deletion from theirs
                         auto_merged_count += 1;
@@ -157,10 +163,10 @@ impl<'a> Reconciler<'a> {
                             Some(b.blake3_hash.clone()),
                         ));
                     }
-                }
+                },
 
                 // Case 5: Removed on ours, unchanged on theirs
-                (None, Some(t), Some(b)) => {
+                | (None, Some(t), Some(b)) => {
                     if t.blake3_hash == b.blake3_hash {
                         // Keep deletion from ours
                     } else {
@@ -173,11 +179,11 @@ impl<'a> Reconciler<'a> {
                             Some(b.blake3_hash.clone()),
                         ));
                     }
-                }
+                },
 
                 // Removed on both sides
-                (None, None, Some(_)) => {}
-                (None, None, None) => {}
+                | (None, None, Some(_)) => {},
+                | (None, None, None) => {},
             }
         }
 
@@ -191,7 +197,12 @@ impl<'a> Reconciler<'a> {
     }
 
     /// Perform a line-by-line 3-way text merge
-    fn merge_text_3way(&self, ours: &str, theirs: &str, base: &str) -> (String, bool) {
+    fn merge_text_3way(
+        &self,
+        ours: &str,
+        theirs: &str,
+        base: &str,
+    ) -> (String, bool) {
         if ours == theirs {
             return (ours.to_string(), false);
         }
@@ -209,7 +220,10 @@ impl<'a> Reconciler<'a> {
         let mut output = Vec::new();
         let mut has_conflict = false;
 
-        let max_len = ours_lines.len().max(theirs_lines.len()).max(base_lines.len());
+        let max_len = ours_lines
+            .len()
+            .max(theirs_lines.len())
+            .max(base_lines.len());
         let mut i = 0;
 
         while i < max_len {
@@ -218,7 +232,7 @@ impl<'a> Reconciler<'a> {
             let b_line = base_lines.get(i).copied();
 
             match (o_line, t_line, b_line) {
-                (Some(o), Some(t), Some(b)) => {
+                | (Some(o), Some(t), Some(b)) => {
                     if o == t {
                         output.push(o.to_string());
                     } else if o == b {
@@ -228,32 +242,44 @@ impl<'a> Reconciler<'a> {
                     } else {
                         // Direct line conflict
                         has_conflict = true;
-                        output.push(format!("<<<<<<< ours\n{}\n=======\n{}\n>>>>>>> theirs", o, t));
+                        output.push(format!(
+                            "<<<<<<< ours\n{}\n=======\n{}\n>>>>>>> theirs",
+                            o, t
+                        ));
                     }
-                }
-                (Some(o), Some(t), None) => {
+                },
+                | (Some(o), Some(t), None) => {
                     if o == t {
                         output.push(o.to_string());
                     } else {
                         has_conflict = true;
-                        output.push(format!("<<<<<<< ours\n{}\n=======\n{}\n>>>>>>> theirs", o, t));
+                        output.push(format!(
+                            "<<<<<<< ours\n{}\n=======\n{}\n>>>>>>> theirs",
+                            o, t
+                        ));
                     }
-                }
-                (Some(o), None, Some(b)) => {
+                },
+                | (Some(o), None, Some(b)) => {
                     if o != b {
                         has_conflict = true;
-                        output.push(format!("<<<<<<< ours\n{}\n=======\n[deleted in theirs]\n>>>>>>> theirs", o));
+                        output.push(format!(
+                            "<<<<<<< ours\n{}\n=======\n[deleted in theirs]\n>>>>>>> theirs",
+                            o
+                        ));
                     }
-                }
-                (None, Some(t), Some(b)) => {
+                },
+                | (None, Some(t), Some(b)) => {
                     if t != b {
                         has_conflict = true;
-                        output.push(format!("<<<<<<< ours\n[deleted in ours]\n=======\n{}\n>>>>>>> theirs", t));
+                        output.push(format!(
+                            "<<<<<<< ours\n[deleted in ours]\n=======\n{}\n>>>>>>> theirs",
+                            t
+                        ));
                     }
-                }
-                (Some(o), None, None) => output.push(o.to_string()),
-                (None, Some(t), None) => output.push(t.to_string()),
-                (None, None, _) => {}
+                },
+                | (Some(o), None, None) => output.push(o.to_string()),
+                | (None, Some(t), None) => output.push(t.to_string()),
+                | (None, None, _) => {},
             }
             i += 1;
         }

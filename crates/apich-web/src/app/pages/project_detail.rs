@@ -1,7 +1,14 @@
-use crate::app::components::{ActiveNav, AiDrawer, AppShell};
-use crate::services::project_manager::{ConflictFileView, GitStatusView, ProjectFileItem};
+use crate::app::components::ActiveNav;
+use crate::app::components::AiDrawer;
+use crate::app::components::AppShell;
+use crate::services::project_manager::ConflictFileView;
+use crate::services::project_manager::GitStatusView;
+use crate::services::project_manager::ProjectFileItem;
 use crate::ui::i18n::I18n;
-use apich_db::{EffectiveHubLinks, Project, ProjectMemberWithUser, User};
+use apich_db::EffectiveHubLinks;
+use apich_db::Project;
+use apich_db::ProjectMemberWithUser;
+use apich_db::User;
 use apich_vcs::Snapshot;
 use leptos::prelude::*;
 
@@ -15,9 +22,9 @@ pub enum ProjectTab {
 impl ProjectTab {
     pub fn from_str(s: &str) -> Self {
         match s {
-            "vcs" | "merge" | "timeline" | "git" => ProjectTab::Vcs,
-            "sharing" | "members" => ProjectTab::Sharing,
-            _ => ProjectTab::Files,
+            | "vcs" | "merge" | "timeline" | "git" => ProjectTab::Vcs,
+            | "sharing" | "members" => ProjectTab::Sharing,
+            | _ => ProjectTab::Files,
         }
     }
 }
@@ -52,16 +59,47 @@ pub fn ProjectDetailPage(
     let is_owner = project.owner_id == user.id || user.is_platform_admin;
     let project_id = project.id;
 
-    let notice_alert = notice.map(|n| view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> });
+    let notice_alert = notice.map(
+        |n| view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> },
+    );
 
     let hub_bar = hub_links.map(render_hub_links_bar);
 
-    let tab_bar = render_tab_bar(project_id, tab, files.len(), conflicts.len(), snapshots.len(), members.len(), &i18n);
+    let tab_bar = render_tab_bar(
+        project_id,
+        tab,
+        files.len(),
+        conflicts.len(),
+        snapshots.len(),
+        members.len(),
+        &i18n,
+    );
 
     let tab_content = match tab {
-        ProjectTab::Files => render_files_tab(&project, &files, &all_users, &new_file_templates, &i18n).into_any(),
-        ProjectTab::Vcs => render_vcs_tab(&project, is_owner, &branches, current_branch.as_deref(), &conflicts, &snapshots, &signature_statuses, &milestones, &git_status, &ignore_config, &gitignore_content, &apichignore_content, &i18n).into_any(),
-        ProjectTab::Sharing => render_sharing_tab(&project, &members, &all_users, is_owner, &i18n).into_any(),
+        | ProjectTab::Files => {
+            render_files_tab(&project, &files, &all_users, &new_file_templates, &i18n).into_any()
+        },
+        | ProjectTab::Vcs => {
+            render_vcs_tab(
+                &project,
+                is_owner,
+                &branches,
+                current_branch.as_deref(),
+                &conflicts,
+                &snapshots,
+                &signature_statuses,
+                &milestones,
+                &git_status,
+                &ignore_config,
+                &gitignore_content,
+                &apichignore_content,
+                &i18n,
+            )
+            .into_any()
+        },
+        | ProjectTab::Sharing => {
+            render_sharing_tab(&project, &members, &all_users, is_owner, &i18n).into_any()
+        },
     };
 
     view! {
@@ -138,7 +176,9 @@ fn render_hub_links_bar(links: EffectiveHubLinks) -> impl IntoView {
         return view! { <div></div> }.into_any();
     }
 
-    let override_badge = links.is_team_override.then(|| view! { <span class="badge-override">"Team Override"</span> });
+    let override_badge = links
+        .is_team_override
+        .then(|| view! { <span class="badge-override">"Team Override"</span> });
 
     view! {
         <div class="hub-links-bar">
@@ -149,7 +189,15 @@ fn render_hub_links_bar(links: EffectiveHubLinks) -> impl IntoView {
     .into_any()
 }
 
-fn render_tab_bar(project_id: uuid::Uuid, active: ProjectTab, files_count: usize, conflicts_count: usize, snapshots_count: usize, members_count: usize, i18n: &I18n) -> impl IntoView {
+fn render_tab_bar(
+    project_id: uuid::Uuid,
+    active: ProjectTab,
+    files_count: usize,
+    conflicts_count: usize,
+    snapshots_count: usize,
+    members_count: usize,
+    i18n: &I18n,
+) -> impl IntoView {
     view! {
         <div class="tab-bar">
             <a href=format!("/projects/{}?tab=files", project_id) class="tab-item" class:active=active == ProjectTab::Files>
@@ -168,7 +216,13 @@ fn render_tab_bar(project_id: uuid::Uuid, active: ProjectTab, files_count: usize
     }
 }
 
-fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[User], new_file_templates: &[apich_db::TemplateWithLatestVersion], i18n: &I18n) -> impl IntoView {
+fn render_files_tab(
+    project: &Project,
+    files: &[ProjectFileItem],
+    all_users: &[User],
+    new_file_templates: &[apich_db::TemplateWithLatestVersion],
+    i18n: &I18n,
+) -> impl IntoView {
     let project_id = project.id;
 
     // Built as fully owned data before the `<apich_islands::ModalIsland>` below rather than
@@ -207,7 +261,8 @@ fn render_files_tab(project: &Project, files: &[ProjectFileItem], all_users: &[U
             <tr><td colspan="6" style="text-align:center; padding:2.5rem; color:var(--text-sub);">
                 "No files yet. Click '+ New File' below to get started."
             </td></tr>
-        }.into_any()
+        }
+        .into_any()
     } else {
         files
             .iter()
@@ -406,7 +461,8 @@ fn render_vcs_tab(
             <div class="alert alert-success" style="margin-top:1.25rem;">
                 <strong>{i18n.conflicts_clean_title()}</strong>" " {i18n.conflicts_clean_desc()}
             </div>
-        }.into_any()
+        }
+        .into_any()
     } else {
         let cards: Vec<_> = conflicts
             .iter()
@@ -497,7 +553,10 @@ fn render_vcs_tab(
         view! { <div class="timeline-list">{items}</div> }.into_any()
     };
 
-    let remote_desc = git.remote_url.clone().unwrap_or_else(|| i18n.git_no_remote().to_string());
+    let remote_desc = git
+        .remote_url
+        .clone()
+        .unwrap_or_else(|| i18n.git_no_remote().to_string());
 
     view! {
         // The user's own complaint, verbatim: this page "mix[ed] git vcs and apich vcs
@@ -767,11 +826,27 @@ fn render_ignore_section(
     }
 }
 
-fn render_sharing_tab(project: &Project, members: &[ProjectMemberWithUser], all_users: &[User], is_owner: bool, i18n: &I18n) -> impl IntoView {
+fn render_sharing_tab(
+    project: &Project,
+    members: &[ProjectMemberWithUser],
+    all_users: &[User],
+    is_owner: bool,
+    i18n: &I18n,
+) -> impl IntoView {
     let project_id = project.id;
 
-    let share_mode = project.settings.get("share_mode").and_then(|v| v.as_str()).unwrap_or("private").to_string();
-    let share_role = project.settings.get("share_role").and_then(|v| v.as_str()).unwrap_or("read_only").to_string();
+    let share_mode = project
+        .settings
+        .get("share_mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("private")
+        .to_string();
+    let share_role = project
+        .settings
+        .get("share_role")
+        .and_then(|v| v.as_str())
+        .unwrap_or("read_only")
+        .to_string();
     let is_public = share_mode == "public";
     let share_link = format!("/shared/{}", project_id);
 

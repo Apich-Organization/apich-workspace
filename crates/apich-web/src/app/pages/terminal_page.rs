@@ -1,6 +1,8 @@
-use crate::app::components::{ActiveNav, AppShell};
+use crate::app::components::ActiveNav;
+use crate::app::components::AppShell;
 use crate::ui::i18n::I18n;
-use apich_db::{Project, User};
+use apich_db::Project;
+use apich_db::User;
 use apich_islands::TerminalIsland;
 use leptos::prelude::*;
 
@@ -25,9 +27,15 @@ pub fn TerminalPage(
     let is_running = sandbox_status == "running";
 
     let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }.into_any())
+        Some(
+            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                .into_any(),
+        )
     } else {
-        error.map(|e| view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }.into_any())
+        error.map(|e| {
+            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                .into_any()
+        })
     };
 
     let status_pill = if is_running {
@@ -41,7 +49,12 @@ pub fn TerminalPage(
     // nobody could find out that a real `cargo` toolchain (and git, python3, R, LaTeX/Typst -- see
     // `docker/Containerfile.sandbox`) has always been available. Says nothing about a "sandbox" or
     // "container", per direct user feedback -- this reads like a plain project shell.
-    let initial_screen = format!("{} / {}\n\n{}\n", user.username, project.slug, i18n.terminal_hint());
+    let initial_screen = format!(
+        "{} / {}\n\n{}\n",
+        user.username,
+        project.slug,
+        i18n.terminal_hint()
+    );
 
     view! {
         <AppShell

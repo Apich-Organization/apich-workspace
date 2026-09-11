@@ -1,16 +1,29 @@
 use crate::autosave::AutosaveEngine;
 use crate::chunking::FastCdcConfig;
-use crate::error::{Result, VcsError};
-use crate::git::{GitBridge, MaterialManager, MaterialRecord};
-use crate::history::{ReconcileResult, Reconciler, RetentionPolicy};
+use crate::error::Result;
+use crate::error::VcsError;
+use crate::git::GitBridge;
+use crate::git::MaterialManager;
+use crate::git::MaterialRecord;
+use crate::history::ReconcileResult;
+use crate::history::Reconciler;
+use crate::history::RetentionPolicy;
 use crate::ignore::IgnoreFilter;
-use crate::model::{Branch, FileEntry, Snapshot, VcsTree};
-use crate::oplog::{OpAction, OpLog, VcsOperation};
-use crate::storage::{ContentAddressableStorage, GarbageCollector, GcStats};
+use crate::model::Branch;
+use crate::model::FileEntry;
+use crate::model::Snapshot;
+use crate::model::VcsTree;
+use crate::oplog::OpAction;
+use crate::oplog::OpLog;
+use crate::oplog::VcsOperation;
+use crate::storage::ContentAddressableStorage;
+use crate::storage::GarbageCollector;
+use crate::storage::GcStats;
 use chrono::Utc;
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::config::VcsConfig;
@@ -100,19 +113,28 @@ impl ProjectVcs {
         }
     }
 
-    pub fn set_current_branch(&self, name: &str) -> Result<()> {
+    pub fn set_current_branch(
+        &self,
+        name: &str,
+    ) -> Result<()> {
         fs::write(self.head_file(), name)?;
         Ok(())
     }
 
-    fn branch_file(&self, name: &str) -> PathBuf {
+    fn branch_file(
+        &self,
+        name: &str,
+    ) -> PathBuf {
         self.project_root
             .join(".apich")
             .join("branches")
             .join(format!("{}.json", name))
     }
 
-    pub fn get_branch(&self, name: &str) -> Result<Option<Branch>> {
+    pub fn get_branch(
+        &self,
+        name: &str,
+    ) -> Result<Option<Branch>> {
         let path = self.branch_file(name);
         if path.exists() {
             let json = fs::read(path)?;
@@ -123,7 +145,10 @@ impl ProjectVcs {
         }
     }
 
-    pub fn save_branch(&self, branch: &Branch) -> Result<()> {
+    pub fn save_branch(
+        &self,
+        branch: &Branch,
+    ) -> Result<()> {
         let path = self.branch_file(&branch.name);
         let json = serde_json::to_vec_pretty(branch)?;
         fs::write(path, json)?;
@@ -230,7 +255,10 @@ impl ProjectVcs {
     }
 
     /// Commit the current working copy into an immutable Snapshot
-    pub fn snapshot(&self, message: impl Into<String>) -> Result<Snapshot> {
+    pub fn snapshot(
+        &self,
+        message: impl Into<String>,
+    ) -> Result<Snapshot> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let tree = self.scan_working_tree()?;
         self.cas.put_tree(&tree)?;
@@ -272,7 +300,11 @@ impl ProjectVcs {
     ///
     /// Signing is always local: the private key never leaves the caller's machine or this
     /// process's `gpg` invocation -- only the resulting signature is persisted.
-    pub fn snapshot_signed(&self, message: impl Into<String>, key_id: Option<&str>) -> Result<Snapshot> {
+    pub fn snapshot_signed(
+        &self,
+        message: impl Into<String>,
+        key_id: Option<&str>,
+    ) -> Result<Snapshot> {
         let mut snapshot = self.snapshot(message)?;
         let signature = crate::gpg::sign_payload(&snapshot.signing_payload(), key_id)?;
         snapshot.gpg_signature = Some(signature);
@@ -293,7 +325,8 @@ impl ProjectVcs {
         let Some(ref sig) = snapshot.gpg_signature else {
             return Ok(None);
         };
-        let status = crate::gpg::verify_signature(&snapshot.signing_payload(), sig, public_key_armored)?;
+        let status =
+            crate::gpg::verify_signature(&snapshot.signing_payload(), sig, public_key_armored)?;
         Ok(Some(status))
     }
 
@@ -309,7 +342,10 @@ impl ProjectVcs {
 
     /// Commit a snapshot only if there are actual modifications compared to HEAD.
     /// Returns `Ok(Some(snapshot))` if a new snapshot was committed, or `Ok(None)` if no changes were detected.
-    pub fn snapshot_if_changed(&self, message: impl Into<String>) -> Result<Option<Snapshot>> {
+    pub fn snapshot_if_changed(
+        &self,
+        message: impl Into<String>,
+    ) -> Result<Option<Snapshot>> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let tree = self.scan_working_tree()?;
         let current_head = self.head_snapshot()?;
@@ -370,12 +406,18 @@ impl ProjectVcs {
     }
 
     /// Retrieve a snapshot by UUID from CAS
-    pub fn get_snapshot(&self, id: Uuid) -> Result<Snapshot> {
+    pub fn get_snapshot(
+        &self,
+        id: Uuid,
+    ) -> Result<Snapshot> {
         self.cas.get_snapshot(id)
     }
 
     /// Retrieve a directory tree by hash from CAS
-    pub fn get_tree(&self, hash: &str) -> Result<VcsTree> {
+    pub fn get_tree(
+        &self,
+        hash: &str,
+    ) -> Result<VcsTree> {
         self.cas.get_tree(hash)
     }
 
@@ -420,7 +462,10 @@ impl ProjectVcs {
     // --- Revert, Undo, and Redo ---
 
     /// Materialize a snapshot's tree onto the disk working directory without modifying branch pointers
-    pub fn checkout_tree(&self, snapshot_id: Uuid) -> Result<()> {
+    pub fn checkout_tree(
+        &self,
+        snapshot_id: Uuid,
+    ) -> Result<()> {
         let snapshot = self.cas.get_snapshot(snapshot_id)?;
         let target_tree = self.cas.get_tree(&snapshot.tree_hash)?;
         let current_head = self.head_snapshot()?;
@@ -453,7 +498,10 @@ impl ProjectVcs {
     }
 
     /// Revert working copy and branch HEAD to a specific snapshot
-    pub fn revert_to(&self, snapshot_id: Uuid) -> Result<()> {
+    pub fn revert_to(
+        &self,
+        snapshot_id: Uuid,
+    ) -> Result<()> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let current_head = self.head_snapshot()?;
         let before_id = current_head.as_ref().map(|s| s.id);
@@ -506,7 +554,10 @@ impl ProjectVcs {
 
     // --- Branch Operations ---
 
-    pub fn branch_create(&self, name: &str) -> Result<()> {
+    pub fn branch_create(
+        &self,
+        name: &str,
+    ) -> Result<()> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let current_head = self
             .head_snapshot()?
@@ -518,7 +569,10 @@ impl ProjectVcs {
         Ok(())
     }
 
-    pub fn branch_switch(&self, name: &str) -> Result<()> {
+    pub fn branch_switch(
+        &self,
+        name: &str,
+    ) -> Result<()> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let branch = self
             .get_branch(name)?
@@ -533,7 +587,10 @@ impl ProjectVcs {
     // --- Weave-Free Merge ---
 
     /// Reconcile and merge another branch into the current branch without pointer weaving
-    pub fn merge(&self, other_branch_name: &str) -> Result<ReconcileResult> {
+    pub fn merge(
+        &self,
+        other_branch_name: &str,
+    ) -> Result<ReconcileResult> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let other_branch = self
             .get_branch(other_branch_name)?
@@ -553,7 +610,11 @@ impl ProjectVcs {
         let mut curr = Some(current_head.id);
         while let Some(id) = curr {
             ours_ancestors.insert(id);
-            curr = self.cas.get_snapshot(id).ok().and_then(|s| s.parent_snapshot_id);
+            curr = self
+                .cas
+                .get_snapshot(id)
+                .ok()
+                .and_then(|s| s.parent_snapshot_id);
         }
 
         let mut common_ancestor_id = None;
@@ -563,7 +624,11 @@ impl ProjectVcs {
                 common_ancestor_id = Some(id);
                 break;
             }
-            curr = self.cas.get_snapshot(id).ok().and_then(|s| s.parent_snapshot_id);
+            curr = self
+                .cas
+                .get_snapshot(id)
+                .ok()
+                .and_then(|s| s.parent_snapshot_id);
         }
 
         let base_tree = if let Some(anc_id) = common_ancestor_id {
@@ -621,7 +686,10 @@ impl ProjectVcs {
     // --- Garbage Collection & Retention ---
 
     /// Run timeline exponential decay pruning and CAS unreferenced chunk cleanup
-    pub fn run_gc(&self, policy: Option<&RetentionPolicy>) -> Result<GcStats> {
+    pub fn run_gc(
+        &self,
+        policy: Option<&RetentionPolicy>,
+    ) -> Result<GcStats> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let pol = policy.unwrap_or(&self.retention_policy);
 
@@ -688,15 +756,27 @@ impl ProjectVcs {
         Ok(commit_oid)
     }
 
-    pub fn git_setup_remote(&self, name: &str, url: &str) -> Result<()> {
+    pub fn git_setup_remote(
+        &self,
+        name: &str,
+        url: &str,
+    ) -> Result<()> {
         self.git_bridge.remote_add(name, url)
     }
 
-    pub fn git_push(&self, remote: &str, branch: &str) -> Result<()> {
+    pub fn git_push(
+        &self,
+        remote: &str,
+        branch: &str,
+    ) -> Result<()> {
         self.git_bridge.push(remote, branch)
     }
 
-    pub fn git_pull(&self, remote: &str, branch: &str) -> Result<()> {
+    pub fn git_pull(
+        &self,
+        remote: &str,
+        branch: &str,
+    ) -> Result<()> {
         self.git_bridge.pull(remote, branch)
     }
 
@@ -704,18 +784,27 @@ impl ProjectVcs {
         self.git_bridge.remote_list()
     }
 
-    pub fn git_fetch(&self, remote: &str) -> Result<()> {
+    pub fn git_fetch(
+        &self,
+        remote: &str,
+    ) -> Result<()> {
         self.git_bridge.fetch(remote)
     }
 
-    pub fn git_rebase(&self, upstream: &str) -> Result<()> {
+    pub fn git_rebase(
+        &self,
+        upstream: &str,
+    ) -> Result<()> {
         self.git_bridge.rebase(upstream)
     }
 
     /// Clone a remote Git repository into `dest`, then initialize apich-vcs tracking on the
     /// result and take an initial snapshot -- so a cloned project is immediately usable both as a
     /// Git working copy and as an apich-vcs history, not just a bare checkout.
-    pub fn git_clone(url: &str, dest: impl AsRef<Path>) -> Result<Self> {
+    pub fn git_clone(
+        url: &str,
+        dest: impl AsRef<Path>,
+    ) -> Result<Self> {
         let dest = dest.as_ref();
         GitBridge::clone_repo(url, dest)?;
         let vcs = Self::open_or_init(dest)?;
@@ -723,7 +812,11 @@ impl ProjectVcs {
         Ok(vcs)
     }
 
-    pub fn clone_material(&self, url: &str, rel_dir: &str) -> Result<MaterialRecord> {
+    pub fn clone_material(
+        &self,
+        url: &str,
+        rel_dir: &str,
+    ) -> Result<MaterialRecord> {
         self.material_mgr.clone_material(url, rel_dir)
     }
 
@@ -732,7 +825,11 @@ impl ProjectVcs {
     }
 
     /// Read file content from a specific snapshot, or from the current working copy if snapshot_id is None
-    pub fn read_file_content(&self, snapshot_id: Option<Uuid>, rel_path: &str) -> Result<Vec<u8>> {
+    pub fn read_file_content(
+        &self,
+        snapshot_id: Option<Uuid>,
+        rel_path: &str,
+    ) -> Result<Vec<u8>> {
         if let Some(id) = snapshot_id {
             let snap = self.cas.get_snapshot(id)?;
             let tree = self.cas.get_tree(&snap.tree_hash)?;
@@ -824,7 +921,10 @@ impl ProjectVcs {
     /// Accept a bundle (uploaded as a push, or downloaded as a pull -- the merge is safe either
     /// direction) into this *already-initialized* project. See
     /// `crate::bundle::ProjectBundle::accept_push` for the fast-forward safety rules.
-    pub fn accept_push_bundle<R: std::io::Read>(&self, reader: R) -> Result<crate::bundle::PushOutcome> {
+    pub fn accept_push_bundle<R: std::io::Read>(
+        &self,
+        reader: R,
+    ) -> Result<crate::bundle::PushOutcome> {
         crate::bundle::ProjectBundle::accept_push(self, reader)
     }
 
@@ -859,7 +959,10 @@ impl ProjectVcs {
     }
 
     /// Apply a new configuration to the running VCS instance
-    pub fn apply_config(&mut self, config: VcsConfig) -> Result<()> {
+    pub fn apply_config(
+        &mut self,
+        config: VcsConfig,
+    ) -> Result<()> {
         self.ignore_filter = config.to_ignore_filter(&self.project_root)?;
         let lfs_policy = config.to_lfs_policy(&self.project_root);
         self.git_bridge.set_lfs_policy(lfs_policy);
@@ -882,41 +985,61 @@ impl ProjectVcs {
     }
 
     /// Add a custom ignore rule programmatically (supports globs and negative '!path' rules)
-    pub fn add_ignore_rule(&mut self, rule: impl Into<String>) -> Result<()> {
+    pub fn add_ignore_rule(
+        &mut self,
+        rule: impl Into<String>,
+    ) -> Result<()> {
         let r = rule.into();
         self.config.ignore.custom_rules.push(r.clone());
         self.ignore_filter.add_rule(r)
     }
 
     /// Remove a custom ignore rule programmatically
-    pub fn remove_ignore_rule(&mut self, rule: &str) -> Result<()> {
+    pub fn remove_ignore_rule(
+        &mut self,
+        rule: &str,
+    ) -> Result<()> {
         self.config.ignore.custom_rules.retain(|r| r != rule);
         self.ignore_filter.remove_rule(rule)
     }
 
     /// Enable an ignore profile programmatically
-    pub fn enable_ignore_profile(&mut self, profile: crate::ignore::IgnoreProfile) -> Result<()> {
+    pub fn enable_ignore_profile(
+        &mut self,
+        profile: crate::ignore::IgnoreProfile,
+    ) -> Result<()> {
         self.config.ignore.set_profile_enabled(profile, true);
         self.ignore_filter.enable_profile(profile)
     }
 
     /// Disable an ignore profile programmatically
-    pub fn disable_ignore_profile(&mut self, profile: crate::ignore::IgnoreProfile) -> Result<()> {
+    pub fn disable_ignore_profile(
+        &mut self,
+        profile: crate::ignore::IgnoreProfile,
+    ) -> Result<()> {
         self.config.ignore.set_profile_enabled(profile, false);
         self.ignore_filter.disable_profile(profile)
     }
 
     /// Add a wildcard or glob pattern candidate for automatic Git LFS pointer synthesis
-    pub fn add_lfs_pattern(&mut self, pattern: impl Into<String>) {
+    pub fn add_lfs_pattern(
+        &mut self,
+        pattern: impl Into<String>,
+    ) {
         let p = pattern.into();
         self.config.lfs.patterns.push(p.clone());
         self.git_bridge.lfs_policy_mut().add_pattern(p);
     }
 
     /// Set file size threshold in bytes to trigger automatic Git LFS pointer generation
-    pub fn set_lfs_size_threshold(&mut self, threshold_bytes: u64) {
+    pub fn set_lfs_size_threshold(
+        &mut self,
+        threshold_bytes: u64,
+    ) {
         self.config.lfs.size_threshold_bytes = threshold_bytes;
-        self.git_bridge.lfs_policy_mut().set_size_threshold(threshold_bytes);
+        self.git_bridge
+            .lfs_policy_mut()
+            .set_size_threshold(threshold_bytes);
     }
 
     /// Access the Git LFS policy
@@ -925,7 +1048,10 @@ impl ProjectVcs {
     }
 
     /// Set the retention policy programmatically
-    pub fn set_retention_policy(&mut self, policy: RetentionPolicy) {
+    pub fn set_retention_policy(
+        &mut self,
+        policy: RetentionPolicy,
+    ) {
         self.retention_policy = policy;
     }
 
@@ -935,7 +1061,10 @@ impl ProjectVcs {
     }
 
     /// Set the FastCDC chunking configuration programmatically
-    pub fn set_cdc_config(&mut self, config: FastCdcConfig) {
+    pub fn set_cdc_config(
+        &mut self,
+        config: FastCdcConfig,
+    ) {
         self.cdc_config = config;
     }
 

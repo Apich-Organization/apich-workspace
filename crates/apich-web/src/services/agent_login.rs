@@ -7,11 +7,14 @@
 //! succeeds, the agent's credentials live in the container's home directory and subsequent
 //! `AgentToolchain::run` calls need no `api_key` at all.
 
-use apich_sandbox::tools::{AgentKind, LoginSupport};
-use apich_sandbox::{InteractiveExec, OutputChunk};
+use apich_sandbox::tools::AgentKind;
+use apich_sandbox::tools::LoginSupport;
+use apich_sandbox::InteractiveExec;
+use apich_sandbox::OutputChunk;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,10 +80,10 @@ impl AgentLoginRegistry {
         tokio::spawn(async move {
             loop {
                 match stream.next_chunk().await {
-                    Some(OutputChunk::Stdout(bytes)) | Some(OutputChunk::Stderr(bytes)) => {
+                    | Some(OutputChunk::Stdout(bytes)) | Some(OutputChunk::Stderr(bytes)) => {
                         session.output.lock().await.extend_from_slice(&bytes);
-                    }
-                    Some(OutputChunk::Exit(code)) => {
+                    },
+                    | Some(OutputChunk::Exit(code)) => {
                         *session.status.lock().await = if code == 0 {
                             AgentLoginStatus::Succeeded
                         } else {
@@ -88,11 +91,11 @@ impl AgentLoginRegistry {
                         };
                         *session.stdin_tx.lock().await = None;
                         break;
-                    }
-                    None => {
+                    },
+                    | None => {
                         *session.stdin_tx.lock().await = None;
                         break;
-                    }
+                    },
                 }
             }
             // Keep the finished record around briefly so a client mid-poll still sees the final
@@ -105,14 +108,21 @@ impl AgentLoginRegistry {
         id
     }
 
-    pub async fn get(&self, id: Uuid) -> Option<Arc<AgentLoginSession>> {
+    pub async fn get(
+        &self,
+        id: Uuid,
+    ) -> Option<Arc<AgentLoginSession>> {
         self.sessions.lock().await.get(&id).cloned()
     }
 
     /// Writes one line of pasted-back input (e.g. an OAuth code) to the session's stdin.
     /// Returns `Err` if the session has already finished or never accepted input in the first
     /// place (a `DeviceCode` flow like Codex's polls on its own and needs no pasted code).
-    pub async fn submit_input(&self, id: Uuid, line: &str) -> Result<(), &'static str> {
+    pub async fn submit_input(
+        &self,
+        id: Uuid,
+        line: &str,
+    ) -> Result<(), &'static str> {
         let session = self.get(id).await.ok_or("Login session not found")?;
         let guard = session.stdin_tx.lock().await;
         let Some(tx) = guard.as_ref() else {
@@ -120,6 +130,8 @@ impl AgentLoginRegistry {
         };
         let mut bytes = line.as_bytes().to_vec();
         bytes.push(b'\n');
-        tx.send(bytes).await.map_err(|_| "This login session is no longer accepting input")
+        tx.send(bytes)
+            .await
+            .map_err(|_| "This login session is no longer accepting input")
     }
 }

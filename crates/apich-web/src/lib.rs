@@ -9,7 +9,8 @@ pub mod services;
 pub mod state;
 pub mod ui;
 
-pub use error::{WebError, WebResult};
+pub use error::WebError;
+pub use error::WebResult;
 pub use state::AppState;
 
 async fn not_found() -> (axum::http::StatusCode, axum::response::Html<String>) {
@@ -19,7 +20,10 @@ async fn not_found() -> (axum::http::StatusCode, axum::response::Html<String>) {
         r#"<div class="empty-state"><h2>404</h2><p>This page does not exist.</p><a href="/" class="btn btn-primary">Back to dashboard</a></div>"#,
         &i18n,
     );
-    (axum::http::StatusCode::NOT_FOUND, axum::response::Html(body))
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        axum::response::Html(body),
+    )
 }
 
 /// Creates the top-level Axum router binding API endpoints and UI page routes.
@@ -52,4 +56,3 @@ pub fn create_app(state: AppState) -> axum::Router {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }
-

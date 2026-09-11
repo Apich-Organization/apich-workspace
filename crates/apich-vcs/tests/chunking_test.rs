@@ -1,5 +1,7 @@
 mod common;
-use apich_vcs::{ContentAddressableStorage, FastCdc, FastCdcConfig};
+use apich_vcs::ContentAddressableStorage;
+use apich_vcs::FastCdc;
+use apich_vcs::FastCdcConfig;
 use common::test_temp_dir;
 
 #[test]
@@ -54,7 +56,9 @@ fn test_fastcdc_boundary_stability_and_deduplication() {
     assert!(base_chunks.len() >= 4);
 
     // Prepend 100 bytes of title and author header
-    let mut modified_data = b"# Thesis Draft v2: Modern Deduplication in Technical VCS\nBy Alice Researcher\n\n".to_vec();
+    let mut modified_data =
+        b"# Thesis Draft v2: Modern Deduplication in Technical VCS\nBy Alice Researcher\n\n"
+            .to_vec();
     modified_data.extend_from_slice(&base_data);
 
     let modified_chunks: Vec<_> = FastCdc::new(&modified_data, config).collect();
@@ -80,11 +84,11 @@ fn test_cas_store_and_reconstruct() {
     let cas = ContentAddressableStorage::new(temp.path()).unwrap();
 
     let config = FastCdcConfig::document();
-    let original_text = "This is an academic research paper on Quantum Superposition.\n".repeat(300);
+    let original_text =
+        "This is an academic research paper on Quantum Superposition.\n".repeat(300);
 
-    let (chunks, blake3_hash, git_sha1) = cas
-        .put_file_data(original_text.as_bytes(), config)
-        .unwrap();
+    let (chunks, blake3_hash, git_sha1) =
+        cas.put_file_data(original_text.as_bytes(), config).unwrap();
 
     assert!(!chunks.is_empty());
     assert!(!blake3_hash.is_empty());

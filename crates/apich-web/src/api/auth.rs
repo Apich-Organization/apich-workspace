@@ -1,22 +1,28 @@
-use crate::{
-    auth::{
-        build_clear_cookie, build_session_cookie, generate_session_token, hash_session_token,
-        hash_password, verify_password, AuthUser,
-    },
-    error::{WebError, WebResult},
-    state::AppState,
-};
-use apich_db::{CreateUserDto, User, UserRole};
-use axum::{
-    extract::State,
-    http::header,
-    response::{IntoResponse, Response},
-    routing::{get, post},
-    Json, Router,
-};
+use crate::auth::build_clear_cookie;
+use crate::auth::build_session_cookie;
+use crate::auth::generate_session_token;
+use crate::auth::hash_password;
+use crate::auth::hash_session_token;
+use crate::auth::verify_password;
+use crate::auth::AuthUser;
+use crate::error::WebError;
+use crate::error::WebResult;
+use crate::state::AppState;
+use apich_db::CreateUserDto;
+use apich_db::User;
+use apich_db::UserRole;
+use axum::extract::State;
+use axum::http::header;
+use axum::response::IntoResponse;
+use axum::response::Response;
+use axum::routing::get;
+use axum::routing::post;
+use axum::Json;
+use axum::Router;
 use base64::prelude::*;
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use serde_json::json;
 
 pub fn router() -> Router<AppState> {
@@ -66,12 +72,12 @@ async fn register(
 
     // Verify registration mode
     match settings.registration_mode.as_str() {
-        "admin_only" => {
+        | "admin_only" => {
             return Err(WebError::Forbidden(
                 "Self-serve registration is disabled on this platform".to_string(),
             ));
-        }
-        "invite_only" => {
+        },
+        | "invite_only" => {
             let token = payload.invite_token.as_deref().ok_or_else(|| {
                 WebError::Forbidden("An invitation code is required to register".to_string())
             })?;
@@ -87,11 +93,15 @@ async fn register(
 
             // Mark invitation used
             repo.mark_invitation_used(token).await?;
-        }
-        _ => {} // "open" mode allowed
+        },
+        | _ => {}, // "open" mode allowed
     }
 
-    if repo.get_user_by_username(&payload.username).await?.is_some() {
+    if repo
+        .get_user_by_username(&payload.username)
+        .await?
+        .is_some()
+    {
         return Err(WebError::Conflict("Username already taken".to_string()));
     }
     if repo.get_user_by_email(&payload.email).await?.is_some() {
@@ -132,12 +142,15 @@ async fn login(
     let user = if payload.username_or_email.contains('@') {
         repo.get_user_by_email(&payload.username_or_email).await?
     } else {
-        repo.get_user_by_username(&payload.username_or_email).await?
+        repo.get_user_by_username(&payload.username_or_email)
+            .await?
     };
 
     let user = user.ok_or(WebError::InvalidCredentials)?;
     if !user.is_active {
-        return Err(WebError::Forbidden("Account has been deactivated".to_string()));
+        return Err(WebError::Forbidden(
+            "Account has been deactivated".to_string(),
+        ));
     }
 
     let valid = verify_password(&payload.password, &user.password_hash)?;
@@ -239,7 +252,9 @@ async fn passkey_register_finish(
         .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.public_key_base64))
         .map_err(|e| WebError::PasskeyError(format!("Invalid public key base64: {}", e)))?;
 
-    let device_name = payload.device_name.unwrap_or_else(|| "Security Key".to_string());
+    let device_name = payload
+        .device_name
+        .unwrap_or_else(|| "Security Key".to_string());
 
     let repo = state.db.repository();
     repo.save_fido2_credential(
@@ -273,7 +288,9 @@ pub struct PasskeyAuthFinishRequest {
     pub signature_base64: String,
 }
 
-async fn passkey_auth_start(State(state): State<AppState>) -> WebResult<Json<PasskeyAuthStartResponse>> {
+async fn passkey_auth_start(
+    State(state): State<AppState>
+) -> WebResult<Json<PasskeyAuthStartResponse>> {
     let challenge = state.passkey_manager.generate_challenge(None);
     Ok(Json(PasskeyAuthStartResponse {
         challenge,
