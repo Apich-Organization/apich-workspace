@@ -9,6 +9,7 @@ pub mod gpg_keys;
 pub mod identity_service;
 pub mod knowledge_sync;
 pub mod project_manager;
+pub mod slide_build;
 pub mod sqlite_table;
 pub mod sso_service;
 pub mod template_library;
@@ -21,6 +22,7 @@ pub use gpg_keys::gpg_key_fingerprint;
 pub use identity_service::IdentityService;
 pub use knowledge_sync::KnowledgeSyncService;
 pub use project_manager::{FileShareInfo, ProjectManager};
+pub use slide_build::{SlideBuildRegistry, SlideBuildStatus};
 pub use sqlite_table::SqliteTableService;
 pub use sso_service::{JwksResponse, SsoService, TokenResponse};
 

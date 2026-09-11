@@ -214,7 +214,9 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/editor/latex-pdf", get(latex_pdf_action))
         .route("/projects/:id/editor/latex-sync", post(latex_sync_action))
         .route("/projects/:id/editor/typst-pdf", get(typst_pdf_action))
-        .route("/projects/:id/editor/slide-binary", get(slide_binary_action))
+        .route("/projects/:id/editor/slide-binary/start", post(slide_binary_start_action))
+        .route("/projects/:id/editor/slide-binary/status", get(slide_binary_status_action))
+        .route("/projects/:id/editor/slide-binary/download", get(slide_binary_download_action))
         .route("/projects/:id/script/run", post(run_script_action))
         .route("/projects/:id/files/share", post(share_file_action))
         .route("/projects/:id/delete", post(delete_project_action))
@@ -1367,62 +1369,115 @@ async fn typst_pdf_action(
     }
 }
 
-/// Compiles a cargo-slide presentation into a standalone, self-contained binary inside the
-/// project's sandbox container and streams it back as a download. Only the container's own
-/// (Linux) platform is available today -- see `ProjectManagerService::build_slide_binary_in_sandbox`
-/// for why Windows/macOS cross-compilation isn't offered.
-async fn slide_binary_action(
+#[derive(Debug, Deserialize)]
+pub struct SlideBuildStartRequest {
+    pub file: String,
+    pub target: String,
+}
+
+/// Starts (asynchronously) compiling a cargo-slide presentation into a standalone binary for the
+/// requested platform inside the project's sandbox container -- see
+/// `ProjectManagerService::start_slide_build`/`SLIDE_BUILD_TARGETS` for the target list and
+/// `crates/apich-islands/src/slide_build.rs` for the client that polls it. Returns a job id
+/// immediately rather than blocking for as long as the (potentially cross-compiled, from-scratch)
+/// build takes.
+async fn slide_binary_start_action(
     auth: Option<AuthUser>,
     Path(id_or_slug): Path<String>,
-    Query(query): Query<EditorQuery>,
+    State(state): State<AppState>,
+    Json(payload): Json<SlideBuildStartRequest>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return (StatusCode::NOT_FOUND, Json(json!({"error": "Project not found"}))).into_response(),
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+    if !crate::services::ProjectManager::SLIDE_BUILD_TARGETS.iter().any(|(id, _)| *id == payload.target) {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "Unknown build target"}))).into_response();
+    }
+
+    match state.project_manager.start_slide_build(project.id, user.id, &payload.file, &payload.target).await {
+        Ok(job_id) => Json(json!({ "job_id": job_id.to_string() })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
+    }
+}
+
+/// Polls a slide-build job's real progress (see `SlideBuildRegistry`).
+async fn slide_binary_status_action(
+    auth: Option<AuthUser>,
+    Query(query): Query<SlideBuildJobQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+    };
+    let Ok(job_id) = uuid::Uuid::parse_str(&query.job) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid job id"}))).into_response();
+    };
+    let Some(job) = state.project_manager.slide_builds.get(job_id).await else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Build job not found"}))).into_response();
+    };
+    if job.owner_user_id != user.id {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+    match job.snapshot().await {
+        crate::services::SlideBuildStatus::Running { percent, message } => {
+            Json(json!({"status": "running", "percent": percent, "message": message})).into_response()
+        }
+        crate::services::SlideBuildStatus::Done { filename, size_bytes } => {
+            Json(json!({"status": "done", "percent": 100, "filename": filename, "size_bytes": size_bytes})).into_response()
+        }
+        crate::services::SlideBuildStatus::Failed { message } => {
+            Json(json!({"status": "failed", "error": message})).into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SlideBuildJobQuery {
+    pub job: String,
+}
+
+/// Downloads a finished slide-build job's binary.
+async fn slide_binary_download_action(
+    auth: Option<AuthUser>,
+    Query(query): Query<SlideBuildJobQuery>,
     State(state): State<AppState>,
 ) -> Response {
     let AuthUser(user) = match auth {
         Some(u) => u,
         None => return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response(),
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        Some(p) => p,
-        None => return (StatusCode::NOT_FOUND, Html("Project not found")).into_response(),
+    let Ok(job_id) = uuid::Uuid::parse_str(&query.job) else {
+        return (StatusCode::BAD_REQUEST, Html("Invalid job id")).into_response();
     };
-    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
-        .await
-        .unwrap_or(false);
-    if !can_access {
+    let Some(job) = state.project_manager.slide_builds.get(job_id).await else {
+        return (StatusCode::NOT_FOUND, Html("Build job not found")).into_response();
+    };
+    if job.owner_user_id != user.id {
         return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
     }
-    let Some(file) = query.file else {
-        return (StatusCode::BAD_REQUEST, Html("Missing ?file=")).into_response();
+    let crate::services::SlideBuildStatus::Done { filename, .. } = job.snapshot().await else {
+        return (StatusCode::CONFLICT, Html("Build has not finished yet")).into_response();
     };
-
-    match state.project_manager.build_slide_binary_in_sandbox(project.id, user.id, &file).await {
-        Ok(Ok(bin_bytes)) => {
-            let download_name = std::path::Path::new(&file).file_stem().and_then(|s| s.to_str()).unwrap_or("presentation").to_string();
-            (
-                [
-                    (header::CONTENT_TYPE, "application/octet-stream".to_string()),
-                    (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}-presentation\"", download_name)),
-                ],
-                bin_bytes,
-            ).into_response()
-        }
-        Ok(Err(build_log)) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-            Html(format!(
-                "<html><body style=\"background:#1e1e1e; color:#f87171; font-family:monospace; white-space:pre-wrap; padding:1.5rem; margin:0;\">⚠️ Presentation build failed:\n\n{}</body></html>",
-                html_escape(&build_log)
-            )),
-        ).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-            Html(format!(
-                "<html><body style=\"background:#1e1e1e; color:#f87171; font-family:monospace; white-space:pre-wrap; padding:1.5rem; margin:0;\">⚠️ {}</body></html>",
-                html_escape(&e.to_string())
-            )),
-        ).into_response(),
-    }
+    let Some(bytes) = state.project_manager.slide_builds.binary(job_id).await else {
+        return (StatusCode::NOT_FOUND, Html("Binary no longer available")).into_response();
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename)),
+        ],
+        bytes,
+    ).into_response()
 }
 
 /// apich-vcs's own remote protocol -- "clone"/"pull": download a full history bundle. Accepts

@@ -352,7 +352,11 @@ Summarize contributions and future work.
         // reading the actual helper file live, since an earlier draft of these (and, separately,
         // this app's own pre-existing blank "Cargo-Slide Deck" file starter in
         // `ProjectManager::create_file`) used a `slide-theme`/`#step[...]` API that doesn't exist
-        // in it at all, which fails every compile with "unknown variable: slide-theme".
+        // in it at all, which fails every compile with "unknown variable: slide-theme". Both also
+        // need the `#show: slide-theme.with(...)` header (theme.typ's real API for establishing
+        // the 16:9 page size) that an earlier fix pass dropped along with the broken call above --
+        // without it every deck silently falls back to Typst's non-16:9 default page and fails
+        // cargo-slide's own overflow check on virtually any real content, confirmed live.
         SeedTemplate {
             kind: "slides",
             slug: "slides-conference-talk",
@@ -360,7 +364,13 @@ Summarize contributions and future work.
             description: "Title, agenda, two content slides, and a thank-you slide.",
             content: single_file(
                 "slides.typ",
-                r#"#import "slide.typ": *
+                r#"#import "theme.typ": *
+#import "slide.typ": *
+
+#show: slide-theme.with(
+  aspect-ratio: "16-9",
+  theme: "dark"
+)
 
 #title-slide(
   title: "Your Talk Title",
@@ -400,7 +410,13 @@ Summarize contributions and future work.
             description: "Status, progress, blockers, and next steps -- for a recurring team update.",
             content: single_file(
                 "slides.typ",
-                r#"#import "slide.typ": *
+                r#"#import "theme.typ": *
+#import "slide.typ": *
+
+#show: slide-theme.with(
+  aspect-ratio: "16-9",
+  theme: "dark"
+)
 
 #title-slide(
   title: "Project Status Update",

@@ -1,0 +1,31 @@
+[package]
+name = "cargo-slide"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+description.workspace = true
+categories.workspace = true
+keywords.workspace = true
+exclude.workspace = true
+
+[[bin]]
+name = "cargo-slide"
+path = "src/main.rs"
+
+[dependencies]
+slide-core.workspace = true
+slide-player.workspace = true
+slide-theme.workspace = true
+clap.workspace = true
+notify.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+walkdir.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -11,7 +11,7 @@
 # at with a fabricated install command. Add it once a real package/binary exists to point to.
 # ==============================================================================
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 LABEL maintainer="APICH Team"
 LABEL description="Full-stack scientific, engineering and academic compilation sandbox"
@@ -104,12 +104,143 @@ RUN set -eux; \
     && typst --version
 
 # 4. Install cargo-slide (presentation build tool -- `cargo slide build` packages a Typst-authored
-# deck into a standalone native binary). Built from source since it's not on crates.io; only
-# produces binaries for this container's own platform, there is no cross-compile toolchain here.
-RUN git clone --depth 1 https://github.com/Apich-Organization/cargo-slide /tmp/cargo-slide \
-    && cargo install --path /tmp/cargo-slide/crates/cargo-slide --locked \
-    && rm -rf /tmp/cargo-slide \
-    && cargo slide --version
+# deck into a standalone native binary), from a vendored copy at /vendor/cargo-slide (see that
+# directory's own note) rather than a fresh git clone of upstream, because it carries a small,
+# deliberate patch: upstream's `build` subcommand has no `--target <triple>` flag at all, so
+# there was previously no way to ask it for anything but the host's own platform. The patch adds
+# that flag (plumbed through to the inner `cargo build --target`) and fixes a real bug it exposed
+# -- the output binary's `.exe` extension was decided by `cfg!(windows)`, i.e. whether upstream's
+# own build *host* is Windows, which is never true here and so silently produced a Windows binary
+# with no `.exe` extension whenever cross-compiling to a Windows target.
+#
+# Kept at /opt/cargo-slide-src (not deleted after `cargo install`, unlike upstream's own approach)
+# because `cargo slide build` resolves its `slide-core`/`slide-player` path dependencies by
+# searching upward from `$CARGO_SLIDE_REPO_ROOT` (see crates/cargo-slide/src/commands/build.rs's
+# `find_repo_root`) -- that env var, set below, points at this same on-disk copy so every build
+# resolves those dependencies from a known-good local source instead of depending on whatever (if
+# anything) happens to be published on crates.io under a matching version.
+COPY vendor/cargo-slide /opt/cargo-slide-src
+# `cargo install` builds inside the workspace's own `target/release/` (same as a plain `cargo
+# build`) and only *copies* the finished binary to $CARGO_HOME/bin afterward -- it never cleans
+# that build directory up. Since `cargo slide build` writes runtime output to a completely
+# separate path (`target/standalone_target`, via `CARGO_SLIDE_REPO_ROOT`, never `target/release`),
+# none of it is ever reused: confirmed live, it was sitting at 611 MB of compiled release-mode
+# dependency .rlib/.rmeta files (rav1e's AV1 encoder, resvg, several image codecs, symphonia's
+# audio decoders, ...) against 720 KB of actual source, pure dead weight baked into every image.
+RUN cargo install --path /opt/cargo-slide-src/crates/cargo-slide --locked \
+    && cargo slide --version \
+    && rm -rf /opt/cargo-slide-src/target
+ENV CARGO_SLIDE_REPO_ROOT=/opt/cargo-slide-src
+
+# 4b. Cross-compilation for `cargo slide build --target <triple>` -- four targets, matching what
+# a presentation might realistically be handed out for: Windows and Linux, each on x86_64 and
+# aarch64, with the two Linux targets built against musl (fully static, no glibc-version-matching
+# concerns for whoever the binary is handed to). Every one of these four was validated end-to-end
+# against slide-player's real dependency graph (rodio/cpal/alsa on Linux, minifb, resvg, rusqlite
+# with the `bundled` C amalgamation) before being added here, not assumed to "probably work":
+#
+# - x86_64-unknown-linux-musl: Debian's own `musl-tools` package (musl-gcc) is enough for the
+#   Rust/C side, but ALSA (`alsa-sys`, pulled in by `cpal`) needs a *musl*-linked libasound --
+#   Debian's `libasound2-dev` is glibc-only and can't be dynamically linked into a musl binary --
+#   so a static libasound is built from source below and pointed to via a target-scoped
+#   PKG_CONFIG_PATH (see the `pkg-config` crate's own `PKG_CONFIG_PATH_<target>` convention,
+#   which lets this be set globally here without affecting the host's own native builds at all).
+# - aarch64-unknown-linux-musl: same shape, using a prebuilt musl.cc cross toolchain (Debian has
+#   no aarch64-musl cross-gcc package) as the C compiler for both musl-libc itself and the static
+#   libasound build.
+# - x86_64-pc-windows-gnu and aarch64-pc-windows-gnullvm: both via a single llvm-mingw toolchain
+#   (clang+lld-based, unlike classic mingw-w64/binutils) -- picked specifically because it's the
+#   only realistic way to target Windows-on-Arm64 from Linux without Microsoft's own MSVC SDK;
+#   using the same toolchain family for the x86_64 Windows target too avoids maintaining two
+#   different Windows cross-compilation setups side by side. Windows needs none of the ALSA
+#   complexity above: `cpal`'s Windows backend talks to WASAPI directly through the `windows`/
+#   `winapi` crates, with no external C library to link.
+RUN rustup target add \
+    x86_64-unknown-linux-musl \
+    aarch64-unknown-linux-musl \
+    x86_64-pc-windows-gnu \
+    aarch64-pc-windows-gnullvm
+
+# Kernel UAPI headers (<linux/*.h>, <asm/*.h>) that musl-gcc's own sysroot doesn't ship, but
+# alsa-lib's build needs -- copied in from glibc's `linux-libc-dev` package, safe to share since
+# they're pure kernel-ABI struct definitions with no glibc-specific content.
+RUN apt-get update && apt-get install -y --no-install-recommends musl-tools musl-dev linux-libc-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && MUSL_INC=/usr/include/x86_64-linux-musl \
+    && for d in linux asm-generic mtd rdma scsi sound drm video xen misc; do \
+        if [ -d "/usr/include/$d" ] && [ ! -e "$MUSL_INC/$d" ]; then cp -r "/usr/include/$d" "$MUSL_INC/$d"; fi; \
+    done \
+    && cp -r /usr/include/x86_64-linux-gnu/asm "$MUSL_INC/asm"
+
+ARG ALSA_VERSION=1.2.12
+RUN set -eux; \
+    cd /tmp; \
+    curl -fsSL -o alsa-lib.tar.bz2 "https://www.alsa-project.org/files/pub/lib/alsa-lib-${ALSA_VERSION}.tar.bz2"; \
+    tar xjf alsa-lib.tar.bz2; \
+    cd "alsa-lib-${ALSA_VERSION}"; \
+    CC=musl-gcc ./configure --host=x86_64-linux-musl --prefix=/opt/alsa-musl-x86_64 --enable-static --disable-shared --disable-python; \
+    make -j"$(nproc)"; \
+    make install; \
+    cd /tmp && rm -rf "alsa-lib-${ALSA_VERSION}" alsa-lib.tar.bz2
+
+# aarch64-linux-musl cross toolchain (musl.cc's prebuilt gcc), used both to compile Rust's own C
+# dependencies for that target and, immediately below, to build the aarch64 static libasound.
+ARG AARCH64_MUSL_CROSS_URL=https://musl.cc/aarch64-linux-musl-cross.tgz
+RUN curl -fsSL -o /tmp/aarch64-cross.tgz "${AARCH64_MUSL_CROSS_URL}" \
+    && tar xzf /tmp/aarch64-cross.tgz -C /opt \
+    && rm /tmp/aarch64-cross.tgz
+ENV PATH=/opt/aarch64-linux-musl-cross/bin:$PATH
+RUN set -eux; \
+    MUSL_INC=/opt/aarch64-linux-musl-cross/aarch64-linux-musl/include; \
+    for d in linux asm-generic mtd rdma scsi sound drm video xen misc; do \
+        if [ -d "/usr/include/$d" ] && [ ! -e "$MUSL_INC/$d" ]; then cp -r "/usr/include/$d" "$MUSL_INC/$d"; fi; \
+    done; \
+    if [ ! -e "$MUSL_INC/asm" ] && [ -d /usr/include/aarch64-linux-gnu/asm ]; then cp -r /usr/include/aarch64-linux-gnu/asm "$MUSL_INC/asm"; fi; \
+    if [ ! -e "$MUSL_INC/asm" ]; then cp -r /usr/include/x86_64-linux-gnu/asm "$MUSL_INC/asm"; fi
+RUN set -eux; \
+    cd /tmp; \
+    curl -fsSL -o alsa-lib.tar.bz2 "https://www.alsa-project.org/files/pub/lib/alsa-lib-${ALSA_VERSION}.tar.bz2"; \
+    tar xjf alsa-lib.tar.bz2; \
+    cd "alsa-lib-${ALSA_VERSION}"; \
+    CC=aarch64-linux-musl-gcc ./configure --host=aarch64-linux-musl --prefix=/opt/alsa-musl-aarch64 --enable-static --disable-shared --disable-python; \
+    make -j"$(nproc)"; \
+    make install; \
+    cd /tmp && rm -rf "alsa-lib-${ALSA_VERSION}" alsa-lib.tar.bz2
+
+# llvm-mingw: one clang+lld-based toolchain covering both Windows cross targets (see the note
+# above on why aarch64-pc-windows-gnullvm specifically needs this rather than classic mingw-w64).
+ARG LLVM_MINGW_VERSION=20250910
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    curl -fsSL -o /tmp/llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-${ARCH}.tar.xz"; \
+    tar xf /tmp/llvm-mingw.tar.xz -C /opt; \
+    mv /opt/llvm-mingw-* /opt/llvm-mingw; \
+    rm /tmp/llvm-mingw.tar.xz
+ENV PATH=/opt/llvm-mingw/bin:$PATH
+
+RUN mkdir -p /usr/local/cargo && { \
+    echo '[target.x86_64-unknown-linux-musl]'; \
+    echo 'linker = "musl-gcc"'; \
+    echo; \
+    echo '[target.aarch64-unknown-linux-musl]'; \
+    echo 'linker = "aarch64-linux-musl-gcc"'; \
+    echo; \
+    echo '[target.x86_64-pc-windows-gnu]'; \
+    echo 'linker = "x86_64-w64-mingw32-clang"'; \
+    echo 'ar = "llvm-ar"'; \
+    echo; \
+    echo '[target.aarch64-pc-windows-gnullvm]'; \
+    echo 'linker = "aarch64-w64-mingw32-clang"'; \
+    echo 'ar = "llvm-ar"'; \
+    } > /usr/local/cargo/config.toml
+
+# `pkg-config`-rs (used by `alsa-sys`) checks a target-scoped env var before the plain
+# PKG_CONFIG_PATH -- setting only the scoped names here means this has zero effect on native
+# host builds (e.g. this same image's own `cargo install` steps), only on an explicit
+# `--target x86_64/aarch64-unknown-linux-musl` build.
+ENV PKG_CONFIG_ALLOW_CROSS=1 \
+    PKG_CONFIG_PATH_x86_64_unknown_linux_musl=/opt/alsa-musl-x86_64/lib/pkgconfig \
+    PKG_CONFIG_PATH_aarch64_unknown_linux_musl=/opt/alsa-musl-aarch64/lib/pkgconfig
 
 # 5. Install CLI coding agents. Each is wrapped so one broken install doesn't fail the whole
 #    image build; `/usr/local/bin/apich-agent-status` (written below) reports what actually made
@@ -117,7 +248,18 @@ RUN git clone --depth 1 https://github.com/Apich-Organization/cargo-slide /tmp/c
 RUN npm install -g @anthropic-ai/claude-code || echo "apich-agent-install-failed: claude-code"
 RUN npm install -g @openai/codex || echo "apich-agent-install-failed: codex"
 RUN npm install -g opencode-ai || echo "apich-agent-install-failed: opencode"
-RUN pipx install --global aider-chat || pip install --break-system-packages aider-chat || echo "apich-agent-install-failed: aider"
+# KNOWN GAP on this Debian 13 (trixie) base: every published aider-chat release through 0.86.2
+# declares `Requires-Python <3.13`, and trixie ships Python 3.13 as its *only* system Python (no
+# 3.11/3.12 package in its repos) -- confirmed live via `pipx install aider-chat` itself (pip
+# resolves down to the ancient, yanked-adjacent aider-chat 0.16.0, whose hard `numpy==1.24.3` pin
+# then fails to build under 3.13 because numpy's legacy build backend needs distutils, removed in
+# 3.12+). `pipx install --python 3.11/3.12 --fetch-missing-python` (which downloads a standalone
+# interpreter for exactly this situation) was also confirmed live to fail here on pipx 1.7.1's
+# side: it 404s fetching the checksum for the python-build-standalone release it just downloaded.
+# Until aider-chat ships Python 3.13 support (or pipx's standalone-python fetch is fixed), this
+# install is expected to fail and fall through to the `echo` below -- every other agent CLI
+# (claude, codex, opencode, goose) is unaffected and installs cleanly on trixie.
+RUN pipx install --global aider-chat || pip install --break-system-packages aider-chat || echo "apich-agent-install-failed: aider (upstream lacks Python 3.13 support as of this build; see comment above)"
 RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash \
     && mv /root/.local/bin/goose /usr/local/bin/goose \
     || echo "apich-agent-install-failed: goose"
@@ -152,8 +294,13 @@ RUN useradd -m -u 1000 -s /bin/bash apich \
     # `chmod -R a+w` in step 2 -- so without this, `cargo slide build`'s own dependency downloads
     # fail at runtime with a real "Permission denied" once the container drops to the apich user
     # below. Re-applying world-write here (not just to apich) matches step 2's own approach and
-    # covers any other user a container might run as.
-    && chmod -R a+w /usr/local/cargo /usr/local/rustup \
+    # covers any other user a container might run as. `/opt/cargo-slide-src` needs the exact same
+    # treatment and for the exact same reason -- confirmed live: `cargo slide build --target
+    # x86_64-unknown-linux-musl` failed with "Permission denied" writing into
+    # `/opt/cargo-slide-src/target/standalone_target` (that crate's own build output directory,
+    # see `CARGO_SLIDE_REPO_ROOT` above) the first time it ran as `apich`, since step 4's `cargo
+    # install` and `cargo slide --version` both ran as root and left that whole tree root-owned.
+    && chmod -R a+w /usr/local/cargo /usr/local/rustup /opt/cargo-slide-src \
     && mkdir -p /workspace \
     && chown -R apich:apich /workspace
 

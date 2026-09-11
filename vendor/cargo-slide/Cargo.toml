@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/slide-core",
+    "crates/slide-player",
+    "crates/slide-theme",
+    "crates/cargo-slide",
+]
+default-members = ["crates/cargo-slide"]
+
+[workspace.package]
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.89"
+authors = [
+    "Xinyu Yang <Xinyu.Yang@apich.org>",
+    "Apich Organization <info@apich.org>",
+    "Cargo Slide Contributors",
+]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/Apich-Organization/cargo-slide"
+homepage = "https://github.com/Apich-Organization/cargo-slide"
+documentation = "https://docs.rs/cargo-slide"
+readme = "README.md"
+description = "Code-driven presentation engine combining Typst typesetting with a native Rust viewer, developed as part of the Apich workspace backend."
+categories = [
+    "command-line-utilities",
+    "development-tools::cargo-plugins",
+    "visualization",
+    "rendering::engine",
+    "multimedia",
+]
+keywords = ["typst", "presentation", "slides", "cargo-subcommand", "cli"]
+exclude = [
+    "/.github",
+    "/.build_tmp",
+    "/examples",
+    "/assets",
+    "*.mp4",
+    "*.wav",
+]
+
+[workspace.dependencies]
+slide-core = { path = "crates/slide-core", version = "0.1.1" }
+slide-player = { path = "crates/slide-player", version = "0.1.1" }
+slide-theme = { path = "crates/slide-theme", version = "0.1.1" }
+
+resvg = "0.48.1"
+usvg = "0.48.1"
+tiny-skia = "0.12.0"
+tiny-skia-path = "0.12.0"
+roxmltree = "0.21.1"
+svgtypes = "0.16.1"
+image = "0.25.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.6", features = ["derive", "cargo"] }
+thiserror = "2.0"
+open = "5.4"
+minifb = "0.28.0"
+notify = "8.2.0"
+tempfile = "3.27"
+walkdir = "2.5.0"
+rodio = "0.22.2"
+csv = "1.4"
+rusqlite = { version = "0.40", features = ["bundled"] }
+

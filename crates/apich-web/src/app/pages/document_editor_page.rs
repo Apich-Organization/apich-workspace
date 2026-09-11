@@ -66,12 +66,7 @@ pub fn DocumentEditorPage(
         <a href=href download=format!("{}.pdf", download_pdf_name) class="btn btn-secondary btn-sm">"⬇️ Download PDF"</a>
     });
     let download_slide_bin_btn = is_slide.then(|| view! {
-        <a
-            href=format!("/projects/{}/editor/slide-binary?file={}", project_id, urlencoding::encode(&file_path))
-            target="_blank"
-            class="btn btn-secondary btn-sm"
-            title="Builds a standalone presentation binary for this server's platform. Can take a few minutes on first build."
-        >"⬇️ Build & Download Binary"</a>
+        <apich_islands::SlideBuildIsland project_id=project_id.to_string() file_path=file_path.clone() />
     });
     let rendered_markdown_html = (!is_script && !is_typst_preview && !is_latex_preview).then(|| {
         crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(&content, &file_path, project_id).html

@@ -1,191 +1,23 @@
-//! The two Typst helper files every cargo-slide deck (`slides.typ`/`*.slide.typ`) imports --
-//! `theme.typ` (colors + the page/text setup) and `slide.typ` (the actual `title-slide`/`slide`/
-//! `callout`/etc. component macros, which itself imports `theme.typ`). Previously only ever
-//! written into a project by `DemoProjectService::seed_demo_files` (the "✨ Seed Showcase Demo"
-//! button) -- meaning any *other* project, including one started via the plain "+ New File" ->
-//! "Cargo-Slide Deck" starter or a slides-kind Template Library template, had no `slide.typ` to
-//! import at all and failed its very first compile with "unknown variable: slide-theme" (a real,
-//! confirmed-live bug, not hypothetical) or "file not found: slide.typ". Extracted here as the
-//! single source of truth so `demo_project.rs`, `project_manager.rs`'s starter, the Template
-//! Library's apply/preview paths, and anything else that provisions a slide deck all agree on the
-//! same content instead of each carrying their own copy that can drift.
-//!
-//! This content is cargo-slide's own official reference theme (vendored at
-//! `vendor/cargo-slide/crates/slide-theme/typst/{theme,slide}.typ`), re-skinned with APICH's own
-//! `slide-colors` palette (an `institution:` field was also added back to `title-slide`, which
-//! upstream's version doesn't have, since existing content here already relied on it) rather than
-//! a from-scratch reimplementation -- that earlier reimplementation was missing two things this
-//! version gets for free by tracking upstream: a real `chart()` that renders actual bar/line/area
-//! data (not a placeholder box), and, more importantly, the exact `pagebreak(weak: true)`-before-
-//! each-slide and `link("slide-meta:" + title)[...]` marker pattern cargo-slide's own overflow
-//! checker expects -- without the latter, that checker can't tell which physical page a real
-//! overflow happened on and falls back to blindly blaming whichever slide is declared last,
-//! confirmed live while chasing down a real, previously-undiscovered overflow bug this
-//! reimplementation had introduced (a trailing blank page after the deck's last slide, on top of
-//! never establishing a 16:9 page size at all for documents that don't explicitly invoke
-//! `#show: slide-theme.with(...)`, which the app's own starter template never did either).
-
-pub const THEME_TYP: &str = r###"// Base theme and styling for cargo-slide presentations
-#import "slide.typ": *
-
-#let slide-theme(
-  aspect-ratio: "16-9",
-  theme: "dark",
-  font: none,
-  code-font: none,
-  body
-) = {
-  let page-width = 28cm
-  let page-height = 15.75cm
-
-  if aspect-ratio == "4-3" {
-    page-width = 21cm
-    page-height = 15.75cm
-  } else if aspect-ratio == "16-10" {
-    page-width = 25.2cm
-    page-height = 15.75cm
-  } else if aspect-ratio == "3-2" {
-    page-width = 23.625cm
-    page-height = 15.75cm
-  }
-
-  let bg-color = if theme == "light" { rgb("#ffffff") } else { slide-colors.bg }
-  let fg-color = if theme == "light" { rgb("#0f172a") } else { slide-colors.fg }
-
-  set page(
-    width: page-width,
-    height: page-height,
-    margin: (x: 1.6cm, top: 0.9cm, bottom: 0.8cm),
-    fill: bg-color,
-    footer: context [
-      #set text(size: 9pt, fill: slide-colors.secondary)
-      #grid(
-        columns: (1fr, 1fr),
-        align: (left, right),
-        [
-          #text(weight: "bold")[APICH]
-        ],
-        [
-          #counter(page).display("1 / 1", both: true)
-        ]
-      )
-    ]
-  )
-
-  let default-fonts = (
-    "Inter",
-    "Roboto",
-    "Noto Sans",
-    "Segoe UI",
-    "SF Pro Display",
-    "SF Pro Text",
-    "Helvetica Neue",
-    "Cantarell",
-    "Arial",
-    "PingFang SC",
-    "Microsoft YaHei",
-    "Noto Sans CJK SC",
-    "Source Han Sans SC",
-    "WenQuanYi Micro Hei",
-    "Liberation Sans",
-    "DejaVu Sans",
-  )
-
-  let active-fonts = if font != none {
-    if type(font) == array { font }
-    else { (font,) }
-  } else {
-    default-fonts
-  }
-
-  set text(
-    font: active-fonts,
-    size: 11.5pt,
-    fill: fg-color,
-  )
-
-  let default-code-fonts = (
-    "DejaVu Sans Mono",
-    "Consolas",
-    "SF Mono",
-    "Cascadia Code",
-    "Liberation Mono",
-    "Menlo",
-    "Courier New",
-  )
-
-  let active-code-fonts = if code-font != none {
-    if type(code-font) == array { code-font }
-    else { (code-font,) }
-  } else {
-    default-code-fonts
-  }
-
-  // Math formula styling
-  show math.equation: set text(weight: "regular")
-
-  // Link styling
-  show link: it => text(fill: slide-colors.accent)[#it]
-
-  // Raw code block styling
-  show raw: set text(font: active-code-fonts)
-  show raw.where(block: true): it => block(
-    width: 100%,
-    fill: slide-colors.card-bg,
-    inset: 9pt,
-    radius: 6pt,
-    stroke: 1pt + slide-colors.card-border,
-    [
-      #set text(size: 10pt)
-      #it
-    ]
-  )
-
-  body
-}
-"###;
-
-pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide (re-skinned with APICH's own color palette;
-// upstream reference: crates/slide-theme/typst/slide.typ)
-//
-// Two real, previously-undiscovered bugs this reference theme fixes over an earlier from-scratch
-// reimplementation, both confirmed live against cargo-slide's own overflow checker (which compares
-// the number of `#title-slide`/`#slide` calls it can detect in the source against the actual
-// number of Typst-compiled pages, erroring if there are more pages than calls):
-//
-// 1. A trailing `pagebreak()` *after* each slide's own content leaves one blank page after the
-//    deck's very last slide, since there's nothing left to fill the page it just broke to. Fixed
-//    here by breaking *before* each `#slide` call instead (never before `#title-slide`, which is
-//    always first and needs no break to a previous page) -- N slide calls then always produce
-//    exactly N pages.
-// 2. Without a `slide-meta:` marker embedded in each slide's own rendered output, cargo-slide
-//    cannot tell which physical page an overflow actually happened on and falls back to blindly
-//    blaming the *last* declared slide regardless of where the real problem is. Embedding this
-//    marker makes that error message point at the real problem slide.
-//
-// Note `slide-theme` (theme.typ) is what calls `set page(...)`/`set text(...)`, invoked once via
-// `#show: slide-theme.with(...)` at the top of a document (see `ensure_cargo_slide_helpers`'s doc
-// comment and every starter/template this app provisions) -- a `set page` inside a function body
-// only applies to *that call's own* content in Typst, not to what comes after.
+// Slide macros and components for cargo-slide
 
 #let slide-colors = (
-  bg: rgb("#0f172a"),
-  fg: rgb("#f8fafc"),
-  accent: rgb("#2563eb"),
-  accent-dark: rgb("#1d4ed8"),
-  accent-cyan: rgb("#0284c7"),
-  accent-purple: rgb("#7c3aed"),
-  accent-orange: rgb("#d97706"),
-  accent-red: rgb("#dc2626"),
-  accent-yellow: rgb("#ca8a04"),
-  secondary: rgb("#94a3b8"),
-  card-bg: rgb("#1e293b"),
-  card-border: rgb("#334155"),
-  glass-bg: rgb(30, 41, 59, 85%),
+  bg: rgb("0f111a"),
+  fg: rgb("e6edf3"),
+  accent: rgb("58a6ff"),
+  accent-dark: rgb("1f6feb"),
+  accent-cyan: rgb("39d353"),
+  accent-purple: rgb("bc8cff"),
+  accent-orange: rgb("f0883e"),
+  accent-red: rgb("ff7b72"),
+  accent-yellow: rgb("e3b341"),
+  secondary: rgb("8b949e"),
+  card-bg: rgb("161b22"),
+  card-border: rgb("30363d"),
+  glass-bg: rgb(22, 27, 34, 85%),
 )
 
 /// Title slide macro
-#let title-slide(title: "", subtitle: "", author: "", institution: "", date: "", version: "") = {
+#let title-slide(title: "", subtitle: "", author: "", date: "", version: "") = {
   link("slide-meta:" + if title != "" { title } else { "title-slide" })[#box(width: 0pt, height: 0pt)[]]
   set align(center + horizon)
   block(
@@ -194,16 +26,16 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
     [
       #v(-0.6cm)
       #text(size: 32pt, weight: "bold", fill: slide-colors.accent)[#title]
-
+      
       #if subtitle != "" [
         #v(0.4cm)
         #text(size: 16pt, fill: slide-colors.fg)[#subtitle]
       ]
-
+      
       #v(0.8cm)
       #line(length: 30%, stroke: 1.5pt + slide-colors.card-border)
       #v(0.6cm)
-
+      
       #grid(
         columns: (1fr, 1fr),
         align: (right, left),
@@ -212,10 +44,6 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
           #if author != "" [
             #text(size: 12pt, fill: slide-colors.secondary)[Speaker: ]
             #text(size: 12pt, weight: "bold", fill: slide-colors.fg)[#author]
-          ]
-          #if institution != "" [
-            #linebreak()
-            #text(size: 10pt, fill: slide-colors.secondary)[#institution]
           ]
         ],
         [
@@ -232,7 +60,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
 /// Standard slide layout
 #let slide(title: none, header: none, footer: none, transition: none, body) = {
   pagebreak(weak: true)
-
+  
   link("slide-meta:" + if title != none { title } else { "slide" })[#box(width: 0pt, height: 0pt)[]]
 
   if transition != none {
@@ -250,7 +78,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
     )
     #v(0.12cm)
   ]
-
+  
   body
 }
 
@@ -271,14 +99,14 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
   poster: none,
 ) = {
   let display-title = if caption != none { caption } else { source }
-
+  
   align(center)[
     #link("video:" + source)[
       #if style == "cinema" [
         // Cinematic Letterbox Style with REC badge and dark frame
         #rect(
           width: width,
-          fill: rgb("#08090d"),
+          fill: rgb("08090d"),
           stroke: 1.5pt + slide-colors.accent-orange,
           radius: 8pt,
           inset: (x: 16pt, y: 14pt),
@@ -319,7 +147,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
                 radius: 20pt,
                 fill: slide-colors.accent-orange,
                 align(center + horizon)[
-                  #text(size: 16pt, fill: rgb("#ffffff"))[▶]
+                  #text(size: 16pt, fill: rgb("ffffff"))[▶]
                 ]
               )
               #v(8pt)
@@ -345,7 +173,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
               circle(
                 radius: 14pt,
                 fill: slide-colors.accent-dark,
-                align(center + horizon)[#text(size: 12pt, fill: rgb("#ffffff"))[▶]]
+                align(center + horizon)[#text(size: 12pt, fill: rgb("ffffff"))[▶]]
               ),
               [
                 #text(size: 12pt, weight: "bold", fill: slide-colors.fg)[#display-title] \
@@ -376,7 +204,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
                 radius: 22pt,
                 fill: slide-colors.accent-dark,
                 align(center + horizon)[
-                  #text(size: 18pt, fill: rgb("#ffffff"))[▶]
+                  #text(size: 18pt, fill: rgb("ffffff"))[▶]
                 ]
               )
               #v(10pt)
@@ -453,7 +281,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
           align: (center + horizon, left + horizon, right + horizon),
           circle(
             radius: 15pt,
-            fill: rgb(2, 132, 199, 25%),
+            fill: rgb(57, 211, 83, 25%),
             stroke: 1pt + slide-colors.accent-cyan,
             align(center + horizon)[#text(size: 13pt, fill: slide-colors.accent-cyan)[♫]]
           ),
@@ -477,7 +305,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
                 rect(width: 2.5pt, height: 6pt, fill: slide-colors.accent-cyan, radius: 1pt),
               ),
               box(
-                fill: rgb(2, 132, 199, 15%),
+                fill: rgb(57, 211, 83, 15%),
                 radius: 3pt,
                 inset: (x: 5pt, y: 2pt),
                 text(size: 8.5pt, weight: "bold", fill: slide-colors.accent-cyan)[🔊 #vol-pct]
@@ -512,7 +340,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
   data: none,   // e.g. (categories: ("Q1", "Q2"), series: ((name: "Rev", values: (100, 200)), ...))
   width: 100%,
   height: 220pt,
-  colors: (slide-colors.accent-cyan, slide-colors.accent-cyan, slide-colors.accent-orange, slide-colors.accent-red, slide-colors.accent-purple, slide-colors.accent),
+  colors: (rgb("#38bdf8"), rgb("#34d399"), rgb("#f59e0b"), rgb("#f43f5e"), rgb("#a855f7"), rgb("#6366f1")),
 ) = {
   // Resolve source: if it refers to SQLite (.db or .sqlite) or JSON (.json or .jsonl), load the preprocessed .cache.csv
   let resolved-source = if source != none and (source.contains(".db") or source.contains(".sqlite") or source.contains(".json") or source.contains(".jsonl")) {
@@ -617,8 +445,8 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
       #rect(
         width: width,
         height: height,
-        fill: slide-colors.card-bg,
-        stroke: 1pt + slide-colors.card-border,
+        fill: rgb("#161b22"),
+        stroke: 1pt + rgb("#30363d"),
         radius: 8pt,
         inset: (x: 16pt, y: 12pt),
         [
@@ -627,7 +455,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
             align: (left + top, right + top),
             [
               #if title != none [
-                #text(size: 11pt, weight: "bold", fill: slide-colors.accent)[#title]
+                #text(size: 11pt, weight: "bold", fill: rgb("#58a6ff"))[#title]
               ]
             ],
             [
@@ -641,7 +469,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
                     dir: ltr,
                     spacing: 4pt,
                     box(width: 7pt, height: 7pt, fill: col, radius: 1.5pt),
-                    text(size: 8pt, fill: slide-colors.secondary)[#s.name]
+                    text(size: 8pt, fill: rgb("#8b949e"))[#s.name]
                   )
                 })
               )
@@ -671,12 +499,12 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
 
               grid-lines.push(
                 place(top + left, dx: 0pt, dy: tick-y)[
-                  #line(start: (30pt, 0pt), end: (plot-w + 30pt, 0pt), stroke: (paint: slide-colors.card-border, dash: "dashed", thickness: 0.8pt))
+                  #line(start: (30pt, 0pt), end: (plot-w + 30pt, 0pt), stroke: (paint: rgb("#21262d"), dash: "dashed", thickness: 0.8pt))
                 ]
               )
               grid-lines.push(
                 place(top + left, dx: 0pt, dy: tick-y - 4pt)[
-                  #box(width: 25pt, align(right)[#text(size: 7.5pt, fill: slide-colors.secondary)[#tick-label]])
+                  #box(width: 25pt, align(right)[#text(size: 7.5pt, fill: rgb("#8b949e"))[#tick-label]])
                 ]
               )
             }
@@ -694,7 +522,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
 
                 chart-elements.push(
                   place(top + left, dx: 30pt + c-idx * col-w, dy: plot-h + 4pt)[
-                    #box(width: col-w, align(center)[#text(size: 8pt, fill: slide-colors.secondary)[#cat]])
+                    #box(width: col-w, align(center)[#text(size: 8pt, fill: rgb("#8b949e"))[#cat]])
                   ]
                 )
 
@@ -721,7 +549,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
               for (c-idx, cat) in categories.enumerate() {
                 chart-elements.push(
                   place(top + left, dx: 30pt + c-idx * col-w, dy: plot-h + 4pt)[
-                    #box(width: col-w, align(center)[#text(size: 8pt, fill: slide-colors.secondary)[#cat]])
+                    #box(width: col-w, align(center)[#text(size: 8pt, fill: rgb("#8b949e"))[#cat]])
                   ]
                 )
               }
@@ -745,7 +573,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
 
                   chart-elements.push(
                     place(top + left, dx: px - 3pt, dy: py - 3pt)[
-                      #circle(radius: 3pt, fill: col, stroke: 1.5pt + slide-colors.card-bg)
+                      #circle(radius: 3pt, fill: col, stroke: 1.5pt + rgb("#161b22"))
                     ]
                   )
                 }
@@ -753,7 +581,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
             } else {
               chart-elements.push(
                 place(top + left, dx: 30pt, dy: plot-h / 2)[
-                  #text(size: 10pt, fill: slide-colors.secondary)[Interactive Chart (#type)]
+                  #text(size: 10pt, fill: rgb("#8b949e"))[Interactive Chart (#type)]
                 ]
               )
             }
@@ -780,7 +608,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
 }
 
 /// Tech badge
-#let badge(label, fill: slide-colors.accent-dark, text-color: rgb("#ffffff")) = {
+#let badge(label, fill: rgb("1f6feb"), text-color: rgb("ffffff")) = {
   box(
     fill: fill,
     radius: 4pt,
@@ -791,7 +619,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
 }
 
 /// Callout box
-#let callout(title: none, body, stroke-color: slide-colors.accent) = {
+#let callout(title: none, body, stroke-color: rgb("58a6ff")) = {
   rect(
     width: 100%,
     fill: slide-colors.card-bg,
@@ -821,7 +649,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
       // Window titlebar
       #rect(
         width: 100%,
-        fill: rgb("#12161c"),
+        fill: rgb("12161c"),
         stroke: (bottom: 1pt + slide-colors.card-border),
         inset: (x: 10pt, y: 6pt),
         [
@@ -832,9 +660,9 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
               #stack(
                 dir: ltr,
                 spacing: 5pt,
-                circle(radius: 4pt, fill: rgb("#ff5f56")),
-                circle(radius: 4pt, fill: rgb("#ffbd2e")),
-                circle(radius: 4pt, fill: rgb("#27c93f")),
+                circle(radius: 4pt, fill: rgb("ff5f56")),
+                circle(radius: 4pt, fill: rgb("ffbd2e")),
+                circle(radius: 4pt, fill: rgb("27c93f")),
               )
             ],
             [
@@ -866,21 +694,4 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
       ]
     ]
   )
-}
-"###;
-
-/// Writes `theme.typ`/`slide.typ` into `project_dir` if either is missing -- called before
-/// creating or applying anything that imports them, so a slide deck compiles on the very first
-/// try in any project, not only one that happened to run the demo seeder first.
-pub async fn ensure_cargo_slide_helpers<P: AsRef<std::path::Path>>(project_dir: P) -> std::io::Result<()> {
-    let dir = project_dir.as_ref();
-    let theme_path = dir.join("theme.typ");
-    if !theme_path.exists() {
-        tokio::fs::write(&theme_path, THEME_TYP).await?;
-    }
-    let slide_path = dir.join("slide.typ");
-    if !slide_path.exists() {
-        tokio::fs::write(&slide_path, SLIDE_TYP).await?;
-    }
-    Ok(())
 }

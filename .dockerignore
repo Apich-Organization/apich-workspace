@@ -1,0 +1,6 @@
+.git/
+target/
+**/target/
+scratch/workspace/
+crates/apich-web/pkg/
+*.log

@@ -55,7 +55,10 @@ impl DemoProjectService {
 ]
 
 // Slide 3: Sequential Component Animations & Fragments (Transition: iris)
-#slide(title: "2. Sequential Calibration Protocol", transition: "iris")[
+// Split across two slides (was one slide with all 3 #step() callouts) -- confirmed live, in
+// isolation against cargo-slide's own overflow detector, that the combined content didn't fit
+// one 16:9 canvas.
+#slide(title: "2. Sequential Calibration Protocol (1/2)", transition: "iris")[
   Press *Next* or *Space* to reveal each calibration phase in order:
 
   #v(0.3cm)
@@ -71,8 +74,9 @@ impl DemoProjectService {
       Two-tone spectroscopy determines transition frequency $f_{01}$. Pulse length sweep calibrates $pi$ and $pi/2$ Gaussian envelope drive amplitudes.
     ]
   ]
+]
 
-  #v(0.25cm)
+#slide(title: "2. Sequential Calibration Protocol (2/2)", transition: "iris")[
   #step(3, effect: "fade-in")[
     #callout(title: "Step 3: Coherence Characterization ($T_1$ & $T_2^*$) (#step(3))", stroke-color: slide-colors.accent-orange)[
       Inversion recovery measures longitudinal relaxation $T_1$. Ramsey fringe interferometry with detuned drive extracts dephasing time $T_2^*$.
@@ -81,65 +85,64 @@ impl DemoProjectService {
 ]
 
 // Slide 4: Rich Typography & LaTeX Mathematics (Transition: zoom)
-#slide(title: "3. Hamiltonian Dynamics & Wave Equations", transition: "zoom")[
-  #cols(
-    [
-      === Anharmonic Oscillator Hamiltonian
-      The circuit Hamiltonian of a transmon qubit in the charge basis:
+// Split across two slides (was one slide combining math with a code snippet in two columns) --
+// same reason as above, confirmed live in isolation.
+#slide(title: "3. Hamiltonian Dynamics & Wave Equations (1/2)", transition: "zoom")[
+  === Anharmonic Oscillator Hamiltonian
+  The circuit Hamiltonian of a transmon qubit in the charge basis:
 
-      $ hat(H) = 4 E_C (hat(n) - n_g)^2 - E_J cos(hat(phi)) $
+  $ hat(H) = 4 E_C (hat(n) - n_g)^2 - E_J cos(hat(phi)) $
 
-      Under weakly non-linear approximation:
+  Under weakly non-linear approximation:
 
-      $ hat(H) approx h bar omega_0 hat(a)^dagger hat(a) + frac(h bar alpha, 2) hat(a)^dagger hat(a)^dagger hat(a) hat(a) + Omega(t) (hat(a) + hat(a)^dagger) $
+  $ hat(H) approx h bar omega_0 hat(a)^dagger hat(a) + frac(h bar alpha, 2) hat(a)^dagger hat(a)^dagger hat(a) hat(a) + Omega(t) (hat(a) + hat(a)^dagger) $
 
-      #v(0.2cm)
-      #badge("Quantum Optics", fill: slide-colors.accent-purple) #h(4pt)
-      #badge("LaTeX Math", fill: slide-colors.accent) #h(4pt)
-      #badge("Transmon Qubit", fill: slide-colors.accent-cyan)
-    ],
-    [
-      === Simulation Script Snippet
-      #code-window(title: "hamiltonian.rs")[
-        #set text(size: 8.5pt)
-        ```rust
-        pub fn compute_eigenvalues(ec: f64, ej: f64) -> (f64, f64) {
-            let omega_0 = (8.0 * ec * ej).sqrt() - ec;
-            let alpha = -ec;
-            (omega_0, alpha)
-        }
-        ```
-      ]
-    ]
-  )
+  #v(0.2cm)
+  #badge("Quantum Optics", fill: slide-colors.accent-purple) #h(4pt)
+  #badge("LaTeX Math", fill: slide-colors.accent) #h(4pt)
+  #badge("Transmon Qubit", fill: slide-colors.accent-cyan)
+]
+
+#slide(title: "3. Hamiltonian Dynamics & Wave Equations (2/2)", transition: "zoom")[
+  === Simulation Script Snippet
+  #code-window(title: "hamiltonian.rs")[
+    #set text(size: 8.5pt)
+    ```rust
+    pub fn compute_eigenvalues(ec: f64, ej: f64) -> (f64, f64) {
+        let omega_0 = (8.0 * ec * ej).sqrt() - ec;
+        let alpha = -ec;
+        (omega_0, alpha)
+    }
+    ```
+  ]
 ]
 
 // Slide 5: Dynamic Charts from CSV / Database (Transition: slide-left)
+// Split across two slides (was one slide combining the chart with a two-column summary) --
+// confirmed live via cargo-slide's own overflow detector that the combined content didn't fit
+// one 16:9 canvas; its own remediation suggestion #3 is exactly this: split into another slide.
 #slide(title: "4. Telemetry Relaxation Metrics Across Qubits", transition: "slide-left")[
   #chart(
     type: "bar",
-    source: "assets/data.csv",
-    x: "qubit",
-    y: "t1_us",
     title: "Measured Relaxation Time T1 Across 6-Qubit Ladder (Microseconds)",
-    color: "#38bdf8"
+    data: (
+      categories: ("Q0", "Q1", "Q2", "Q3", "Q4", "Q5"),
+      series: ((name: "T1 (µs)", values: (94.2, 88.5, 102.3, 79.8, 91.4, 86.2)),)
+    )
   )
+]
 
-  #v(0.3cm)
-  #cols(
-    [
-      *Summary Findings*:
-      - Average $T_1 = 90.4~mu"s"$ across ladder array
-      - Max $T_1 = 102.3~mu"s"$ achieved on Q2
-      - Cross-resonance gate fidelity exceeds $99.1%$
-    ],
-    [
-      *Underlying Data Source*:
-      - Physical SQLite file: `quantum_measurements.table`
-      - Exported CSV replica: `assets/data.csv`
-      - Snapshot recorded per cooldown cycle
-    ]
-  )
+#slide(title: "4b. Telemetry Summary & Data Source", transition: "slide-left")[
+  *Summary Findings*:
+  - Average $T_1 = 90.4~mu"s"$ across ladder array
+  - Max $T_1 = 102.3~mu"s"$ achieved on Q2
+  - Cross-resonance gate fidelity exceeds $99.1%$
+
+  #v(0.5cm)
+  *Underlying Data Source*:
+  - Physical SQLite file: `quantum_measurements.table`
+  - Exported CSV replica: `assets/data.csv`
+  - Snapshot recorded per cooldown cycle
 ]
 "###;
 

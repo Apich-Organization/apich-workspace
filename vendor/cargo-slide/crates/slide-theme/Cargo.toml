@@ -1,0 +1,17 @@
+[package]
+name = "slide-theme"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+description = "Theme configurations, default templates, and Typst macros for cargo-slide, developed as part of the Apich workspace backend."
+categories = ["visualization", "rendering::engine"]
+keywords = ["typst", "presentation", "slides", "theme", "template"]
+exclude.workspace = true
+
+[dependencies]

@@ -1,5 +1,6 @@
 use crate::error::{WebError, WebResult};
 use crate::services::agent_login::AgentLoginRegistry;
+use crate::services::slide_build::SlideBuildRegistry;
 use apich_db::{CreateProjectDto, Database, Project, ProjectSandbox};
 use apich_sandbox::{SandboxConfig, SandboxManager};
 use apich_vcs::{api::ProjectVcs, IgnoreFilter, Snapshot};
@@ -13,6 +14,7 @@ pub struct ProjectManager {
     sandbox_manager: Arc<SandboxManager>,
     base_storage_dir: PathBuf,
     agent_logins: AgentLoginRegistry,
+    pub slide_builds: SlideBuildRegistry,
 }
 
 impl ProjectManager {
@@ -26,6 +28,7 @@ impl ProjectManager {
             sandbox_manager,
             base_storage_dir,
             agent_logins: AgentLoginRegistry::new(),
+            slide_builds: SlideBuildRegistry::new(),
         }
     }
 
@@ -556,52 +559,75 @@ impl ProjectManager {
         Ok(line)
     }
 
-    /// Compiles a cargo-slide presentation (`.typ` using `#slide(...)`) into a standalone,
-    /// self-contained native binary inside the project's sandbox container (the same container
-    /// image has the Rust toolchain and `cargo-slide` installed -- see
-    /// `docker/Containerfile.sandbox`). The first build in a fresh container can take several
-    /// minutes: each container starts with an empty Cargo registry cache, so `cargo slide build`
-    /// downloads and compiles its own dependency tree from scratch every time.
+/// The four cross-compilation targets this app's sandbox image (see
+    /// `docker/Containerfile.sandbox`'s cross-compilation section) is provisioned for, alongside
+    /// the host's own native platform. Each value is a real Rust target triple `cargo slide build
+    /// --target <triple>` is passed verbatim, validated against this allow-list before it ever
+    /// reaches a shell command (see `start_slide_build`).
+    pub const SLIDE_BUILD_TARGETS: &'static [(&'static str, &'static str)] = &[
+        ("host", "This server's own platform (Linux, native)"),
+        ("x86_64-pc-windows-gnu", "Windows x86_64"),
+        ("aarch64-pc-windows-gnullvm", "Windows ARM64"),
+        ("x86_64-unknown-linux-musl", "Linux x86_64 (musl, static)"),
+        ("aarch64-unknown-linux-musl", "Linux ARM64 (musl, static)"),
+    ];
+
+    /// Starts compiling a cargo-slide presentation (`.typ` using `#slide(...)`) into a
+    /// standalone, self-contained native binary inside the project's sandbox container, for
+    /// `target` (a triple from `SLIDE_BUILD_TARGETS`, or `"host"` for the container's own native
+    /// platform) -- as a real background job rather than blocking the request for as long as the
+    /// build takes (the first build against a fresh cross-compilation target can run for several
+    /// minutes: a from-scratch dependency tree, cross-compiled). Returns the new job id
+    /// immediately; poll it via `self.slide_builds`.
     ///
-    /// Only produces a binary for the container's own platform (Linux x86_64/aarch64, whichever
-    /// the host is). `cargo-slide`'s `build` command has no `--target` flag of its own (it always
-    /// invokes a plain `cargo build --release` against the host toolchain -- confirmed by reading
-    /// its source), and this image has no Windows or macOS cross-toolchain installed. So a
-    /// Windows/macOS binary is not offered here rather than claimed and silently wrong.
-    pub async fn build_slide_binary_in_sandbox(
+    /// The first build in a fresh container can take a while even for the host's own platform:
+    /// each container starts with an empty Cargo registry cache, so `cargo slide build`
+    /// downloads and compiles its own dependency tree from scratch every time.
+    pub async fn start_slide_build(
         &self,
         project_id: Uuid,
         user_id: Uuid,
         rel_path: &str,
-    ) -> WebResult<Result<Vec<u8>, String>> {
+        target: &str,
+    ) -> WebResult<Uuid> {
         let container = self.ensure_agent_container(project_id, user_id).await?;
 
         let run_id = uuid::Uuid::new_v4().simple().to_string();
         let out_rel_path = format!(".apich_slide_build_{}", run_id);
+        let download_stem = std::path::Path::new(rel_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("presentation")
+            .to_string();
+        let is_windows_target = target.contains("windows");
+        let download_name = if is_windows_target {
+            format!("{download_stem}-presentation.exe")
+        } else {
+            format!("{download_stem}-presentation")
+        };
 
-        let cmd = vec![
+        let mut cmd = vec![
             "cargo".to_string(),
             "slide".to_string(),
+            "--log-format".to_string(),
+            "json".to_string(),
             "build".to_string(),
             rel_path.to_string(),
             "-o".to_string(),
             out_rel_path.clone(),
         ];
-        let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(600));
-        let result = container.exec_with_options(opts).await?;
+        if target != "host" {
+            cmd.push("--target".to_string());
+            cmd.push(target.to_string());
+        }
+
+        let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(1800));
+        let stream = container.exec_stream(opts).await?;
 
         let _ = self.db.repository().touch_sandbox_activity(project_id, user_id).await;
 
-        if !result.success() {
-            return Ok(Err(format!("{}{}", result.stdout_lossy(), result.stderr_lossy())));
-        }
-
-        let bytes = match container.read_file(&out_rel_path).await {
-            Ok(b) => b,
-            Err(e) => return Ok(Err(format!("cargo-slide reported success but no binary was found: {}", e))),
-        };
-        let _ = container.exec(["rm", "-f", &out_rel_path]).await;
-        Ok(Ok(bytes))
+        let job_id = self.slide_builds.start(user_id, container, stream, out_rel_path, download_name).await;
+        Ok(job_id)
     }
 
     /// Which agent CLIs are actually installed in the image this project's sandbox would use --
@@ -1733,7 +1759,22 @@ This document is authored inside APICH Unified Research Cloud.
                 // this called a `slide-theme` function and a `step[...]` block that don't exist
                 // in that file at all, which failed every single new slide deck's very first
                 // compile with "unknown variable: slide-theme" before a single edit was made.
-                "slide" => r#"#import "slide.typ": *
+                //
+                // That earlier fix dropped the `slide-theme` call entirely rather than confirming
+                // theme.typ's own (correct) API for it -- `#show: slide-theme.with(aspect-ratio:,
+                // theme:)`, invoked once at the top of the document -- leaving every new slide
+                // deck with no page-size setup at all, silently falling back to Typst's default
+                // page (not a 16:9 slide) and, confirmed live, failing cargo-slide's own overflow
+                // check on virtually any real content as a result. Restored here to match
+                // theme.typ's real, current API and cargo-slide's own reference template
+                // (crates/slide-theme/typst/template.typ upstream) exactly.
+                "slide" => r#"#import "theme.typ": *
+#import "slide.typ": *
+
+#show: slide-theme.with(
+  aspect-ratio: "16-9",
+  theme: "dark"
+)
 
 #title-slide(
   title: "New Presentation",

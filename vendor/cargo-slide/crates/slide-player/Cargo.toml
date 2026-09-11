@@ -1,0 +1,32 @@
+[package]
+name = "slide-player"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+description = "Native 60 FPS presentation viewer, presenter tools, and audio mixer for cargo-slide, developed as part of the Apich workspace backend."
+categories = ["rendering::engine", "multimedia", "visualization"]
+keywords = ["typst", "presentation", "slides", "viewer", "player"]
+exclude.workspace = true
+
+[dependencies]
+slide-core.workspace = true
+resvg.workspace = true
+usvg.workspace = true
+tiny-skia.workspace = true
+minifb.workspace = true
+open.workspace = true
+image.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rodio.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = "2.21"
+
