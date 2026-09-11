@@ -8,9 +8,14 @@
 //! feature: users see an Excel-shaped formula bar and reasonably expect Excel-shaped formulas.
 //!
 //! Supports:
-//! - Arithmetic over numbers and cell references: `=A1+B1`, `=(A1-B2)*3`, `=A1/B1`
+//! - Arithmetic over numbers and cell references: `=A1+B1`, `=(A1-B2)*3`, `=A1/B1`, `=A1^2`
 //! - Column-range aggregate functions: `=SUM(A1:A5)`, `=AVG(A:A)`, `=COUNT(B1:B10)`,
 //!   `=MIN(A1:A5)`, `=MAX(A1:A5)` (also accepts `AVERAGE` as an alias for `AVG`)
+//! - Scalar math functions: `=ROUND(A1, 2)` (digits optional, defaults to 0), `=ABS(A1)`,
+//!   `=SQRT(A1)`, `=POWER(A1, 3)` (also `POW`), `=MOD(A1, B1)`
+//! - Comparisons (evaluate to `1` for true / `0` for false, usable anywhere a number is):
+//!   `=A1>B1`, `=A1<=10`, `=A1=B1`, `=A1<>B1`
+//! - Conditional: `=IF(A1>10, B1, C1)` -- condition is any comparison or number (nonzero = true)
 //!
 //! Deliberately NOT supported (kept small and predictable rather than a full spreadsheet
 //! language): string functions, cross-sheet refs, relative-fill-on-copy semantics. A formula
@@ -159,20 +164,100 @@ fn resolve_range(arg: &str, cells: &[Vec<String>]) -> Result<Vec<f64>, FormulaEr
     Ok(out)
 }
 
+/// Splits a function's raw argument string on top-level commas (commas nested inside another
+/// function call's parens, e.g. `IF(A1>0, SUM(B1:B2), 0)`, are not split points).
+fn split_top_level_args(arg: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    for (i, c) in arg.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(arg[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(arg[start..].trim());
+    parts
+}
+
 fn eval_function(name: &str, arg: &str, cells: &[Vec<String>]) -> EvalResult {
-    let values = resolve_range(arg, cells)?;
-    match name.to_ascii_uppercase().as_str() {
-        "SUM" => Ok(values.iter().sum()),
-        "AVG" | "AVERAGE" => {
-            if values.is_empty() {
-                Err(FormulaError::DivZero)
-            } else {
-                Ok(values.iter().sum::<f64>() / values.len() as f64)
+    let upper = name.to_ascii_uppercase();
+    match upper.as_str() {
+        "SUM" | "AVG" | "AVERAGE" | "COUNT" | "MIN" | "MAX" => {
+            let values = resolve_range(arg, cells)?;
+            match upper.as_str() {
+                "SUM" => Ok(values.iter().sum()),
+                "AVG" | "AVERAGE" => {
+                    if values.is_empty() {
+                        Err(FormulaError::DivZero)
+                    } else {
+                        Ok(values.iter().sum::<f64>() / values.len() as f64)
+                    }
+                }
+                "COUNT" => Ok(values.len() as f64),
+                "MIN" => values.iter().cloned().fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.min(v)))).ok_or(FormulaError::DivZero),
+                "MAX" => values.iter().cloned().fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.max(v)))).ok_or(FormulaError::DivZero),
+                _ => unreachable!(),
             }
         }
-        "COUNT" => Ok(values.len() as f64),
-        "MIN" => values.iter().cloned().fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.min(v)))).ok_or(FormulaError::DivZero),
-        "MAX" => values.iter().cloned().fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.max(v)))).ok_or(FormulaError::DivZero),
+        "ABS" => Ok(eval(arg, cells)?.abs()),
+        "SQRT" => {
+            let v = eval(arg, cells)?;
+            if v < 0.0 {
+                Err(FormulaError::Parse)
+            } else {
+                Ok(v.sqrt())
+            }
+        }
+        "ROUND" => {
+            let parts = split_top_level_args(arg);
+            let v = eval(parts.first().copied().unwrap_or(""), cells)?;
+            let digits = match parts.get(1) {
+                Some(d) => eval(d, cells)? as i32,
+                None => 0,
+            };
+            let factor = 10f64.powi(digits);
+            Ok((v * factor).round() / factor)
+        }
+        "POWER" | "POW" => {
+            let parts = split_top_level_args(arg);
+            if parts.len() != 2 {
+                return Err(FormulaError::Parse);
+            }
+            let base = eval(parts[0], cells)?;
+            let exp = eval(parts[1], cells)?;
+            Ok(base.powf(exp))
+        }
+        "MOD" => {
+            let parts = split_top_level_args(arg);
+            if parts.len() != 2 {
+                return Err(FormulaError::Parse);
+            }
+            let a = eval(parts[0], cells)?;
+            let b = eval(parts[1], cells)?;
+            if b == 0.0 {
+                Err(FormulaError::DivZero)
+            } else {
+                Ok(a % b)
+            }
+        }
+        "IF" => {
+            let parts = split_top_level_args(arg);
+            if parts.len() != 3 {
+                return Err(FormulaError::Parse);
+            }
+            let cond = eval(parts[0], cells)?;
+            if cond != 0.0 {
+                eval(parts[1], cells)
+            } else {
+                eval(parts[2], cells)
+            }
+        }
         _ => Err(FormulaError::Parse),
     }
 }
@@ -200,6 +285,41 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Top-level entry point: a single comparison (or, if there's no comparison operator, just
+    /// falls through to plain arithmetic).
+    fn comparison(&mut self) -> EvalResult {
+        let lhs = self.expr()?;
+        self.skip_ws();
+        let first = self.peek();
+        let second = self.chars.get(self.pos + 1).copied();
+        let op = if matches!(first, Some('<') | Some('>')) && second == Some('=') {
+            let op: String = self.chars[self.pos..self.pos + 2].iter().collect();
+            self.pos += 2;
+            Some(op)
+        } else if first == Some('<') && second == Some('>') {
+            self.pos += 2;
+            Some("<>".to_string())
+        } else if matches!(first, Some('<') | Some('>') | Some('=')) {
+            let op = first.unwrap().to_string();
+            self.pos += 1;
+            Some(op)
+        } else {
+            None
+        };
+        let Some(op) = op else { return Ok(lhs) };
+        let rhs = self.expr()?;
+        let truth = match op.as_str() {
+            "=" => lhs == rhs,
+            "<>" => lhs != rhs,
+            "<=" => lhs <= rhs,
+            ">=" => lhs >= rhs,
+            "<" => lhs < rhs,
+            ">" => lhs > rhs,
+            _ => unreachable!(),
+        };
+        Ok(if truth { 1.0 } else { 0.0 })
+    }
+
     fn expr(&mut self) -> EvalResult {
         let mut val = self.term()?;
         loop {
@@ -220,17 +340,17 @@ impl<'a> Parser<'a> {
     }
 
     fn term(&mut self) -> EvalResult {
-        let mut val = self.factor()?;
+        let mut val = self.power()?;
         loop {
             self.skip_ws();
             match self.peek() {
                 Some('*') => {
                     self.pos += 1;
-                    val *= self.factor()?;
+                    val *= self.power()?;
                 }
                 Some('/') => {
                     self.pos += 1;
-                    let rhs = self.factor()?;
+                    let rhs = self.power()?;
                     if rhs == 0.0 {
                         return Err(FormulaError::DivZero);
                     }
@@ -242,6 +362,19 @@ impl<'a> Parser<'a> {
         Ok(val)
     }
 
+    /// Right-associative exponentiation: `2^3^2` == `2^(3^2)`, matching standard math/spreadsheet
+    /// convention.
+    fn power(&mut self) -> EvalResult {
+        let base = self.factor()?;
+        self.skip_ws();
+        if self.peek() == Some('^') {
+            self.pos += 1;
+            let exp = self.power()?;
+            return Ok(base.powf(exp));
+        }
+        Ok(base)
+    }
+
     fn factor(&mut self) -> EvalResult {
         self.skip_ws();
         match self.peek() {
@@ -251,7 +384,7 @@ impl<'a> Parser<'a> {
             }
             Some('(') => {
                 self.pos += 1;
-                let val = self.expr()?;
+                let val = self.comparison()?;
                 self.skip_ws();
                 if self.peek() == Some(')') {
                     self.pos += 1;
@@ -323,7 +456,7 @@ impl<'a> Parser<'a> {
 
 fn eval(expr: &str, cells: &[Vec<String>]) -> EvalResult {
     let mut parser = Parser::new(expr, cells);
-    let val = parser.expr()?;
+    let val = parser.comparison()?;
     parser.skip_ws();
     if parser.pos != parser.chars.len() {
         return Err(FormulaError::Parse);
@@ -404,5 +537,40 @@ mod tests {
     fn non_integer_result_keeps_decimals_trimmed() {
         let g = vec![vec!["10".to_string()], vec!["3".to_string()]];
         assert_eq!(display_value("=A1/A2", &g), "3.333333");
+    }
+
+    #[test]
+    fn exponentiation() {
+        assert_eq!(display_value("=A1^2", &grid()), "100");
+        assert_eq!(display_value("=2^3^2", &grid()), "512"); // right-assoc: 2^(3^2) = 2^9
+    }
+
+    #[test]
+    fn comparisons_yield_one_or_zero() {
+        assert_eq!(display_value("=A1>A2", &grid()), "0");
+        assert_eq!(display_value("=A2>A1", &grid()), "1");
+        assert_eq!(display_value("=A1=10", &grid()), "1");
+        assert_eq!(display_value("=A1<>A2", &grid()), "1");
+        assert_eq!(display_value("=A1<=10", &grid()), "1");
+        assert_eq!(display_value("=A1>=20", &grid()), "0");
+    }
+
+    #[test]
+    fn scalar_math_functions() {
+        assert_eq!(display_value("=ABS(A1-A2)", &grid()), "10");
+        assert_eq!(display_value("=SQRT(A1)", &grid()), "3.162278");
+        assert_eq!(display_value("=ROUND(A1/A2, 2)", &grid()), "0.5");
+        assert_eq!(display_value("=ROUND(3.7)", &grid()), "4");
+        assert_eq!(display_value("=POWER(2,10)", &grid()), "1024");
+        assert_eq!(display_value("=MOD(A2,A1)", &grid()), "0");
+        assert_eq!(display_value("=MOD(7,3)", &grid()), "1");
+    }
+
+    #[test]
+    fn if_function_branches_on_condition() {
+        assert_eq!(display_value("=IF(A1>A2, A1, A2)", &grid()), "20");
+        assert_eq!(display_value("=IF(A1<A2, A1, A2)", &grid()), "10");
+        assert_eq!(display_value("=IF(1, 100, 200)", &grid()), "100");
+        assert_eq!(display_value("=IF(0, 100, 200)", &grid()), "200");
     }
 }

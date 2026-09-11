@@ -1,5 +1,5 @@
 use crate::app::components::{ActiveNav, AppShell};
-use crate::services::sqlite_table::{DatabaseFileInfo, DatabaseSchema, NotebookCell, SqlExecutionResult, TableDataPage};
+use crate::services::sqlite_table::{ColumnViewConfig, DatabaseFileInfo, DatabaseSchema, NotebookCell, SqlExecutionResult, TableDataPage};
 use crate::ui::i18n::I18n;
 use apich_db::{Project, User};
 use apich_islands::SpreadsheetIsland;
@@ -16,6 +16,7 @@ pub fn TablePage(
     schema: Option<DatabaseSchema>,
     selected_table: Option<String>,
     table_data: Option<TableDataPage>,
+    column_view: ColumnViewConfig,
     sql_query: String,
     sql_result: Option<SqlExecutionResult>,
     mode: String,
@@ -73,7 +74,7 @@ pub fn TablePage(
     };
 
     let main_view = match &schema {
-        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells, i18n.is_zh()).into_any(),
+        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &column_view, &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells, i18n.is_zh()).into_any(),
         None => view! { <div></div> }.into_any(),
     };
 
@@ -104,6 +105,7 @@ fn render_schema_view(
     schema: &DatabaseSchema,
     selected_table: Option<&str>,
     table_data: Option<&TableDataPage>,
+    column_view: &ColumnViewConfig,
     cur_file: &str,
     sql_query: &str,
     sql_result: Option<&SqlExecutionResult>,
@@ -140,7 +142,7 @@ fn render_schema_view(
     let sql_console = render_sql_console(project_id, cur_file, sql_table_name, sql_query, sql_result, mode, sql_first_column, is_zh);
 
     let grid = match table_data {
-        Some(td) => render_grid(project, td, schema, cur_file, mode, search, is_zh).into_any(),
+        Some(td) => render_grid(project, td, schema, column_view, cur_file, mode, search, is_zh).into_any(),
         None if !schema.tables.is_empty() => view! { <div class="empty-state"><p>"Select a table tab above to inspect rows."</p></div> }.into_any(),
         None => view! { <div class="empty-state"><p>"Database is empty. Use the SQL console below to create tables."</p></div> }.into_any(),
     };
@@ -180,13 +182,102 @@ fn render_schema_view(
     }
 }
 
+/// A "Columns" dropdown next to Export/Import letting a user hide a column, restore a hidden one,
+/// nudge a visible column left/right, or reset back to the table's real schema order -- all
+/// plain server-rendered forms (no island needed; each just POSTs and redirects back to the same
+/// view), matching the same all-server pattern the rest of the ribbon toolbar already uses.
+fn render_column_panel(project_id: uuid::Uuid, cur_file: &str, table_name: &str, mode: &str, all_columns: &[String], column_view: &ColumnViewConfig) -> impl IntoView {
+    let action = format!("/projects/{}/table/column-view", project_id);
+    let visible = column_view.apply(all_columns);
+    let n_visible = visible.len();
+
+    let row_form = |label: String, col_name: String, extra: Vec<(&'static str, String)>| {
+        let action = action.clone();
+        let cur_file = cur_file.to_string();
+        let table_name = table_name.to_string();
+        let mode = mode.to_string();
+        let extra_inputs: Vec<_> = extra
+            .into_iter()
+            .map(|(k, v)| view! { <input type="hidden" name=k value=v /> })
+            .collect();
+        view! {
+            <form method="post" action=action.clone() class="inline-form" style="display:inline;">
+                <input type="hidden" name="file" value=cur_file />
+                <input type="hidden" name="table" value=table_name />
+                <input type="hidden" name="mode" value=mode />
+                <input type="hidden" name="column" value=col_name />
+                {extra_inputs}
+                <button type="submit" class="btn btn-ghost btn-sm" style="padding:0.15rem 0.4rem;">{label}</button>
+            </form>
+        }
+    };
+
+    let visible_rows: Vec<_> = visible
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            view! {
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:0.3rem 0; border-bottom:1px solid var(--border-subtle);">
+                    <span style="font-size:0.8rem; font-family:var(--font-mono);">{name.clone()}</span>
+                    <div style="display:flex; gap:0.15rem;">
+                        {(i > 0).then(|| row_form("◀".to_string(), name.clone(), vec![("action", "move-left".to_string())]))}
+                        {(i + 1 < n_visible).then(|| row_form("▶".to_string(), name.clone(), vec![("action", "move-right".to_string())]))}
+                        {row_form("🙈 Hide".to_string(), name.clone(), vec![("action", "hide".to_string())])}
+                    </div>
+                </div>
+            }
+        })
+        .collect();
+
+    let hidden_rows: Vec<_> = column_view
+        .hidden
+        .iter()
+        .filter(|c| all_columns.contains(c))
+        .map(|name| {
+            view! {
+                <div style="display:flex; align-items:center; justify-content:space-between; padding:0.3rem 0; border-bottom:1px solid var(--border-subtle); opacity:0.6;">
+                    <span style="font-size:0.8rem; font-family:var(--font-mono);">{name.clone()}</span>
+                    {row_form("👁 Show".to_string(), name.clone(), vec![("action", "show".to_string())])}
+                </div>
+            }
+        })
+        .collect();
+    let hidden_section = (!hidden_rows.is_empty()).then(|| view! {
+        <div style="margin-top:0.5rem; padding-top:0.5rem; border-top:2px solid var(--border-subtle);">
+            <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-sub); margin-bottom:0.25rem;">"Hidden"</div>
+            {hidden_rows}
+        </div>
+    });
+
+    let has_customization = !column_view.order.is_empty() || !column_view.hidden.is_empty();
+    let reset_btn = has_customization.then(|| row_form("↺ Reset to default order".to_string(), String::new(), vec![("action", "reset".to_string())]));
+
+    view! {
+        <div class="dropdown-menu-wrap" style="position:relative; display:inline-block;">
+            <details style="display:inline-block;">
+                <summary class="btn btn-secondary btn-sm" style="list-style:none; cursor:pointer;">"🧱 Columns"</summary>
+                <div style="position:absolute; z-index:20; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; box-shadow:var(--shadow-md); padding:0.6rem; margin-top:0.25rem; min-width:220px; max-height:320px; overflow-y:auto;">
+                    {visible_rows}
+                    {hidden_section}
+                    {reset_btn.map(|b| view! { <div style="margin-top:0.5rem;">{b}</div> })}
+                </div>
+            </details>
+        </div>
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, cur_file: &str, mode: &str, search: Option<&str>, is_zh: bool) -> impl IntoView {
+fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, column_view: &ColumnViewConfig, cur_file: &str, mode: &str, search: Option<&str>, is_zh: bool) -> impl IntoView {
     let project_id = project.id;
     let cur_tbl_schema = schema.tables.iter().find(|t| t.name == td.table_name);
 
-    let column_types: Vec<String> = td
-        .columns
+    // `td.columns` is every real column, in schema order (see `get_table_data`'s `SELECT *`).
+    // `visible_order` applies the saved hide/reorder preferences on top of that -- purely a
+    // display-time transform, never touching the actual query or schema.
+    let orig_index: std::collections::HashMap<&str, usize> = td.columns.iter().enumerate().map(|(i, c)| (c.as_str(), i)).collect();
+    let visible_order = column_view.apply(&td.columns);
+
+    let column_types: Vec<String> = visible_order
         .iter()
         .map(|col| {
             cur_tbl_schema
@@ -195,8 +286,7 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
                 .unwrap_or_else(|| "TEXT".to_string())
         })
         .collect();
-    let primary_keys: Vec<bool> = td
-        .columns
+    let primary_keys: Vec<bool> = visible_order
         .iter()
         .map(|col| {
             cur_tbl_schema
@@ -209,11 +299,15 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
         .rows
         .iter()
         .map(|row| {
-            row.iter()
-                .map(|cell| match cell {
-                    serde_json::Value::Null => String::new(),
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
+            visible_order
+                .iter()
+                .map(|col| {
+                    let idx = orig_index.get(col.as_str()).copied().unwrap_or(0);
+                    match row.get(idx) {
+                        Some(serde_json::Value::Null) | None => String::new(),
+                        Some(serde_json::Value::String(s)) => s.clone(),
+                        Some(other) => other.to_string(),
+                    }
                 })
                 .collect()
         })
@@ -280,7 +374,23 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
                             </apich_islands::ModalIsland>
                         }
                     }
-                    <a href=format!("/projects/{}/table/export?file={}&table={}", project_id, cur_file, td.table_name) class="btn btn-secondary btn-sm">"📤 Export CSV"</a>
+                    {render_column_panel(project_id, cur_file, &td.table_name, mode, &td.columns, column_view)}
+                    {
+                        let export_base = format!("/projects/{}/table/export?file={}&table={}", project_id, urlencoding::encode(cur_file), urlencoding::encode(&td.table_name));
+                        view! {
+                            <div class="dropdown-menu-wrap" style="position:relative; display:inline-block;">
+                                <details style="display:inline-block;">
+                                    <summary class="btn btn-secondary btn-sm" style="list-style:none; cursor:pointer;">"📤 Export"</summary>
+                                    <div style="position:absolute; z-index:20; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; box-shadow:var(--shadow-md); padding:0.35rem; margin-top:0.25rem; min-width:140px;">
+                                        <a href=format!("{}&format=csv", export_base) class="dropdown-item" style="display:block; padding:0.4rem 0.6rem; font-size:0.8rem; border-radius:6px; color:var(--text-main); text-decoration:none;">"CSV"</a>
+                                        <a href=format!("{}&format=tsv", export_base) class="dropdown-item" style="display:block; padding:0.4rem 0.6rem; font-size:0.8rem; border-radius:6px; color:var(--text-main); text-decoration:none;">"TSV"</a>
+                                        <a href=format!("{}&format=json", export_base) class="dropdown-item" style="display:block; padding:0.4rem 0.6rem; font-size:0.8rem; border-radius:6px; color:var(--text-main); text-decoration:none;">"JSON"</a>
+                                        <a href=format!("{}&format=md", export_base) class="dropdown-item" style="display:block; padding:0.4rem 0.6rem; font-size:0.8rem; border-radius:6px; color:var(--text-main); text-decoration:none;">"Markdown"</a>
+                                    </div>
+                                </details>
+                            </div>
+                        }
+                    }
                 </div>
                 <div style="display:flex; gap:0.5rem; align-items:center;">
                     <form method="get" action=format!("/projects/{}/table", project_id) style="display:flex; gap:0.35rem; align-items:center;">
@@ -298,7 +408,7 @@ fn render_grid(project: &Project, td: &TableDataPage, schema: &DatabaseSchema, c
                 project_id=project_id.to_string()
                 file_path=cur_file.to_string()
                 table_name=td.table_name.clone()
-                columns=td.columns.clone()
+                columns=visible_order.clone()
                 column_types=column_types
                 primary_keys=primary_keys
                 rows=rows

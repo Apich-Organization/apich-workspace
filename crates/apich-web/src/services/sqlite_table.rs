@@ -25,6 +25,40 @@ impl CellStyle {
     }
 }
 
+/// Per-table column display preferences -- which real schema columns to hide and what order to
+/// show the rest in. Stored the same way as `CellStyle` (a small `_apich_column_view` metadata
+/// table inside the same SQLite file), and applied purely at render time in `table_page.rs`: it
+/// never touches the actual table schema, so hiding/reordering a column is always reversible and
+/// never risks the user's real data or SQL queries against it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ColumnViewConfig {
+    /// Explicit display order for the columns named here; any real column not listed is appended
+    /// afterward in its original schema order.
+    pub order: Vec<String>,
+    /// Column names hidden from the grid (still fully queryable via the SQL console).
+    pub hidden: Vec<String>,
+}
+
+impl ColumnViewConfig {
+    /// Apply this config to a table's real column list, producing the final visible, ordered
+    /// column name list the grid should render.
+    pub fn apply(&self, all_columns: &[String]) -> Vec<String> {
+        let mut ordered: Vec<String> = self
+            .order
+            .iter()
+            .filter(|c| all_columns.contains(c))
+            .cloned()
+            .collect();
+        for c in all_columns {
+            if !ordered.contains(c) {
+                ordered.push(c.clone());
+            }
+        }
+        ordered.retain(|c| !self.hidden.contains(c));
+        ordered
+    }
+}
+
 /// One Python/R code cell in a table's notebook -- "integrate python and r into the tables ...
 /// just like a python notebook and r notebook" (direct user request). Design, kept deliberately
 /// close to the codebase's own existing patterns rather than inventing new infrastructure:
@@ -531,6 +565,48 @@ impl SqliteTableService {
         Ok(())
     }
 
+    fn ensure_column_view_table(conn: &Connection) -> WebResult<()> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _apich_column_view (
+                table_name TEXT PRIMARY KEY,
+                config_json TEXT NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| WebError::Internal(format!("Failed to ensure column-view table: {}", e)))?;
+        Ok(())
+    }
+
+    /// A table's saved column display config (empty default -- original order, nothing hidden --
+    /// if none has ever been saved, or if the metadata table doesn't exist yet).
+    pub fn get_column_view<P: AsRef<Path>>(db_path: P, table_name: &str) -> WebResult<ColumnViewConfig> {
+        let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+        let result: rusqlite::Result<String> = conn.query_row(
+            "SELECT config_json FROM _apich_column_view WHERE table_name = ?1",
+            [table_name],
+            |r| r.get(0),
+        );
+        match result {
+            Ok(json) => Ok(serde_json::from_str(&json).unwrap_or_default()),
+            Err(_) => Ok(ColumnViewConfig::default()),
+        }
+    }
+
+    /// Save a table's column display config.
+    pub fn set_column_view<P: AsRef<Path>>(db_path: P, table_name: &str, config: &ColumnViewConfig) -> WebResult<()> {
+        let conn = Connection::open(&db_path).map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+        Self::ensure_column_view_table(&conn)?;
+        let json = serde_json::to_string(config).map_err(|e| WebError::Internal(format!("Failed to serialize column view: {}", e)))?;
+        conn.execute(
+            "INSERT INTO _apich_column_view (table_name, config_json) VALUES (?1, ?2)
+             ON CONFLICT (table_name) DO UPDATE SET config_json = excluded.config_json",
+            rusqlite::params![table_name, json],
+        )
+        .map_err(|e| WebError::Internal(format!("Failed to save column view: {}", e)))?;
+        Ok(())
+    }
+
     fn ensure_notebook_table(conn: &Connection) -> WebResult<()> {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS _apich_notebook_cells (
@@ -709,6 +785,104 @@ impl SqliteTableService {
     }
 
     /// Export table to CSV formatted string
+    /// Fetch every row of a table as `(column_names, rows)`, each cell already converted to a
+    /// `serde_json::Value` -- the shared backbone for every export format below (CSV was the
+    /// only one that predates this and gets its own hand-rolled quoting rules, since CSV's
+    /// escaping is different enough from "just serialize the value" to not be worth forcing
+    /// through the same path).
+    fn fetch_all_rows<P: AsRef<Path>>(db_path: P, table_name: &str) -> WebResult<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
+        let clean_table = table_name.replace('"', "\"\"");
+        let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+
+        let sql = format!("SELECT * FROM \"{}\"", clean_table);
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| WebError::Internal(format!("Failed to prepare export query: {}", e)))?;
+        let col_names: Vec<String> = stmt.column_names().into_iter().map(|s| s.to_string()).collect();
+
+        let mut rows_out = Vec::new();
+        let mut rows = stmt
+            .query([])
+            .map_err(|e| WebError::Internal(format!("Failed to query table: {}", e)))?;
+        while let Some(r) = rows.next().map_err(|e| WebError::Internal(e.to_string()))? {
+            let mut line = Vec::with_capacity(col_names.len());
+            for i in 0..col_names.len() {
+                let val_ref = r.get_ref(i).map_err(|e| WebError::Internal(e.to_string()))?;
+                let v = match val_ref {
+                    ValueRef::Null => serde_json::Value::Null,
+                    ValueRef::Integer(v) => serde_json::Value::from(v),
+                    ValueRef::Real(v) => serde_json::Value::from(v),
+                    ValueRef::Text(v) => serde_json::Value::String(String::from_utf8_lossy(v).to_string()),
+                    ValueRef::Blob(_) => serde_json::Value::String("<blob>".to_string()),
+                };
+                line.push(v);
+            }
+            rows_out.push(line);
+        }
+        Ok((col_names, rows_out))
+    }
+
+    /// Export a table as a JSON array of `{"column": value, ...}` objects.
+    pub fn export_json<P: AsRef<Path>>(db_path: P, table_name: &str) -> WebResult<String> {
+        let (columns, rows) = Self::fetch_all_rows(db_path, table_name)?;
+        let objects: Vec<serde_json::Value> = rows
+            .into_iter()
+            .map(|row| {
+                let map: serde_json::Map<String, serde_json::Value> = columns.iter().cloned().zip(row).collect();
+                serde_json::Value::Object(map)
+            })
+            .collect();
+        serde_json::to_string_pretty(&objects).map_err(|e| WebError::Internal(format!("Failed to serialize JSON export: {}", e)))
+    }
+
+    /// Export a table as tab-separated values (Excel/Numbers paste-friendly).
+    pub fn export_tsv<P: AsRef<Path>>(db_path: P, table_name: &str) -> WebResult<String> {
+        let (columns, rows) = Self::fetch_all_rows(db_path, table_name)?;
+        let cell_to_tsv = |v: &serde_json::Value| -> String {
+            match v {
+                serde_json::Value::Null => String::new(),
+                serde_json::Value::String(s) => s.replace('\t', "    ").replace('\n', " "),
+                other => other.to_string(),
+            }
+        };
+        let mut out = String::new();
+        out.push_str(&columns.join("\t"));
+        out.push('\n');
+        for row in &rows {
+            let line: Vec<String> = row.iter().map(cell_to_tsv).collect();
+            out.push_str(&line.join("\t"));
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
+    /// Export a table as a GitHub-flavored Markdown table -- handy for pasting straight into a
+    /// note or a README rather than round-tripping through a spreadsheet app first.
+    pub fn export_markdown<P: AsRef<Path>>(db_path: P, table_name: &str) -> WebResult<String> {
+        let (columns, rows) = Self::fetch_all_rows(db_path, table_name)?;
+        let cell_to_md = |v: &serde_json::Value| -> String {
+            let raw = match v {
+                serde_json::Value::Null => String::new(),
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            raw.replace('|', "\\|").replace('\n', "<br>")
+        };
+        let mut out = String::new();
+        out.push_str("| ");
+        out.push_str(&columns.join(" | "));
+        out.push_str(" |\n|");
+        out.push_str(&" --- |".repeat(columns.len()));
+        out.push('\n');
+        for row in &rows {
+            out.push_str("| ");
+            out.push_str(&row.iter().map(cell_to_md).collect::<Vec<_>>().join(" | "));
+            out.push_str(" |\n");
+        }
+        Ok(out)
+    }
+
     pub fn export_csv<P: AsRef<Path>>(db_path: P, table_name: &str) -> WebResult<String> {
         let clean_table = table_name.replace('"', "\"\"");
         let conn = Connection::open(&db_path)

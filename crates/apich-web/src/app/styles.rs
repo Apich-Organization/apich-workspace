@@ -1248,6 +1248,22 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     min-width: 110px;
     font-variant-numeric: tabular-nums;
 }
+.spreadsheet-grid td.cell-data .cell-display {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 5.6em;
+    overflow-y: auto;
+    line-height: 1.4;
+}
+.spreadsheet-grid td.cell-data textarea.cell-edit-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 2px 4px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 1.6em;
+}
 .spreadsheet-grid td.cell-selected {
     outline: 2px solid var(--primary) !important;
     outline-offset: -2px;
@@ -1257,6 +1273,15 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     background: #f8fafc;
     font-weight: 600;
     border-top: 2px solid var(--border-subtle);
+}
+.dropdown-menu-wrap summary::-webkit-details-marker {
+    display: none;
+}
+.dropdown-menu-wrap summary::marker {
+    content: "";
+}
+.dropdown-item:hover {
+    background: var(--bg-muted);
 }
 .summary-dropdown {
     font-size: 0.75rem;

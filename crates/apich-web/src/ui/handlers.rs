@@ -237,6 +237,7 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/table/row-add", post(table_row_add_action))
         .route("/projects/:id/table/row-delete", post(table_row_delete_action))
         .route("/projects/:id/table/export", get(table_export_action))
+        .route("/projects/:id/table/column-view", post(table_column_view_action))
         .route("/projects/:id/table/import", post(table_import_action))
         .route("/projects/:id/table/notebook/cell-create", post(notebook_cell_create_action))
         .route("/projects/:id/table/notebook/cell-delete", post(notebook_cell_delete_action))
@@ -1977,6 +1978,8 @@ pub struct TableRowDeleteForm {
 pub struct TableExportQuery {
     pub file: String,
     pub table: String,
+    #[serde(default)]
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2844,6 +2847,14 @@ async fn project_table_page(
 
     let notebook_cells = notebook_cells_for(&project.storage_path, selected_file.as_deref(), selected_table.as_deref());
 
+    let column_view = match (&selected_file, &selected_table) {
+        (Some(file), Some(tbl)) => SqliteTableService::resolve_db_path(&project.storage_path, file)
+            .ok()
+            .and_then(|p| SqliteTableService::get_column_view(&p, tbl).ok())
+            .unwrap_or_default(),
+        _ => Default::default(),
+    };
+
     let mode = params.mode.unwrap_or_else(|| "grid".to_string());
     let current_path = format!("/projects/{}/table", project.id);
     let is_org_admin = state.identity_service.is_org_or_team_admin(user.id).await.unwrap_or(false);
@@ -2862,6 +2873,7 @@ async fn project_table_page(
                 schema=schema
                 selected_table=selected_table
                 table_data=table_data
+                column_view=column_view
                 sql_query="".to_string()
                 sql_result=None
                 mode=mode
@@ -2934,6 +2946,10 @@ async fn execute_table_sql_action(
             let notice = Some(sql_res.message.clone());
             let selected_file = Some(payload.file.clone());
             let notebook_cells = notebook_cells_for(&project.storage_path, selected_file.as_deref(), first_table.as_deref());
+            let column_view = first_table
+                .as_deref()
+                .and_then(|t| SqliteTableService::get_column_view(&full_path, t).ok())
+                .unwrap_or_default();
 
             let html = crate::app::components::render_document(move || {
                 leptos::prelude::view! {
@@ -2946,6 +2962,7 @@ async fn execute_table_sql_action(
                         schema=schema
                         selected_table=first_table
                         table_data=table_data
+                        column_view=column_view
                         sql_query=payload.sql
                         sql_result=Some(sql_res)
                         mode="sql".to_string()
@@ -3205,19 +3222,118 @@ async fn table_export_action(
         Ok(p) => p,
         Err(e) => return (StatusCode::NOT_FOUND, Html(format!("<h3>{}</h3>", e))).into_response(),
     };
-    match crate::services::sqlite_table::SqliteTableService::export_csv(&db_path, &query.table) {
-        Ok(csv_data) => {
-            let filename = format!("{}.csv", query.table);
+    let format = query.format.as_deref().unwrap_or("csv");
+    let (content_type, ext, result) = match format {
+        "json" => ("application/json; charset=utf-8", "json", crate::services::sqlite_table::SqliteTableService::export_json(&db_path, &query.table)),
+        "tsv" => ("text/tab-separated-values; charset=utf-8", "tsv", crate::services::sqlite_table::SqliteTableService::export_tsv(&db_path, &query.table)),
+        "md" | "markdown" => ("text/markdown; charset=utf-8", "md", crate::services::sqlite_table::SqliteTableService::export_markdown(&db_path, &query.table)),
+        _ => ("text/csv; charset=utf-8", "csv", crate::services::sqlite_table::SqliteTableService::export_csv(&db_path, &query.table)),
+    };
+    match result {
+        Ok(data) => {
+            let filename = format!("{}.{}", query.table, ext);
             (
                 [
-                    (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
-                    (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{}\"", filename)),
+                    (header::CONTENT_TYPE, content_type.to_string()),
+                    (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", filename)),
                 ],
-                csv_data,
+                data,
             ).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("Failed to export CSV: {}", e))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("Failed to export {}: {}", format.to_uppercase(), e))).into_response(),
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ColumnViewForm {
+    pub file: String,
+    pub table: String,
+    pub action: String,
+    #[serde(default)]
+    pub column: String,
+    #[serde(default)]
+    pub mode: String,
+}
+
+/// Hide/show a column or move it left/right in the grid's display order (or reset back to the
+/// table's real schema order). Purely a display preference -- never touches the actual table
+/// schema, so a hidden column is still fully visible/queryable via the SQL console below the grid.
+async fn table_column_view_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<ColumnViewForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return (StatusCode::NOT_FOUND, Html("<h3>Project not found 404</h3>")).into_response(),
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+    let db_path = match crate::services::sqlite_table::SqliteTableService::resolve_db_path(&project.storage_path, &payload.file) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::NOT_FOUND, Html(format!("<h3>{}</h3>", e))).into_response(),
+    };
+
+    let all_columns: Vec<String> = crate::services::sqlite_table::SqliteTableService::get_database_schema(&db_path)
+        .ok()
+        .and_then(|s| s.tables.into_iter().find(|t| t.name == payload.table))
+        .map(|t| t.columns.into_iter().map(|c| c.name).collect())
+        .unwrap_or_default();
+
+    let mut config = crate::services::sqlite_table::SqliteTableService::get_column_view(&db_path, &payload.table).unwrap_or_default();
+
+    match payload.action.as_str() {
+        "hide" => {
+            if !config.hidden.iter().any(|c| c == &payload.column) {
+                config.hidden.push(payload.column.clone());
+            }
+        }
+        "show" => {
+            config.hidden.retain(|c| c != &payload.column);
+        }
+        "move-left" | "move-right" => {
+            let visible = config.apply(&all_columns);
+            let mut order = visible.clone();
+            if let Some(pos) = order.iter().position(|c| c == &payload.column) {
+                if payload.action == "move-left" && pos > 0 {
+                    order.swap(pos, pos - 1);
+                } else if payload.action == "move-right" && pos + 1 < order.len() {
+                    order.swap(pos, pos + 1);
+                }
+            }
+            for c in &all_columns {
+                if !order.contains(c) {
+                    order.push(c.clone());
+                }
+            }
+            config.order = order;
+        }
+        "reset" => {
+            config = crate::services::sqlite_table::ColumnViewConfig::default();
+        }
+        _ => {}
+    }
+
+    if let Err(e) = crate::services::sqlite_table::SqliteTableService::set_column_view(&db_path, &payload.table, &config) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("Failed to save column view: {}", e))).into_response();
+    }
+
+    let mode = if payload.mode.is_empty() { "grid".to_string() } else { payload.mode.clone() };
+    Redirect::to(&format!(
+        "/projects/{}/table?file={}&table={}&mode={}",
+        project.id,
+        urlencoding::encode(&payload.file),
+        urlencoding::encode(&payload.table),
+        mode
+    ))
+    .into_response()
 }
 
 /// Import CSV data into table

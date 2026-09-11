@@ -216,30 +216,36 @@ pub fn SpreadsheetIsland(
                             {move || {
                                 if editing.get() == Some((r, c)) {
                                     view! {
-                                        <input
-                                            class="form-control"
-                                            style="padding:2px 4px; font-size:0.85rem; width:100%; box-sizing:border-box;"
+                                        <textarea
+                                            class="cell-edit-textarea"
+                                            rows="1"
                                             prop:value=move || edit_draft.get()
                                             on:input=move |ev| edit_draft.set(event_target_value(&ev))
                                             on:blur=move |_| commit_edit(r, c)
                                             on:keydown=move |ev| {
-                                                if ev.key() == "Enter" {
+                                                // Plain Enter commits (matching a normal spreadsheet);
+                                                // Shift+Enter inserts a real newline for multi-line
+                                                // cell content instead.
+                                                if ev.key() == "Enter" && !ev.shift_key() {
+                                                    ev.prevent_default();
                                                     commit_edit(r, c);
                                                     select_cell((r + 1).min(n_rows.saturating_sub(1)), c);
                                                 }
                                             }
-                                        />
+                                        ></textarea>
                                     }.into_any()
                                 } else {
                                     // A raw value starting with `=` is a formula (see
                                     // `crate::formula`) -- displayed as its computed result while
                                     // still stored/edited as the formula text itself, the same
-                                    // display-vs-edit split every spreadsheet does.
+                                    // display-vs-edit split every spreadsheet does. Line breaks in
+                                    // non-formula text are preserved (`.cell-display` is
+                                    // `white-space: pre-wrap` in CSS) rather than collapsed.
                                     let text = cells.with(|rows| {
                                         let raw = rows.get(r).and_then(|row| row.get(c)).cloned().unwrap_or_default();
                                         crate::formula::display_value(&raw, rows)
                                     });
-                                    view! { {text} }.into_any()
+                                    view! { <span class="cell-display">{text}</span> }.into_any()
                                 }
                             }}
                         </td>
@@ -337,12 +343,12 @@ pub fn SpreadsheetIsland(
             <input
                 class="formula-input"
                 placeholder=t(
-                    "Value, or a formula: =SUM(A1:A5), =AVG(A:A), =A1+B1*2",
-                    "输入数值，或公式：=SUM(A1:A5)，=AVG(A:A)，=A1+B1*2",
+                    "Value, or a formula: =SUM(A1:A5), =IF(A1>10,B1,C1), =ROUND(A1/B1,2)",
+                    "输入数值，或公式：=SUM(A1:A5)，=IF(A1>10,B1,C1)，=ROUND(A1/B1,2)",
                 )
                 title=t(
-                    "Formulas start with '=': SUM, AVG/AVERAGE, COUNT, MIN, MAX over a range (A1:A5 or a whole column A:A), plus +-*/ and parentheses on cell refs and numbers.",
-                    "公式以“=”开头：SUM、AVG/AVERAGE、COUNT、MIN、MAX 可作用于一个区域（如 A1:A5 或整列 A:A），也支持对单元格和数字使用 +-*/ 及括号运算。",
+                    "Formulas start with '=': SUM, AVG/AVERAGE, COUNT, MIN, MAX over a range (A1:A5 or a whole column A:A); ABS, SQRT, ROUND(x,digits), POWER(x,y), MOD(a,b), IF(cond,then,else); +-*/^ and comparisons (> < >= <= = <>) with parentheses on cell refs and numbers.",
+                    "公式以“=”开头：SUM、AVG/AVERAGE、COUNT、MIN、MAX 可作用于一个区域（如 A1:A5 或整列 A:A）；还支持 ABS、SQRT、ROUND(x,位数)、POWER(x,y)、MOD(a,b)、IF(条件,真值,假值)；以及 +-*/^ 运算符和比较运算符（> < >= <= = <>），可配合括号使用。",
                 )
                 prop:value=move || fx_value.get()
                 on:input=move |ev| fx_value.set(event_target_value(&ev))
