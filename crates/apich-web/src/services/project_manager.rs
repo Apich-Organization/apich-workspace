@@ -252,6 +252,22 @@ impl ProjectManager {
         rel_path: &str,
         args: &str,
     ) -> WebResult<crate::services::document_renderer::ScriptRunResult> {
+        self.run_script_in_sandbox_with_env(project_id, user_id, rel_path, args, &[]).await
+    }
+
+    /// Same as `run_script_in_sandbox`, plus extra environment variables for the run -- used by
+    /// the table notebook feature to hand a cell's Python/R code the SQLite file path it's
+    /// attached to (`APICH_TABLE_DB`) without inventing a second script-execution pathway. A
+    /// separate method rather than a defaulted parameter on the original so every existing
+    /// caller (the plain script-runner console) stays untouched.
+    pub async fn run_script_in_sandbox_with_env(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+        args: &str,
+        extra_env: &[(&str, &str)],
+    ) -> WebResult<crate::services::document_renderer::ScriptRunResult> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -294,7 +310,10 @@ impl ProjectManager {
         let before_images = crate::services::document_renderer::DocumentRenderer::scan_images(std::path::Path::new(&proj.storage_path));
         let start = std::time::Instant::now();
 
-        let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(120));
+        let mut opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(120));
+        for (k, v) in extra_env {
+            opts = opts.env(*k, *v);
+        }
         let result = container.exec_with_options(opts).await?;
 
         if ext == "rs" {

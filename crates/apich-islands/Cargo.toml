@@ -45,6 +45,14 @@ web-sys = { version = "0.3", optional = true, features = [
     "Clipboard",
     "HtmlTextAreaElement",
     "TextMetrics",
+    "WheelEvent",
+    "File",
+    "FileList",
+    "FileReader",
+    "Blob",
+    "Url",
+    "HtmlImageElement",
+    "HtmlVideoElement",
 ] }
 urlencoding = "2.1"
 js-sys = { version = "0.3", optional = true }

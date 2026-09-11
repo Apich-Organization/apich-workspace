@@ -79,6 +79,14 @@ pub fn ProjectDetailPage(
                 <div class="header-actions">
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 AI Copilot"</label>
                     <a href=format!("/projects/{}/note", project.id) class="btn btn-secondary">"📔 Notes & Wiki"</a>
+                    // A real, working route (`/projects/:id/terminal`, `TerminalPage`/`TerminalIsland`)
+                    // that used to be linked from nowhere in the app at all -- the only way to find
+                    // it was to already know the URL. Real, concrete cost: it's the one thing that
+                    // already answers "how do I init/build/run a whole multi-file Rust project (not
+                    // a single script), or any other real dev workflow (`cargo init`, `cargo run`,
+                    // `git`, etc.) inside this project's own environment" -- the toolchain was
+                    // always there, nobody could find the door to it.
+                    <a href=format!("/projects/{}/terminal", project.id) class="btn btn-secondary">"💻 Terminal"</a>
                     <apich_islands::ModalIsland trigger_label=i18n.create_snapshot().to_string() trigger_class="btn btn-secondary".to_string() title=i18n.modal_snapshot_title().to_string()>
                         <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">{i18n.modal_snapshot_desc()}</p>
                         <form method="post" action=format!("/projects/{}/snapshot", project_id)>
@@ -453,6 +461,19 @@ fn render_vcs_tab(
     let remote_desc = git.remote_url.clone().unwrap_or_else(|| i18n.git_no_remote().to_string());
 
     view! {
+        // The user's own complaint, verbatim: this page "mix[ed] git vcs and apich vcs
+        // altogether" with no clear separation. There were always two genuinely different
+        // systems here -- this project's own real, built-in version control (Branches, Timeline,
+        // Milestones, all below) versus an *optional* bridge/export feature for people who also
+        // want to sync with an external Git host -- but nothing on the page ever said so; the
+        // last card just quietly sat there labeled "Git Compatibility" with no framing about how
+        // it relates to everything above it. One short explainer up front, plus clearer labels on
+        // the two "clone" links further down (which previously sat side by side with almost no
+        // distinction beyond their button text), rather than restructuring what already is a
+        // reasonable four-card layout.
+        <div class="alert alert-info" style="margin-bottom:1.25rem; font-size:0.85rem;">
+            "Branches, Timeline, and Milestones below are this project's own built-in history -- always on, nothing to set up. The " <strong>"Git"</strong> " section further down is optional: use it only if you also want to sync this project with GitHub, GitLab, or another Git host."
+        </div>
         <div class="section-card">
             <h2 class="section-title">{i18n.merge_title()}</h2>
             <p class="text-muted" style="font-size:0.875rem; margin-bottom:1.25rem;">{i18n.merge_desc()}</p>
@@ -551,20 +572,20 @@ fn render_vcs_tab(
             </form>
 
             <h3 class="card-subtitle" style="margin-top:1.5rem;">"Clone this project"</h3>
-            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">
-                "External Git clients can clone/push directly. Requires a "
-                <a href="/settings#pat">"personal access token"</a>
-                " as the password (username can be anything)."
-            </p>
-            <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1rem;">
+            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.75rem;">"Two different ways to get a copy, for two different purposes:"</p>
+            <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem; margin-bottom:0.75rem;">
+                <div style="font-size:0.8rem; font-weight:600; margin-bottom:0.35rem;">"With a real Git client (git clone, GitHub Desktop, etc.)"</div>
+                <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">
+                    "Requires a " <a href="/settings#pat">"personal access token"</a> " as the password (username can be anything). Only sees whatever has been synced via \"" {i18n.git_sync_btn()} "\" above."
+                </p>
                 <apich_islands::CopyLinkIsland link=format!("/git/{}.git", project.slug) button_label="Copy Git URL".to_string() />
             </div>
-            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">
-                "Or use apich-vcs's own history directly: "
-                <code>"apich remote clone <url> --token <PAT>"</code>
-            </p>
-            <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1.5rem;">
-                <apich_islands::CopyLinkIsland link=format!("/vcs-remote/{}/bundle", project.id) button_label="Copy apich-vcs URL".to_string() />
+            <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem; margin-bottom:1.5rem;">
+                <div style="font-size:0.8rem; font-weight:600; margin-bottom:0.35rem;">"With the apich command (full native history)"</div>
+                <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">
+                    "Gets this project's own real history directly -- every branch, snapshot, and milestone above, not just what's been synced to Git: " <code>"apich remote clone <url> --token <PAT>"</code>
+                </p>
+                <apich_islands::CopyLinkIsland link=format!("/vcs-remote/{}/bundle", project.id) button_label="Copy apich Command URL".to_string() />
             </div>
 
             <h3 class="card-subtitle">"Remotes"</h3>

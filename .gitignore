@@ -3,3 +3,4 @@ Cargo.lock
 data/
 *.log
 crates/apich-web/pkg/
+scratch/workspace/

@@ -4,9 +4,12 @@ use apich_db::{Project, User};
 use apich_islands::TerminalIsland;
 use leptos::prelude::*;
 
-/// No manual "Start Sandbox" button here: the container starts automatically on the first
-/// command (see `ProjectManager::exec_in_sandbox`), matching plan.md's requirement that
-/// containers are never something the user has to turn on themselves.
+/// No manual "start" button here: the underlying environment starts automatically on the first
+/// command (see `ProjectManager::exec_in_sandbox`), matching plan.md's requirement that it's
+/// never something the user has to turn on themselves -- and, per direct user feedback, the page
+/// itself says nothing about a "container" or "sandbox": this reads as a plain terminal for the
+/// project, the same way it would on a real command line, not as a cloud-dev-environment control
+/// panel.
 #[component]
 pub fn TerminalPage(
     user: User,
@@ -33,7 +36,15 @@ pub fn TerminalPage(
         view! { <span class="status-badge badge-idle"><span class="status-dot"></span>"Starts automatically on first command"</span> }.into_any()
     };
 
-    let initial_screen = format!("User: {}\nProject: {}\nMount: /workspace <--> {}\n\n[Ready] Type a command below and press Enter or click 'Run'.\n", user.username, project.slug, project.storage_path);
+    // Doubles as the real answer to "how do I init/build/run a whole multi-file Rust project (not
+    // a single script) here" -- there was previously no UI path to this terminal at all, so
+    // nobody could find out that a real `cargo` toolchain (and git, python3, R, LaTeX/Typst -- see
+    // `docker/Containerfile.sandbox`) has always been available. Says nothing about a "sandbox" or
+    // "container", per direct user feedback -- this reads like a plain project shell.
+    let initial_screen = format!(
+        "{} / {}\n\ncargo, git, python3, and R are all available here -- e.g. `cargo new my_crate && cd my_crate && cargo run` for a real multi-file Rust project.\n\nType a command below and press Enter or click 'Run'.\n",
+        user.username, project.slug
+    );
 
     view! {
         <AppShell
@@ -50,7 +61,7 @@ pub fn TerminalPage(
                         <h1 class="page-title">{i18n.tab_terminal()}</h1>
                         {status_pill}
                     </div>
-                    <p class="page-subtitle">"Runs inside this project's isolated container"</p>
+                    <p class="page-subtitle">"A real shell for this project -- run any command, build tool, or script directly against your files"</p>
                 </div>
             </div>
             {alert}

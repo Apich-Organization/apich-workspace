@@ -25,6 +25,55 @@ impl CellStyle {
     }
 }
 
+/// One Python/R code cell in a table's notebook -- "integrate python and r into the tables ...
+/// just like a python notebook and r notebook" (direct user request). Design, kept deliberately
+/// close to the codebase's own existing patterns rather than inventing new infrastructure:
+///
+/// - **Storage**: same approach as `CellStyle` above -- a `_apich_notebook_cells` metadata table
+///   living inside the table's own `.db`/`.table` SQLite file, scoped per real data table via
+///   `table_name`. Cells travel with the file (export/import, git sync) and can never corrupt the
+///   user's actual columns.
+/// - **Execution**: NOT a persistent kernel (a real Jupyter/IRkernel process staying alive across
+///   cell runs, with in-memory state carried cell-to-cell) -- that would be a much larger, riskier
+///   piece of infrastructure (a long-lived stateful process per open notebook, lifecycle/cleanup
+///   to get right, no existing precedent in this codebase to build on). Each "Run" writes the
+///   cell's current code to a real `.py`/`.r` file and executes it via the *already-existing*
+///   `ProjectManagerService::run_script_in_sandbox_with_env` -- the same infra the standalone
+///   Script Runner console already uses, so stdout/stderr capture and plot-image diffing (a real,
+///   working feature already) come for free instead of being reimplemented. The tradeoff, stated
+///   plainly rather than hidden: no cross-cell variable persistence -- each cell's code must
+///   (re-)load the data it needs (see the starter snippets `notebook_cell_starter` returns),
+///   the same fresh-process-per-run model the Script Runner already has.
+/// - **Data access**: the cell's own process gets the table's SQLite file path via the
+///   `APICH_TABLE_DB` environment variable -- not a hardcoded path baked into the starter
+///   snippet, so a cell keeps working if the table file is ever renamed/moved. Genuinely full
+///   read *and* write access to that file (this app has no per-connection read-only enforcement
+///   layer, and building one -- SQLite ACLs, a proxy, whatever -- is real, separate infrastructure
+///   work of its own); a cell that writes back is expected to create/write a *new* derived table
+///   rather than overwrite the source data, the same convention a real data-science notebook
+///   already follows, not something this app can safely force at the SQL layer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotebookCell {
+    pub id: i64,
+    pub position: i64,
+    pub language: String, // "python" | "r"
+    pub code: String,
+    pub output: String,
+    pub output_images: Vec<NotebookCellImage>,
+}
+
+/// A notebook cell's last captured plot -- same `{name, data_uri}` shape
+/// `run_script_in_sandbox_with_env`'s `ScriptRunResult.output_images` already returns (a base64
+/// data URI, not a bare path), stored as-is so a cell's last output survives a page reload without
+/// a second round trip to re-read the image file. The real image file itself still lives in the
+/// project's version-controlled workspace, generated fresh by the next Run; this is a persisted
+/// *copy* of one past run's result, not a reference to it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotebookCellImage {
+    pub name: String,
+    pub data_uri: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseFileInfo {
     pub relative_path: String,
@@ -480,6 +529,123 @@ impl SqliteTableService {
         )
         .map_err(|e| WebError::Internal(format!("Failed to save cell style: {}", e)))?;
         Ok(())
+    }
+
+    fn ensure_notebook_table(conn: &Connection) -> WebResult<()> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _apich_notebook_cells (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                language TEXT NOT NULL,
+                code TEXT NOT NULL DEFAULT '',
+                output TEXT NOT NULL DEFAULT '',
+                output_images TEXT NOT NULL DEFAULT '[]'
+            )",
+            [],
+        )
+        .map_err(|e| WebError::Internal(format!("Failed to ensure notebook table: {}", e)))?;
+        Ok(())
+    }
+
+    /// A table's notebook cells, in display order. Best-effort like `get_cell_styles`: a database
+    /// with no `_apich_notebook_cells` table yet (nothing has ever run a notebook cell against
+    /// it) is "no cells", not an error.
+    pub fn list_notebook_cells<P: AsRef<Path>>(db_path: P, table_name: &str) -> WebResult<Vec<NotebookCell>> {
+        let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+        let mut stmt = match conn.prepare(
+            "SELECT id, position, language, code, output, output_images FROM _apich_notebook_cells WHERE table_name = ?1 ORDER BY position ASC",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let rows = stmt
+            .query_map([table_name], |r| {
+                let images_json: String = r.get(5)?;
+                Ok(NotebookCell {
+                    id: r.get(0)?,
+                    position: r.get(1)?,
+                    language: r.get(2)?,
+                    code: r.get(3)?,
+                    output: r.get(4)?,
+                    output_images: serde_json::from_str(&images_json).unwrap_or_default(),
+                })
+            })
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| WebError::Internal(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    /// Creates a new, empty cell at the end of a table's notebook and returns its id.
+    pub fn create_notebook_cell<P: AsRef<Path>>(db_path: P, table_name: &str, language: &str, starter_code: &str) -> WebResult<i64> {
+        let conn = Connection::open(&db_path).map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+        Self::ensure_notebook_table(&conn)?;
+        let next_position: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM _apich_notebook_cells WHERE table_name = ?1",
+                [table_name],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO _apich_notebook_cells (table_name, position, language, code) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![table_name, next_position, language, starter_code],
+        )
+        .map_err(|e| WebError::Internal(format!("Failed to create notebook cell: {}", e)))?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Persists a cell's code and, if it was just run, the fresh output -- called both by a plain
+    /// "save code" edit and by `run_notebook_cell` right after execution finishes.
+    pub fn update_notebook_cell<P: AsRef<Path>>(
+        db_path: P,
+        cell_id: i64,
+        code: &str,
+        output: Option<&str>,
+        output_images: Option<&[NotebookCellImage]>,
+    ) -> WebResult<()> {
+        let conn = Connection::open(&db_path).map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+        Self::ensure_notebook_table(&conn)?;
+        match (output, output_images) {
+            (Some(out), Some(imgs)) => {
+                let images_json = serde_json::to_string(imgs).unwrap_or_else(|_| "[]".to_string());
+                conn.execute(
+                    "UPDATE _apich_notebook_cells SET code = ?1, output = ?2, output_images = ?3 WHERE id = ?4",
+                    rusqlite::params![code, out, images_json, cell_id],
+                )
+            }
+            _ => conn.execute("UPDATE _apich_notebook_cells SET code = ?1 WHERE id = ?2", rusqlite::params![code, cell_id]),
+        }
+        .map_err(|e| WebError::Internal(format!("Failed to save notebook cell: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn delete_notebook_cell<P: AsRef<Path>>(db_path: P, cell_id: i64) -> WebResult<()> {
+        let conn = Connection::open(&db_path).map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+        conn.execute("DELETE FROM _apich_notebook_cells WHERE id = ?1", [cell_id])
+            .map_err(|e| WebError::Internal(format!("Failed to delete notebook cell: {}", e)))?;
+        Ok(())
+    }
+
+    /// A short starter snippet shown when a new cell is created -- without this, a user staring
+    /// at a blank code box has no obvious way to discover `APICH_TABLE_DB` (the one piece of
+    /// this feature that isn't self-evident: the environment variable a cell's process needs to
+    /// read to find *this* table's real SQLite file, see `NotebookCell`'s own doc comment).
+    pub fn notebook_cell_starter(language: &str, table_name: &str) -> String {
+        match language {
+            "r" => format!(
+                "library(DBI)\nlibrary(RSQLite)\nlibrary(ggplot2)\n\ncon <- dbConnect(RSQLite::SQLite(), Sys.getenv(\"APICH_TABLE_DB\"))\ndf <- dbReadTable(con, \"{table}\")\nhead(df)\n\n# Save a derived result back as a NEW table (never overwrite the source):\n# dbWriteTable(con, \"{table}_summary\", summary_df, overwrite = TRUE)\n\n# A saved plot appears as real output below, the same way a Jupyter cell's does:\n# ggplot(df, aes(x = some_column)) + geom_histogram()\n# ggsave(\"plot.png\", width = 6, height = 4)\n\ndbDisconnect(con)\n",
+                table = table_name
+            ),
+            _ => format!(
+                "import os\nimport sqlite3\nimport pandas as pd\nimport matplotlib.pyplot as plt\n\nconn = sqlite3.connect(os.environ[\"APICH_TABLE_DB\"])\ndf = pd.read_sql_query('SELECT * FROM \"{table}\"', conn)\nprint(df.head())\n\n# Save a derived result back as a NEW table (never overwrite the source):\n# df.describe().to_sql(\"{table}_summary\", conn, if_exists=\"replace\")\n\n# A saved plot appears as real output below, the same way a Jupyter cell's does:\n# df.plot()\n# plt.savefig(\"plot.png\")\n\nconn.close()\n",
+                table = table_name
+            ),
+        }
     }
 
     /// Update a single cell in a SQLite table

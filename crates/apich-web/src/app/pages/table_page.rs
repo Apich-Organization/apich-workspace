@@ -1,5 +1,5 @@
 use crate::app::components::{ActiveNav, AppShell};
-use crate::services::sqlite_table::{DatabaseFileInfo, DatabaseSchema, SqlExecutionResult, TableDataPage};
+use crate::services::sqlite_table::{DatabaseFileInfo, DatabaseSchema, NotebookCell, SqlExecutionResult, TableDataPage};
 use crate::ui::i18n::I18n;
 use apich_db::{Project, User};
 use apich_islands::SpreadsheetIsland;
@@ -22,6 +22,7 @@ pub fn TablePage(
     search: Option<String>,
     notice: Option<String>,
     error: Option<String>,
+    notebook_cells: Vec<NotebookCell>,
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
@@ -72,7 +73,7 @@ pub fn TablePage(
     };
 
     let main_view = match &schema {
-        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref()).into_any(),
+        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells).into_any(),
         None => view! { <div></div> }.into_any(),
     };
 
@@ -108,6 +109,7 @@ fn render_schema_view(
     sql_result: Option<&SqlExecutionResult>,
     mode: &str,
     search: Option<&str>,
+    notebook_cells: Vec<NotebookCell>,
 ) -> impl IntoView {
     let project_id = project.id;
 
@@ -137,9 +139,37 @@ fn render_schema_view(
         None => view! { <div class="empty-state"><p>"Database is empty. Use the SQL console below to create tables."</p></div> }.into_any(),
     };
 
+    let notebook_section = selected_table.map(|tbl| {
+        let cells: Vec<apich_islands::NotebookCellData> = notebook_cells
+            .into_iter()
+            .map(|c| apich_islands::NotebookCellData {
+                id: c.id,
+                language: c.language,
+                code: c.code,
+                output: c.output,
+                output_images: c.output_images.into_iter().map(|img| apich_islands::NotebookCellImageData { name: img.name, data_uri: img.data_uri }).collect(),
+            })
+            .collect();
+        view! {
+            <details style="margin-top:1.25rem; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem;" open=mode == "notebook">
+                <summary style="cursor:pointer; font-weight:700; outline:none;">"🐍 Python / R Notebook (click to expand)"</summary>
+                <p class="text-muted" style="font-size:0.8rem; margin:0.5rem 0 1rem;">
+                    "Each cell runs its own fresh Python or R process against this table's real data -- no shared state between cells (each cell re-loads what it needs; see the starter code in a new cell). Results, including any plot a cell produces, are saved with the cell."
+                </p>
+                <apich_islands::NotebookIsland
+                    project_id=project_id.to_string()
+                    file_path=cur_file.to_string()
+                    table_name=tbl.to_string()
+                    cells=cells
+                />
+            </details>
+        }
+    });
+
     view! {
         <div class="table-tabs" style="margin-bottom:0.75rem;">{table_tabs}</div>
         {grid}
+        {notebook_section}
         {sql_console}
     }
 }

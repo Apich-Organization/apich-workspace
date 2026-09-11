@@ -234,6 +234,9 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/table/row-delete", post(table_row_delete_action))
         .route("/projects/:id/table/export", get(table_export_action))
         .route("/projects/:id/table/import", post(table_import_action))
+        .route("/projects/:id/table/notebook/cell-create", post(notebook_cell_create_action))
+        .route("/projects/:id/table/notebook/cell-delete", post(notebook_cell_delete_action))
+        .route("/projects/:id/table/notebook/run-cell", post(notebook_run_cell_action))
         // Dedicated Unified Note Studio (.anote, .note.md, etc.)
         .route("/projects/:id/note", get(project_note_page))
         .route("/projects/:id/note/save", post(save_note_action))
@@ -1809,6 +1812,28 @@ pub struct TableImportForm {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct NotebookCellCreateForm {
+    pub file: String,
+    pub table: String,
+    pub language: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NotebookCellDeleteForm {
+    pub file: String,
+    pub table: String,
+    pub cell_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NotebookRunCellForm {
+    pub file: String,
+    pub cell_id: i64,
+    pub language: String,
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct NoteQuery {
     pub file: Option<String>,
     pub view: Option<String>,
@@ -2637,6 +2662,8 @@ async fn project_table_page(
         (None, None, None)
     };
 
+    let notebook_cells = notebook_cells_for(&project.storage_path, selected_file.as_deref(), selected_table.as_deref());
+
     let mode = params.mode.unwrap_or_else(|| "grid".to_string());
     let current_path = format!("/projects/{}/table", project.id);
     let is_org_admin = state.identity_service.is_org_or_team_admin(user.id).await.unwrap_or(false);
@@ -2661,6 +2688,7 @@ async fn project_table_page(
                 search=search
                 notice=notice
                 error=error
+                notebook_cells=notebook_cells
                 i18n=i18n
                 current_path=current_path
             />
@@ -2668,6 +2696,15 @@ async fn project_table_page(
     });
 
     Html(html).into_response()
+}
+
+/// Shared by both places `TablePage` gets rendered (the plain GET and the SQL-console POST
+/// redirect-render) -- loads the current table's notebook cells, or an empty list when there's
+/// no selected file/table yet to attach one to.
+fn notebook_cells_for(storage_path: &str, file: Option<&str>, table: Option<&str>) -> Vec<crate::services::sqlite_table::NotebookCell> {
+    let (Some(file), Some(table)) = (file, table) else { return Vec::new() };
+    let Ok(db_path) = SqliteTableService::resolve_db_path(storage_path, file) else { return Vec::new() };
+    SqliteTableService::list_notebook_cells(&db_path, table).unwrap_or_default()
 }
 
 /// Execute SQL Query or Statement in Project SQLite Database
@@ -2716,6 +2753,7 @@ async fn execute_table_sql_action(
             };
             let notice = Some(sql_res.message.clone());
             let selected_file = Some(payload.file.clone());
+            let notebook_cells = notebook_cells_for(&project.storage_path, selected_file.as_deref(), first_table.as_deref());
 
             let html = crate::app::components::render_document(move || {
                 leptos::prelude::view! {
@@ -2734,6 +2772,7 @@ async fn execute_table_sql_action(
                         search=None
                         notice=notice
                         error=None
+                        notebook_cells=notebook_cells
                         i18n=i18n
                         current_path=current_path
                     />
@@ -3036,6 +3075,135 @@ async fn table_import_action(
         }
         Err(e) => {
             Redirect::to(&format!("/projects/{}/table?file={}&table={}&error={}", project.id, urlencoding::encode(&payload.file), urlencoding::encode(&payload.table), urlencoding::encode(&e.to_string()))).into_response()
+        }
+    }
+}
+
+async fn notebook_cell_create_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<NotebookCellCreateForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_manage {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+    let redirect_url = format!("/projects/{}/table?file={}&table={}&mode=notebook", project.id, urlencoding::encode(&payload.file), urlencoding::encode(&payload.table));
+    let db_path = match crate::services::sqlite_table::SqliteTableService::resolve_db_path(&project.storage_path, &payload.file) {
+        Ok(p) => p,
+        Err(e) => return Redirect::to(&format!("{}&error={}", redirect_url, urlencoding::encode(&e.to_string()))).into_response(),
+    };
+    let starter = crate::services::sqlite_table::SqliteTableService::notebook_cell_starter(&payload.language, &payload.table);
+    match crate::services::sqlite_table::SqliteTableService::create_notebook_cell(&db_path, &payload.table, &payload.language, &starter) {
+        Ok(_) => Redirect::to(&redirect_url).into_response(),
+        Err(e) => Redirect::to(&format!("{}&error={}", redirect_url, urlencoding::encode(&e.to_string()))).into_response(),
+    }
+}
+
+async fn notebook_cell_delete_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<NotebookCellDeleteForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_manage {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+    let redirect_url = format!("/projects/{}/table?file={}&table={}&mode=notebook", project.id, urlencoding::encode(&payload.file), urlencoding::encode(&payload.table));
+    if let Ok(db_path) = crate::services::sqlite_table::SqliteTableService::resolve_db_path(&project.storage_path, &payload.file) {
+        let _ = crate::services::sqlite_table::SqliteTableService::delete_notebook_cell(&db_path, payload.cell_id);
+    }
+    Redirect::to(&redirect_url).into_response()
+}
+
+/// Runs one notebook cell's Python/R code for real inside the project's sandbox, against the
+/// real table it's attached to. Design constraints (see `NotebookCell`'s own doc comment for the
+/// full reasoning): no persistent kernel -- each run is the cell's current code, written to a
+/// real scratch script file (`.apich_notebook_tmp/cell_<id>.py`/`.r`, a plain project-root scratch
+/// dir, deliberately separate from `.apich/` which is apich-vcs's own reserved bookkeeping
+/// directory -- writing notebook scratch files into that would risk colliding with VCS internals)
+/// and executed via the *existing* `run_script_in_sandbox_with_env`, which already handles
+/// interpreter dispatch and plot-image capture; this handler's only new piece is resolving the
+/// table's real SQLite path and handing it to the cell as `APICH_TABLE_DB`. Both the code and the
+/// fresh output are persisted back into the cell's own row (`update_notebook_cell`) so a page
+/// reload doesn't lose either.
+async fn notebook_run_cell_action(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Unauthorized"}))).into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return (StatusCode::NOT_FOUND, Json(json!({"error": "Project not found"}))).into_response(),
+    };
+    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_manage {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let payload: NotebookRunCellForm = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
+    };
+
+    let db_path = match crate::services::sqlite_table::SqliteTableService::resolve_db_path(&project.storage_path, &payload.file) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
+    };
+
+    let ext = if payload.language == "r" { "r" } else { "py" };
+    let rel_script_path = format!(".apich_notebook_tmp/cell_{}.{}", payload.cell_id, ext);
+    if let Err(e) = state.project_manager.write_file(project.id, user.id, &rel_script_path, &payload.code).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response();
+    }
+
+    let result = state
+        .project_manager
+        .run_script_in_sandbox_with_env(project.id, user.id, &rel_script_path, "", &[("APICH_TABLE_DB", &payload.file)])
+        .await;
+
+    match result {
+        Ok(res) => {
+            let images: Vec<crate::services::sqlite_table::NotebookCellImage> = res
+                .output_images
+                .iter()
+                .map(|img| crate::services::sqlite_table::NotebookCellImage { name: img.name.clone(), data_uri: img.data_uri.clone() })
+                .collect();
+            let combined_output = format!("{}{}", res.stdout, if res.stderr.is_empty() { String::new() } else { format!("\n--- stderr ---\n{}", res.stderr) });
+            let _ = crate::services::sqlite_table::SqliteTableService::update_notebook_cell(&db_path, payload.cell_id, &payload.code, Some(&combined_output), Some(&images));
+            Json(json!({
+                "success": res.success,
+                "output": combined_output,
+                "execution_time_ms": res.execution_time_ms,
+                "output_images": images,
+            })).into_response()
+        }
+        Err(e) => {
+            let _ = crate::services::sqlite_table::SqliteTableService::update_notebook_cell(&db_path, payload.cell_id, &payload.code, Some(&e.to_string()), Some(&[]));
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response()
         }
     }
 }

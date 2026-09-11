@@ -45,6 +45,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     r-base \
     r-base-dev \
+    r-cran-dbi \
+    r-cran-rsqlite \
+    r-cran-ggplot2 \
     texlive-latex-base \
     texlive-latex-recommended \
     texlive-latex-extra \
@@ -62,6 +65,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
     pipx \
     && rm -rf /var/lib/apt/lists/*
+
+# 1b. Python's real "scientific stack" -- the label in this file's own header comment was
+# previously aspirational: bare `python3`/`pip` alone has none of pandas/numpy/matplotlib
+# installed, so the table notebook feature (Python/R cells reading a project's SQLite tables via
+# `sqlite3`/`pandas.read_sql_query`, see `crates/apich-web/src/services/sqlite_table.rs`'s
+# `NotebookCell`) would fail on the very first `import pandas` otherwise. `--break-system-packages`
+# matches this file's own existing convention for pip on Debian's PEP-668-managed system Python
+# (see the `aider-chat` install below). `MPLBACKEND=Agg` (set globally via ENV, not per-invocation)
+# is required for matplotlib to save a plot to a file at all in a container with no display server
+# -- its default backend otherwise errors immediately trying to open a GUI window.
+RUN pip3 install --break-system-packages --no-cache-dir pandas numpy matplotlib
+ENV MPLBACKEND=Agg
 
 # 2. Install Rust toolchain (system-wide accessible)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal \

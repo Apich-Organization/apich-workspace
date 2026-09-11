@@ -123,7 +123,7 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
                 return;
             }
             agent_busy.set(true);
-            agent_output.set(format!("Running {agent} inside the project's sandbox container..."));
+            agent_output.set(format!("Running {agent}..."));
             let key = agent_api_key.get_untracked();
             run_agent_request(project_id.clone(), agent, text, if key.trim().is_empty() { None } else { Some(key) }, agent_output, agent_busy);
         }
@@ -264,7 +264,7 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
             <div style:display=move || if mode.get() == "agent" { "flex" } else { "none" } style="flex-direction:column; flex:1; min-height:0;">
                 <div style="background:var(--bg-muted); padding:0.6rem 1.25rem; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.4rem; font-size:0.75rem;">
                     <div style="font-size:0.7rem; color:var(--text-sub);">
-                        "Runs a real CLI agent inside this project's sandbox container, with access to the actual files -- not a hosted chat call."
+                        "Runs a real CLI agent with full access to this project's actual files -- not a hosted chat call."
                     </div>
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
                         <span style="font-weight:600; color:var(--text-sub);">"Agent:"</span>
@@ -272,10 +272,10 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
                             {move || {
                                 let list = agents.get();
                                 if list.is_empty() {
-                                    view! { <option value="">{if agents_loaded.get() { "Failed to check sandbox agents" } else { "Checking sandbox..." }}</option> }.into_any()
+                                    view! { <option value="">{if agents_loaded.get() { "Failed to check available agents" } else { "Checking available agents..." }}</option> }.into_any()
                                 } else {
                                     list.into_iter().map(|a| {
-                                        let label = if a.available { a.name.clone() } else { format!("{} (not installed in this sandbox image)", a.name) };
+                                        let label = if a.available { a.name.clone() } else { format!("{} (not available)", a.name) };
                                         view! { <option value=a.id.clone() disabled=!a.available>{label}</option> }
                                     }).collect::<Vec<_>>().into_any()
                                 }
@@ -301,6 +301,24 @@ pub fn AiDrawerIsland(#[prop(into)] project_id: String, file_path: Option<String
                     />
                     <div style:display=move || if login_visible.get() { "block" } else { "none" } style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:6px; padding:0.5rem;">
                         <div style="font-size:0.7rem; font-weight:600; color:var(--text-sub); margin-bottom:0.3rem;">"Account login"</div>
+                        // agy's own OAuth flow enforces a short, fixed deadline (its own binary,
+                        // confirmed live: "Waiting for authentication (timeout 60s)...", not
+                        // configurable by this app) from the moment it shows the sign-in URL --
+                        // and confirmed live, this app's own relay of that URL and of a pasted-
+                        // back code both land in well under a second, so a failure here is really
+                        // agy's own clock running out during the human part of the round trip
+                        // (open the link, sign in to Google, get redirected, copy the code, come
+                        // back), not something to blame on a stuck submission. Telling the user
+                        // this up front, before they hit it, is more honest than a bare error
+                        // after the fact -- and clicking "Login" again is a real, working retry
+                        // (a stale attempt's own process gets killed server-side first, see
+                        // `start_agent_login`'s doc comment), not just a hope.
+                        <div
+                            style:display=move || if login_visible.get() && selected_agent.get() == "agy" { "block" } else { "none" }
+                            style="font-size:0.7rem; color:var(--text-sub); background:var(--bg-muted); border-radius:4px; padding:0.4rem 0.5rem; margin-bottom:0.4rem; line-height:1.4;"
+                        >
+                            "⏱️ Antigravity's own sign-in link expires about a minute after it appears -- move quickly (open it, sign in, copy the code, paste it back here) once it shows up below. If it times out, just click \"Login\" again."
+                        </div>
                         <pre style="margin:0; font-size:0.7rem; white-space:pre-wrap; max-height:140px; overflow-y:auto;" inner_html=move || login_output.get()></pre>
                         <div style:display=move || if login_code_visible.get() { "flex" } else { "none" } style="gap:0.4rem; margin-top:0.4rem;">
                             <input
@@ -751,7 +769,7 @@ fn poll_login_status(project_id: String, session_id: String, current_session: Rw
                         if let Some(url) = extract_osc8_url(raw).or_else(|| first_url(&sanitized)) {
                             html = format!(
                                 "<div style=\"margin-bottom:0.6rem; padding:0.5rem 0.7rem; background:var(--primary-light); border:1px solid var(--primary-border); border-radius:8px;\">\
-                                <div style=\"font-size:0.7rem; color:var(--text-sub); margin-bottom:0.35rem;\">This runs inside a sandbox container with no browser of its own -- open this link in <strong>your own browser</strong> to finish signing in:</div>\
+                                <div style=\"font-size:0.7rem; color:var(--text-sub); margin-bottom:0.35rem;\">This can't open a browser on its own -- open this link in <strong>your own browser</strong> to finish signing in:</div>\
                                 <a href=\"{url}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"btn btn-primary btn-sm\" style=\"text-decoration:none;\">🔗 Open sign-in page</a>\
                                 </div>{html}"
                             );

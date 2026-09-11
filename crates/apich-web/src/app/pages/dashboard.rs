@@ -50,7 +50,6 @@ pub fn DashboardPage(
                             <div>
                                 <h3 class="project-name"><a href=href.clone()>{proj.name.clone()}</a></h3>
                             </div>
-                            <span class="status-badge badge-active"><span class="status-dot"></span>"Ready"</span>
                         </div>
                         <p class="project-desc">{desc}</p>
                         <div class="project-footer">

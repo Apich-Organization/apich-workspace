@@ -147,8 +147,13 @@ impl I18n {
 
     pub fn dashboard_subtitle(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Your projects, with version history and an isolated environment for each",
-            Lang::Zh => "您的项目,每个项目都有独立的版本历史与运行环境",
+            // Deliberately says nothing about isolated/cloud environments -- this is a docs and
+            // collaboration tool, not a cloud dev platform, and per direct user feedback the
+            // wording shouldn't read like one (and per plan.md, the per-project sandbox this app
+            // runs commands in is meant to be a silent implementation detail, never something the
+            // page advertises).
+            Lang::En => "Your projects, with full version history and real-time collaboration",
+            Lang::Zh => "您的项目，具备完整版本历史与实时协作",
         }
     }
 
@@ -189,22 +194,26 @@ impl I18n {
 
     pub fn stop_sandbox(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Pause Sandbox",
-            Lang::Zh => "暂停沙箱",
+            Lang::En => "Pause",
+            Lang::Zh => "暂停",
         }
     }
 
+    // Per direct user feedback, nothing on the page should say "sandbox" or "container" --
+    // the underlying per-project environment is meant to be a silent implementation detail,
+    // not something the UI names. `sandbox_running`/`sandbox_stopped` are the Rust method
+    // names (internal, not user-visible); only the returned strings changed here.
     pub fn sandbox_running(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Sandbox Running",
-            Lang::Zh => "计算沙箱正在运行",
+            Lang::En => "Ready",
+            Lang::Zh => "已就绪",
         }
     }
 
     pub fn sandbox_stopped(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Sandbox Stopped",
-            Lang::Zh => "计算沙箱已暂停",
+            Lang::En => "Paused",
+            Lang::Zh => "已暂停",
         }
     }
 
@@ -793,8 +802,8 @@ impl I18n {
 
     pub fn register_subtitle(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Join your laboratory to access isolated sandboxes and versioned projects",
-            Lang::Zh => "加入组织并开始使用隔离计算沙箱与版本化工作区",
+            Lang::En => "Join your laboratory to access shared documents, notes, and versioned projects",
+            Lang::Zh => "加入组织，共享文档、笔记与版本化项目",
         }
     }
 
