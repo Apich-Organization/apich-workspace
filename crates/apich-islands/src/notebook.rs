@@ -75,15 +75,29 @@ pub fn NotebookIsland(
         }
     };
 
+    let run_all = {
+        let project_id = project_id.clone();
+        let file_path = file_path.clone();
+        move |_| {
+            let project_id = project_id.clone();
+            let file_path = file_path.clone();
+            let cells = runtimes.get_untracked();
+            spawn_local_run_all(project_id, file_path, cells);
+        }
+    };
+    let any_running = move || runtimes.get().iter().any(|c| c.running.get());
+
     let project_id_new = project_id.clone();
     let file_path_new = file_path.clone();
     let table_name_new = table_name.clone();
 
     let cell_views = move || {
-        runtimes
-            .get()
+        let all_cells = runtimes.get();
+        let n_cells = all_cells.len();
+        all_cells
             .into_iter()
-            .map(|cell| {
+            .enumerate()
+            .map(|(idx, cell)| {
                 let lang_label = if cell.language == "r" { "R" } else { "Python" };
                 let lang_class = if cell.language == "r" { "pill-latex" } else { "pill-script" };
                 let run = run_cell.clone();
@@ -92,11 +106,30 @@ pub fn NotebookIsland(
                 let project_id_del = project_id.clone();
                 let file_path_del = file_path.clone();
                 let table_name_del = table_name.clone();
+                let project_id_move = project_id.clone();
+                let file_path_move = file_path.clone();
+                let table_name_move = table_name.clone();
+                let is_first = idx == 0;
+                let is_last = idx + 1 == n_cells;
                 view! {
                     <div style="border:1px solid var(--border-subtle); border-radius:8px; margin-bottom:0.85rem; overflow:hidden;">
                         <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.75rem; background:var(--bg-muted); border-bottom:1px solid var(--border-subtle);">
                             <span class=format!("file-type-pill {}", lang_class) style="font-size:0.7rem;">{lang_label}</span>
-                            <div style="display:flex; gap:0.4rem;">
+                            <div style="display:flex; gap:0.4rem; align-items:center;">
+                                <form method="post" action=format!("/projects/{}/table/notebook/cell-move", project_id_move)>
+                                    <input type="hidden" name="file" value=file_path_move.clone() />
+                                    <input type="hidden" name="table" value=table_name_move.clone() />
+                                    <input type="hidden" name="cell_id" value=cell.id.to_string() />
+                                    <input type="hidden" name="direction" value="up" />
+                                    <button type="submit" class="btn btn-ghost btn-sm" disabled=is_first title="Move cell up">"▲"</button>
+                                </form>
+                                <form method="post" action=format!("/projects/{}/table/notebook/cell-move", project_id_move.clone())>
+                                    <input type="hidden" name="file" value=file_path_move.clone() />
+                                    <input type="hidden" name="table" value=table_name_move.clone() />
+                                    <input type="hidden" name="cell_id" value=cell.id.to_string() />
+                                    <input type="hidden" name="direction" value="down" />
+                                    <button type="submit" class="btn btn-ghost btn-sm" disabled=is_last title="Move cell down">"▼"</button>
+                                </form>
                                 <button
                                     type="button"
                                     class="btn btn-primary btn-sm"
@@ -153,6 +186,9 @@ pub fn NotebookIsland(
         <div>
             {cell_views}
             <div style="display:flex; gap:0.5rem;">
+                <button type="button" class="btn btn-primary btn-sm" disabled=any_running on:click=run_all>
+                    {move || if any_running() { "Running...".to_string() } else { "▶▶ Run All".to_string() }}
+                </button>
                 <form method="post" action=format!("/projects/{}/table/notebook/cell-create", project_id_new)>
                     <input type="hidden" name="file" value=file_path_new.clone() />
                     <input type="hidden" name="table" value=table_name_new.clone() />
@@ -172,6 +208,54 @@ pub fn NotebookIsland(
 
 #[cfg(feature = "hydrate")]
 #[allow(clippy::too_many_arguments)]
+async fn run_one_cell(
+    project_id: &str,
+    file_path: &str,
+    cell_id: i64,
+    language: &str,
+    code: String,
+    output: RwSignal<String>,
+    images: RwSignal<Vec<NotebookCellImageData>>,
+) {
+    let body = serde_json::json!({ "file": file_path, "cell_id": cell_id, "language": language, "code": code });
+    let result = gloo_net::http::Request::post(&format!("/projects/{}/table/notebook/run-cell", project_id))
+        .json(&body)
+        .expect("valid json body")
+        .send()
+        .await;
+    match result {
+        Ok(resp) => match resp.json::<serde_json::Value>().await {
+            Ok(data) => {
+                if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                    output.set(format!("Error: {err}"));
+                } else {
+                    let out = data.get("output").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    output.set(out);
+                    let imgs: Vec<NotebookCellImageData> = data
+                        .get("output_images")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|i| {
+                                    Some(NotebookCellImageData {
+                                        name: i.get("name")?.as_str()?.to_string(),
+                                        data_uri: i.get("data_uri")?.as_str()?.to_string(),
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    images.set(imgs);
+                }
+            }
+            Err(e) => output.set(format!("Request failed: {e}")),
+        },
+        Err(e) => output.set(format!("Request failed: {e}")),
+    }
+}
+
+#[cfg(feature = "hydrate")]
+#[allow(clippy::too_many_arguments)]
 fn run_notebook_cell_request(
     project_id: String,
     file_path: String,
@@ -183,41 +267,7 @@ fn run_notebook_cell_request(
     running: RwSignal<bool>,
 ) {
     wasm_bindgen_futures::spawn_local(async move {
-        let body = serde_json::json!({ "file": file_path, "cell_id": cell_id, "language": language, "code": code });
-        let result = gloo_net::http::Request::post(&format!("/projects/{}/table/notebook/run-cell", project_id))
-            .json(&body)
-            .expect("valid json body")
-            .send()
-            .await;
-        match result {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(data) => {
-                    if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
-                        output.set(format!("Error: {err}"));
-                    } else {
-                        let out = data.get("output").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                        output.set(out);
-                        let imgs: Vec<NotebookCellImageData> = data
-                            .get("output_images")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|i| {
-                                        Some(NotebookCellImageData {
-                                            name: i.get("name")?.as_str()?.to_string(),
-                                            data_uri: i.get("data_uri")?.as_str()?.to_string(),
-                                        })
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        images.set(imgs);
-                    }
-                }
-                Err(e) => output.set(format!("Request failed: {e}")),
-            },
-            Err(e) => output.set(format!("Request failed: {e}")),
-        }
+        run_one_cell(&project_id, &file_path, cell_id, &language, code, output, images).await;
         running.set(false);
     });
 }
@@ -234,3 +284,21 @@ fn run_notebook_cell_request(
     _running: RwSignal<bool>,
 ) {
 }
+
+/// "Run All": executes every cell's current code in top-to-bottom order, one at a time (never in
+/// parallel -- each cell is its own fresh interpreter process in the project's sandbox, and
+/// running them all at once would needlessly pile up concurrent processes there for no benefit,
+/// since cells don't share state anyway).
+#[cfg(feature = "hydrate")]
+fn spawn_local_run_all(project_id: String, file_path: String, cells: Vec<CellRuntime>) {
+    wasm_bindgen_futures::spawn_local(async move {
+        for cell in cells {
+            cell.running.set(true);
+            cell.output.set("Running...".to_string());
+            run_one_cell(&project_id, &file_path, cell.id, &cell.language, cell.code.get_untracked(), cell.output, cell.images).await;
+            cell.running.set(false);
+        }
+    });
+}
+#[cfg(not(feature = "hydrate"))]
+fn spawn_local_run_all(_project_id: String, _file_path: String, _cells: Vec<CellRuntime>) {}

@@ -607,6 +607,61 @@ impl SqliteTableService {
         Ok(())
     }
 
+    fn ensure_query_history_table(conn: &Connection) -> WebResult<()> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS _apich_query_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sql_text TEXT NOT NULL,
+                ran_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+            [],
+        )
+        .map_err(|e| WebError::Internal(format!("Failed to ensure query-history table: {}", e)))?;
+        Ok(())
+    }
+
+    /// Record a successfully-run SQL console query, keeping only the most recent 10 (deduping a
+    /// query that's identical to the immediately-preceding one, so re-running the same query
+    /// doesn't spam the history list with repeats).
+    pub fn record_query_history<P: AsRef<Path>>(db_path: P, sql: &str) -> WebResult<()> {
+        let conn = Connection::open(&db_path).map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+        Self::ensure_query_history_table(&conn)?;
+
+        let last: Option<String> = conn
+            .query_row("SELECT sql_text FROM _apich_query_history ORDER BY id DESC LIMIT 1", [], |r| r.get(0))
+            .ok();
+        if last.as_deref() == Some(sql) {
+            return Ok(());
+        }
+
+        conn.execute("INSERT INTO _apich_query_history (sql_text) VALUES (?1)", [sql])
+            .map_err(|e| WebError::Internal(format!("Failed to record query history: {}", e)))?;
+        conn.execute(
+            "DELETE FROM _apich_query_history WHERE id NOT IN (SELECT id FROM _apich_query_history ORDER BY id DESC LIMIT 10)",
+            [],
+        )
+        .map_err(|e| WebError::Internal(format!("Failed to trim query history: {}", e)))?;
+        Ok(())
+    }
+
+    /// The last 10 distinct SQL console queries run against this file, most recent first.
+    pub fn list_query_history<P: AsRef<Path>>(db_path: P) -> WebResult<Vec<String>> {
+        let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+        let mut stmt = match conn.prepare("SELECT sql_text FROM _apich_query_history ORDER BY id DESC LIMIT 10") {
+            Ok(s) => s,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| WebError::Internal(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
     fn ensure_notebook_table(conn: &Connection) -> WebResult<()> {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS _apich_notebook_cells (
@@ -704,6 +759,52 @@ impl SqliteTableService {
         let conn = Connection::open(&db_path).map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
         conn.execute("DELETE FROM _apich_notebook_cells WHERE id = ?1", [cell_id])
             .map_err(|e| WebError::Internal(format!("Failed to delete notebook cell: {}", e)))?;
+        Ok(())
+    }
+
+    /// Move a cell one slot earlier ("up") or later ("down") in its table's notebook by swapping
+    /// `position` with its immediate neighbor -- a no-op (not an error) if the cell is already at
+    /// that end of the list.
+    pub fn move_notebook_cell<P: AsRef<Path>>(db_path: P, cell_id: i64, direction: &str) -> WebResult<()> {
+        let conn = Connection::open(&db_path).map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+        Self::ensure_notebook_table(&conn)?;
+
+        let (table_name, position): (String, i64) = conn
+            .query_row(
+                "SELECT table_name, position FROM _apich_notebook_cells WHERE id = ?1",
+                [cell_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| WebError::Internal(format!("Cell not found: {}", e)))?;
+
+        let neighbor: Option<(i64, i64)> = if direction == "up" {
+            conn.query_row(
+                "SELECT id, position FROM _apich_notebook_cells WHERE table_name = ?1 AND position < ?2 ORDER BY position DESC LIMIT 1",
+                rusqlite::params![table_name, position],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()
+        } else {
+            conn.query_row(
+                "SELECT id, position FROM _apich_notebook_cells WHERE table_name = ?1 AND position > ?2 ORDER BY position ASC LIMIT 1",
+                rusqlite::params![table_name, position],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()
+        };
+
+        if let Some((neighbor_id, neighbor_position)) = neighbor {
+            conn.execute(
+                "UPDATE _apich_notebook_cells SET position = ?1 WHERE id = ?2",
+                rusqlite::params![neighbor_position, cell_id],
+            )
+            .map_err(|e| WebError::Internal(format!("Failed to reorder cell: {}", e)))?;
+            conn.execute(
+                "UPDATE _apich_notebook_cells SET position = ?1 WHERE id = ?2",
+                rusqlite::params![position, neighbor_id],
+            )
+            .map_err(|e| WebError::Internal(format!("Failed to reorder cell: {}", e)))?;
+        }
         Ok(())
     }
 
@@ -994,8 +1095,10 @@ impl SqliteTableService {
         Ok(count)
     }
 
-    /// Execute arbitrary SQL queries or DDL/DML statements
-    pub fn execute_sql<P: AsRef<Path>>(db_path: P, sql: &str) -> WebResult<SqlExecutionResult> {
+    /// Execute arbitrary SQL queries or DDL/DML statements, capping how many result rows a
+    /// `SELECT`-shaped query returns at `max_rows` (clamped to a sane [1, 5000] range so the
+    /// console's own row-limit field can't be used to pull back an unbounded result set).
+    pub fn execute_sql<P: AsRef<Path>>(db_path: P, sql: &str, max_rows: usize) -> WebResult<SqlExecutionResult> {
         let trimmed = sql.trim();
         if trimmed.is_empty() {
             return Err(WebError::BadRequest("SQL query cannot be empty".to_string()));
@@ -1033,9 +1136,11 @@ impl SqliteTableService {
                 .query([])
                 .map_err(|e| WebError::Internal(format!("SQL execution failed: {}", e)))?;
 
-            const MAX_QUERY_ROWS: usize = 500;
+            let max_rows = max_rows.clamp(1, 5000);
+            let mut truncated = false;
             while let Some(row) = rows_iter.next().map_err(|e| WebError::Internal(e.to_string()))? {
-                if rows.len() >= MAX_QUERY_ROWS {
+                if rows.len() >= max_rows {
+                    truncated = true;
                     break;
                 }
                 let mut row_vals = Vec::with_capacity(col_count);
@@ -1048,6 +1153,11 @@ impl SqliteTableService {
 
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             let count = rows.len();
+            let message = if truncated {
+                format!("Query executed successfully ({} rows returned in {:.2} ms, truncated at the {}-row limit -- refine the query or raise the limit to see more)", count, elapsed, max_rows)
+            } else {
+                format!("Query executed successfully ({} rows returned in {:.2} ms)", count, elapsed)
+            };
 
             Ok(SqlExecutionResult {
                 is_query: true,
@@ -1055,7 +1165,7 @@ impl SqliteTableService {
                 rows,
                 rows_affected: count,
                 execution_time_ms: (elapsed * 100.0).round() / 100.0,
-                message: format!("Query executed successfully ({} rows returned in {:.2} ms)", count, elapsed),
+                message,
             })
         } else {
             let rows_affected = conn

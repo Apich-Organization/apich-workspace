@@ -144,6 +144,7 @@ impl IgnoreProfile {
                 ".DS_Store",
                 "Thumbs.db",
                 ".apich/**",
+                ".apich_notebook_tmp/**",
                 ".git/**",
                 "*.log",
                 ".env",

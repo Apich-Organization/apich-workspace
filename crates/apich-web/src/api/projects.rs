@@ -413,7 +413,7 @@ async fn execute_project_sql(
         .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
 
     let full_path = SqliteTableService::resolve_db_path(&proj.storage_path, &payload.file)?;
-    let result = SqliteTableService::execute_sql(&full_path, &payload.sql)?;
+    let result = SqliteTableService::execute_sql(&full_path, &payload.sql, 500)?;
     Ok(Json(result))
 }
 

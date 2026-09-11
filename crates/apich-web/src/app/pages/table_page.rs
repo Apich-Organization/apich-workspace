@@ -17,6 +17,7 @@ pub fn TablePage(
     selected_table: Option<String>,
     table_data: Option<TableDataPage>,
     column_view: ColumnViewConfig,
+    query_history: Vec<String>,
     sql_query: String,
     sql_result: Option<SqlExecutionResult>,
     mode: String,
@@ -74,7 +75,7 @@ pub fn TablePage(
     };
 
     let main_view = match &schema {
-        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &column_view, &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells, i18n.is_zh()).into_any(),
+        Some(s) => render_schema_view(&project, s, selected_table.as_deref(), table_data.as_ref(), &column_view, &query_history, &cur_file, &sql_query, sql_result.as_ref(), &mode, search.as_deref(), notebook_cells, i18n.is_zh()).into_any(),
         None => view! { <div></div> }.into_any(),
     };
 
@@ -106,6 +107,7 @@ fn render_schema_view(
     selected_table: Option<&str>,
     table_data: Option<&TableDataPage>,
     column_view: &ColumnViewConfig,
+    query_history: &[String],
     cur_file: &str,
     sql_query: &str,
     sql_result: Option<&SqlExecutionResult>,
@@ -139,7 +141,7 @@ fn render_schema_view(
         .and_then(|t| schema.tables.iter().find(|table| table.name == t))
         .and_then(|t| t.columns.first())
         .map(|c| c.name.clone());
-    let sql_console = render_sql_console(project_id, cur_file, sql_table_name, sql_query, sql_result, mode, sql_first_column, is_zh);
+    let sql_console = render_sql_console(project_id, cur_file, sql_table_name, sql_query, sql_result, mode, sql_first_column, query_history, is_zh);
 
     let grid = match table_data {
         Some(td) => render_grid(project, td, schema, column_view, cur_file, mode, search, is_zh).into_any(),
@@ -437,6 +439,7 @@ fn render_sql_console(
     sql_result: Option<&SqlExecutionResult>,
     mode: &str,
     first_column: Option<String>,
+    query_history: &[String],
     is_zh: bool,
 ) -> impl IntoView {
     let default_sql = if !sql_query.is_empty() {
@@ -490,7 +493,7 @@ fn render_sql_console(
 
     let sql_input = match table_name {
         Some(t) => view! {
-            <apich_islands::SqlConsoleIsland initial_sql=default_sql table_name=t.to_string() first_column=first_column is_zh=is_zh />
+            <apich_islands::SqlConsoleIsland initial_sql=default_sql table_name=t.to_string() first_column=first_column query_history=query_history.to_vec() is_zh=is_zh />
         }.into_any(),
         None => view! {
             <textarea name="sql" class="sql-textarea" style="width:100%; height:80px; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:6px; font-family:var(--font-mono); font-size:0.85rem; padding:0.75rem;" required=true>{default_sql}</textarea>
@@ -504,8 +507,14 @@ fn render_sql_console(
                 <input type="hidden" name="file" value=cur_file.to_string() />
                 {sql_input}
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.5rem;">
-                    <span style="font-size:0.75rem; color:#94a3b8;">"Target: "<code>{cur_file.to_string()}</code></span>
-                    <button type="submit" class="btn btn-primary btn-sm">"▶ Run SQL"</button>
+                    <span style="font-size:0.75rem; color:#94a3b8; display:flex; align-items:center; gap:0.6rem;">
+                        "Target: "<code>{cur_file.to_string()}</code>
+                        <label style="display:flex; align-items:center; gap:0.3rem;">
+                            "Row limit:"
+                            <input type="number" name="max_rows" value="500" min="1" max="5000" style="width:70px; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:4px; padding:0.15rem 0.35rem; font-size:0.75rem;" />
+                        </label>
+                    </span>
+                    <button type="submit" class="btn btn-primary btn-sm" title="Ctrl+Enter / Cmd+Enter also runs">"▶ Run SQL"</button>
                 </div>
             </form>
             {result}

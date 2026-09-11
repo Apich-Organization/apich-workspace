@@ -44,6 +44,7 @@ web-sys = { version = "0.3", optional = true, features = [
     "CustomEventInit",
     "Clipboard",
     "HtmlTextAreaElement",
+    "HtmlFormElement",
     "TextMetrics",
     "WheelEvent",
     "File",

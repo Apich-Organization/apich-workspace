@@ -241,6 +241,7 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/table/import", post(table_import_action))
         .route("/projects/:id/table/notebook/cell-create", post(notebook_cell_create_action))
         .route("/projects/:id/table/notebook/cell-delete", post(notebook_cell_delete_action))
+        .route("/projects/:id/table/notebook/cell-move", post(notebook_cell_move_action))
         .route("/projects/:id/table/notebook/run-cell", post(notebook_run_cell_action))
         // Dedicated Unified Note Studio (.anote, .note.md, etc.)
         .route("/projects/:id/note", get(project_note_page))
@@ -1948,6 +1949,8 @@ pub struct TablePageQuery {
 pub struct TableSqlForm {
     pub file: String,
     pub sql: String,
+    #[serde(default)]
+    pub max_rows: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2001,6 +2004,14 @@ pub struct NotebookCellDeleteForm {
     pub file: String,
     pub table: String,
     pub cell_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NotebookCellMoveForm {
+    pub file: String,
+    pub table: String,
+    pub cell_id: i64,
+    pub direction: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2854,6 +2865,11 @@ async fn project_table_page(
             .unwrap_or_default(),
         _ => Default::default(),
     };
+    let query_history = selected_file
+        .as_deref()
+        .and_then(|file| SqliteTableService::resolve_db_path(&project.storage_path, file).ok())
+        .and_then(|p| SqliteTableService::list_query_history(&p).ok())
+        .unwrap_or_default();
 
     let mode = params.mode.unwrap_or_else(|| "grid".to_string());
     let current_path = format!("/projects/{}/table", project.id);
@@ -2874,6 +2890,7 @@ async fn project_table_page(
                 selected_table=selected_table
                 table_data=table_data
                 column_view=column_view
+                query_history=query_history
                 sql_query="".to_string()
                 sql_result=None
                 mode=mode
@@ -2934,8 +2951,10 @@ async fn execute_table_sql_action(
     let databases = SqliteTableService::discover_databases(&project.storage_path).unwrap_or_default();
     let schema = SqliteTableService::get_database_schema(&full_path).ok();
 
-    match SqliteTableService::execute_sql(&full_path, &payload.sql) {
+    let max_rows = payload.max_rows.unwrap_or(500);
+    match SqliteTableService::execute_sql(&full_path, &payload.sql, max_rows) {
         Ok(sql_res) => {
+            let _ = SqliteTableService::record_query_history(&full_path, payload.sql.trim());
             let current_path = format!("/projects/{}/table", project.id);
             let first_table = schema.as_ref().and_then(|s| s.tables.first().map(|t| t.name.clone()));
             let table_data = if let Some(ref t) = first_table {
@@ -2950,6 +2969,7 @@ async fn execute_table_sql_action(
                 .as_deref()
                 .and_then(|t| SqliteTableService::get_column_view(&full_path, t).ok())
                 .unwrap_or_default();
+            let query_history = SqliteTableService::list_query_history(&full_path).unwrap_or_default();
 
             let html = crate::app::components::render_document(move || {
                 leptos::prelude::view! {
@@ -2963,6 +2983,7 @@ async fn execute_table_sql_action(
                         selected_table=first_table
                         table_data=table_data
                         column_view=column_view
+                        query_history=query_history
                         sql_query=payload.sql
                         sql_result=Some(sql_res)
                         mode="sql".to_string()
@@ -3430,6 +3451,32 @@ async fn notebook_cell_delete_action(
     Redirect::to(&redirect_url).into_response()
 }
 
+/// Move a notebook cell up or down one slot in its table's cell order.
+async fn notebook_cell_move_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<NotebookCellMoveForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_manage = IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_manage {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+    let redirect_url = format!("/projects/{}/table?file={}&table={}&mode=notebook", project.id, urlencoding::encode(&payload.file), urlencoding::encode(&payload.table));
+    if let Ok(db_path) = crate::services::sqlite_table::SqliteTableService::resolve_db_path(&project.storage_path, &payload.file) {
+        let _ = crate::services::sqlite_table::SqliteTableService::move_notebook_cell(&db_path, payload.cell_id, &payload.direction);
+    }
+    Redirect::to(&redirect_url).into_response()
+}
+
 /// Runs one notebook cell's Python/R code for real inside the project's sandbox, against the
 /// real table it's attached to. Design constraints (see `NotebookCell`'s own doc comment for the
 /// full reasoning): no persistent kernel -- each run is the cell's current code, written to a
@@ -3470,6 +3517,17 @@ async fn notebook_run_cell_action(
         Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({"error": e.to_string()}))).into_response(),
     };
 
+    // `payload.file` is the *logical* file name shown in the UI (e.g. "assets/data.csv"), which
+    // can differ from the real on-disk SQLite file `resolve_db_path` just resolved it to (e.g.
+    // "assets/data.csv.table" -- see that function's own `.csv` handling). The cell's own process
+    // needs the container-relative path to the *real* file, not the logical one, or
+    // `sqlite3.connect(os.environ["APICH_TABLE_DB"])` opens the wrong file entirely (the raw CSV
+    // itself in the `.csv` case, which fails with "file is not a database").
+    let table_db_rel = match db_path.strip_prefix(&project.storage_path) {
+        Ok(rel) => rel.to_string_lossy().to_string(),
+        Err(_) => payload.file.clone(),
+    };
+
     let ext = if payload.language == "r" { "r" } else { "py" };
     let rel_script_path = format!(".apich_notebook_tmp/cell_{}.{}", payload.cell_id, ext);
     if let Err(e) = state.project_manager.write_file(project.id, user.id, &rel_script_path, &payload.code).await {
@@ -3478,7 +3536,7 @@ async fn notebook_run_cell_action(
 
     let result = state
         .project_manager
-        .run_script_in_sandbox_with_env(project.id, user.id, &rel_script_path, "", &[("APICH_TABLE_DB", &payload.file)])
+        .run_script_in_sandbox_with_env(project.id, user.id, &rel_script_path, "", &[("APICH_TABLE_DB", &table_db_rel)])
         .await;
 
     match result {
