@@ -248,18 +248,32 @@ ENV PKG_CONFIG_ALLOW_CROSS=1 \
 RUN npm install -g @anthropic-ai/claude-code || echo "apich-agent-install-failed: claude-code"
 RUN npm install -g @openai/codex || echo "apich-agent-install-failed: codex"
 RUN npm install -g opencode-ai || echo "apich-agent-install-failed: opencode"
-# KNOWN GAP on this Debian 13 (trixie) base: every published aider-chat release through 0.86.2
+# aider-chat on this Debian 13 (trixie) base: every published aider-chat release through 0.86.2
 # declares `Requires-Python <3.13`, and trixie ships Python 3.13 as its *only* system Python (no
 # 3.11/3.12 package in its repos) -- confirmed live via `pipx install aider-chat` itself (pip
 # resolves down to the ancient, yanked-adjacent aider-chat 0.16.0, whose hard `numpy==1.24.3` pin
 # then fails to build under 3.13 because numpy's legacy build backend needs distutils, removed in
 # 3.12+). `pipx install --python 3.11/3.12 --fetch-missing-python` (which downloads a standalone
-# interpreter for exactly this situation) was also confirmed live to fail here on pipx 1.7.1's
-# side: it 404s fetching the checksum for the python-build-standalone release it just downloaded.
-# Until aider-chat ships Python 3.13 support (or pipx's standalone-python fetch is fixed), this
-# install is expected to fail and fall through to the `echo` below -- every other agent CLI
-# (claude, codex, opencode, goose) is unaffected and installs cleanly on trixie.
-RUN pipx install --global aider-chat || pip install --break-system-packages aider-chat || echo "apich-agent-install-failed: aider (upstream lacks Python 3.13 support as of this build; see comment above)"
+# interpreter for exactly this situation) was also confirmed live to fail here: pipx 1.7.1 404s
+# fetching the checksum for the python-build-standalone release it just downloaded.
+#
+# Fix: `uv` (astral.sh) manages its own python-build-standalone downloads independently of pipx
+# and was confirmed live to fetch Python 3.12.14 cleanly with the exact same underlying release
+# files pipx failed on -- aider-chat then resolves against a modern, unpinned dependency set (real
+# numpy/scipy wheels for 3.12, not the ancient 1.24.3 sdist) and installs and runs correctly.
+# `UV_PYTHON_INSTALL_DIR`/`UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` redirect uv's normally-per-user (~/.local)
+# install locations to shared `/opt` dirs + `/usr/local/bin`, matching how `goose` below is made
+# available to every user rather than just whichever account ran the installer.
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \
+    UV_TOOL_DIR=/opt/uv-tools \
+    UV_TOOL_BIN_DIR=/usr/local/bin
+RUN curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh \
+    && UV_INSTALL_DIR=/usr/local/bin sh /tmp/uv-install.sh \
+    && rm /tmp/uv-install.sh \
+    && uv python install 3.12 \
+    && uv tool install --python 3.12 aider-chat \
+    && chmod -R a+rX /opt/uv-python /opt/uv-tools \
+    || echo "apich-agent-install-failed: aider"
 RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash \
     && mv /root/.local/bin/goose /usr/local/bin/goose \
     || echo "apich-agent-install-failed: goose"
