@@ -30,10 +30,24 @@ pub fn create_app(state: AppState) -> axum::Router {
     // Compiled island wasm+js bundle (see app::islands_pkg_dir / build_islands.sh). Served as
     // plain static files -- nothing here executes on the server, the browser fetches and runs it.
     let pkg_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/pkg");
+    // `apich_islands.js`/`apich_islands_bg.wasm` keep the same filename across every rebuild (no
+    // content hash in the name), and `ServeDir` alone sends no `Cache-Control` at all -- browsers
+    // then fall back to heuristic caching and can keep serving a stale bundle from a much earlier
+    // page load for a long time, silently running old island code against newly rendered HTML
+    // (confirmed live: this is exactly what made the terminal and other islands look broken after
+    // a server-side rebuild, even though a fresh browser profile picked up the new bundle fine).
+    // `no-cache` still allows caching but forces revalidation against `Last-Modified` (which
+    // `ServeDir` already sends) on every load, so a plain reload always gets the current bundle.
+    let pkg_service = tower::ServiceBuilder::new()
+        .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        ))
+        .service(tower_http::services::ServeDir::new(pkg_dir));
     axum::Router::new()
         .merge(api::build_api_router())
         .merge(ui::build_ui_router())
-        .nest_service("/pkg", tower_http::services::ServeDir::new(pkg_dir))
+        .nest_service("/pkg", pkg_service)
         .fallback(not_found)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)

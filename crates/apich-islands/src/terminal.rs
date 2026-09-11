@@ -13,6 +13,24 @@ pub fn TerminalIsland(
     let input = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
 
+    // Real bug, confirmed live: before this, every control here rendered as if already
+    // interactive (server-rendered HTML has no way to know the ~4MB wasm bundle hasn't finished
+    // downloading/instantiating in this browser yet). Click a quick-command button or press
+    // Enter in that window and nothing visibly happens -- no listener is attached yet, so a
+    // button click is silently swallowed and the input's own `<form>` (no `action`, relying
+    // entirely on JS to `prevent_default()`) falls back to a native GET-to-self submission,
+    // which just reloads the page with the screen reset and no error. On a slower connection
+    // (confirmed with Chrome DevTools network throttling at 300kbps/150ms latency, plausible for
+    // this being served across a VM boundary) that window is easily long enough for an
+    // impatient real user to hit. `hydrated` starts `false` in the server-rendered HTML (so
+    // controls render visibly disabled from the first paint) and flips to `true` from an
+    // `Effect`, which -- unlike the rest of this function's body -- only ever runs on the client
+    // after hydration actually completes, never during SSR.
+    let hydrated = RwSignal::new(false);
+    Effect::new(move |_| {
+        hydrated.set(true);
+    });
+
     let submit = move || {
         let cmd = input.get_untracked().trim().to_string();
         if cmd.is_empty() || busy.get_untracked() {
@@ -32,7 +50,7 @@ pub fn TerminalIsland(
 
     view! {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
-            <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+            <div style="display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center;">
                 <span style="font-size:0.75rem; color:#94a3b8; margin-right:0.25rem; display:flex; align-items:center;">{crate::t(is_zh, "Quick Commands:", "快捷命令：")}</span>
                 {quick_commands.into_iter().map(|cmd| {
                     view! {
@@ -40,12 +58,21 @@ pub fn TerminalIsland(
                             type="button"
                             class="btn btn-secondary btn-sm"
                             style="background:#1e293b; color:#cbd5e1; border-color:#334155; font-family:var(--font-mono); font-size:0.75rem;"
+                            disabled=move || !hydrated.get()
                             on:click=move |_| input.set(cmd.to_string())
                         >
                             {cmd}
                         </button>
                     }
                 }).collect::<Vec<_>>()}
+                <span
+                    style=move || format!(
+                        "font-size:0.72rem; color:#f59e0b; align-items:center; gap:0.3rem; display:{};",
+                        if hydrated.get() { "none" } else { "flex" }
+                    )
+                >
+                    "⏳ "{crate::t(is_zh, "Loading terminal...", "终端加载中…")}
+                </span>
             </div>
         </div>
 
@@ -56,13 +83,18 @@ pub fn TerminalIsland(
                 <input
                     type="text"
                     class="terminal-input"
-                    placeholder=crate::t(is_zh, "e.g., typst compile main.typ paper.pdf", "例如：typst compile main.typ paper.pdf")
+                    placeholder=move || if hydrated.get() {
+                        crate::t(is_zh, "e.g., typst compile main.typ paper.pdf", "例如：typst compile main.typ paper.pdf")
+                    } else {
+                        crate::t(is_zh, "Loading terminal, please wait...", "终端加载中，请稍候…")
+                    }
                     autocomplete="off"
                     autofocus=true
+                    disabled=move || !hydrated.get()
                     prop:value=move || input.get()
                     on:input=move |ev| input.set(event_target_value(&ev))
                 />
-                <button type="submit" class="btn btn-primary btn-sm" disabled=move || busy.get()>{crate::t(is_zh, "Run", "运行")}</button>
+                <button type="submit" class="btn btn-primary btn-sm" disabled=move || busy.get() || !hydrated.get()>{crate::t(is_zh, "Run", "运行")}</button>
             </div>
         </form>
     }

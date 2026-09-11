@@ -20,6 +20,24 @@ pub struct TemplateShareDisplay {
     pub label: String,
 }
 
+/// One selectable entry in the "share with" picker -- `value` is "org:<uuid>" or "team:<uuid>"
+/// (parsed back apart by `template_handlers::add_template_share_action`), `label` a
+/// human-readable name built from the real org/team, never a raw slug the owner would have to
+/// already know and type correctly.
+pub struct ShareTargetOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// The result of actually compiling a "typst"/"slides"-kind version's content for preview
+/// (`ui::template_handlers`'s `compile_typst_files_for_preview`) -- unlike kanban/note previews,
+/// this needs a real (if ephemeral) compile step before the page can be rendered, so it's computed
+/// in the async handler and handed in already-resolved rather than computed lazily inside the view.
+pub struct CompiledPreview {
+    pub svg_pages: Vec<String>,
+    pub error: Option<String>,
+}
+
 #[allow(clippy::too_many_arguments)]
 #[component]
 pub fn TemplateGalleryPage(
@@ -98,7 +116,10 @@ pub fn TemplateDetailPage(
     is_org_or_team_admin: bool,
     template: Template,
     versions: Vec<TemplateVersion>,
+    compiled_previews: std::collections::HashMap<Uuid, CompiledPreview>,
+    user_projects: Vec<apich_db::Project>,
     shares: Vec<TemplateShareDisplay>,
+    share_targets: Vec<ShareTargetOption>,
     is_owner: bool,
     notice: Option<String>,
     error: Option<String>,
@@ -145,11 +166,23 @@ pub fn TemplateDetailPage(
                     </form>
                 </div>
                 {share_rows}
-                <form method="post" action=format!("/templates/{}/share", template_id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.5rem; flex-wrap:wrap;">
-                    <input type="text" name="org_slug" placeholder=i18n.template_share_with_org_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:200px;" required=true />
-                    <input type="text" name="team_slug" placeholder=i18n.template_share_with_team_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:220px;" />
-                    <button type="submit" class="btn btn-secondary btn-sm">{i18n.template_add_share()}</button>
-                </form>
+                {if share_targets.is_empty() {
+                    view! { <p class="text-muted" style="font-size:0.78rem; margin-top:0.5rem;">{i18n.template_no_share_targets()}</p> }.into_any()
+                } else {
+                    let target_options: Vec<_> = share_targets
+                        .into_iter()
+                        .map(|t| view! { <option value=t.value>{t.label}</option> })
+                        .collect();
+                    view! {
+                        <form method="post" action=format!("/templates/{}/share", template_id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.5rem; flex-wrap:wrap;">
+                            <select name="share_target" class="form-control" style="height:32px; font-size:0.82rem; max-width:280px;" required=true>
+                                <option value="" disabled=true selected=true>{i18n.template_share_target_placeholder()}</option>
+                                {target_options}
+                            </select>
+                            <button type="submit" class="btn btn-secondary btn-sm">{i18n.template_add_share()}</button>
+                        </form>
+                    }.into_any()
+                }}
                 <form method="post" action=format!("/templates/{}/delete", template_id) style="margin-top:0.75rem;">
                     <apich_islands::ConfirmSubmitButton
                         label=i18n.template_delete().to_string()
@@ -165,7 +198,9 @@ pub fn TemplateDetailPage(
     let version_items: Vec<_> = versions
         .into_iter()
         .map(|v| {
-            let preview = render_version_content_preview(&kind, &v.content, i18n);
+            let compiled = compiled_previews.get(&v.id);
+            let preview = render_version_content_preview(template_id, v.id, &kind, &v.content, compiled, i18n);
+            let apply_form = render_apply_to_project_form(&kind, v.id, &user_projects, i18n);
             view! {
                 <div class="section-card" style="margin-bottom:1rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -173,6 +208,7 @@ pub fn TemplateDetailPage(
                         <span style="font-size:0.75rem; color:var(--text-sub);">{v.created_at.format("%Y-%m-%d %H:%M").to_string()}</span>
                     </div>
                     {v.changelog.clone().map(|c| view! { <p class="text-muted" style="font-size:0.82rem;">{c}</p> })}
+                    {apply_form}
                     <details style="margin-top:0.5rem;">
                         <summary style="cursor:pointer; font-size:0.82rem; font-weight:600;">{i18n.template_preview_heading()}</summary>
                         <div style="margin-top:0.5rem;">{preview}</div>
@@ -202,7 +238,55 @@ pub fn TemplateDetailPage(
     }
 }
 
-fn render_version_content_preview(kind: &str, content: &serde_json::Value, i18n: I18n) -> impl IntoView {
+/// "Apply to Project" -- the piece that was missing entirely before: browsing the Template
+/// Library had no way to actually *use* a template, only the originating content page's own
+/// picker did (kanban board / note editor / document editor), which meant discovering a template
+/// here and then hunting for where to apply it. One project picker per version, routed to the
+/// kind-appropriate `/templates/apply-to-*` action (see `template_handlers.rs`).
+fn render_apply_to_project_form(kind: &str, version_id: Uuid, user_projects: &[apich_db::Project], i18n: I18n) -> impl IntoView {
+    if user_projects.is_empty() {
+        return view! { <p class="text-muted" style="font-size:0.78rem; margin-top:0.5rem;">{i18n.template_no_projects_to_apply()}</p> }.into_any();
+    }
+    let project_options: Vec<_> = user_projects.iter().map(|p| view! { <option value=p.id.to_string()>{p.name.clone()}</option> }).collect();
+
+    match kind {
+        "kanban" => view! {
+            <form method="post" action="/templates/apply-to-kanban" class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.6rem; flex-wrap:wrap; align-items:center;">
+                <input type="hidden" name="template_version_id" value=version_id.to_string() />
+                <select name="project_id" class="form-control" style="height:32px; font-size:0.82rem; max-width:220px;" required=true>
+                    {project_options}
+                </select>
+                <button type="submit" class="btn btn-primary btn-sm">{i18n.template_apply_to_project()}</button>
+            </form>
+        }
+        .into_any(),
+        "note" => view! {
+            <form method="post" action="/templates/apply-to-note" class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.6rem; flex-wrap:wrap; align-items:center;">
+                <input type="hidden" name="template_version_id" value=version_id.to_string() />
+                <select name="project_id" class="form-control" style="height:32px; font-size:0.82rem; max-width:220px;" required=true>
+                    {project_options}
+                </select>
+                <input type="text" name="new_file_name" placeholder=i18n.template_new_file_name_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:180px;" required=true />
+                <button type="submit" class="btn btn-primary btn-sm">{i18n.template_apply_to_project()}</button>
+            </form>
+        }
+        .into_any(),
+        _ => view! {
+            <form method="post" action="/templates/apply-to-file" class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.6rem; flex-wrap:wrap; align-items:center;">
+                <input type="hidden" name="template_version_id" value=version_id.to_string() />
+                <select name="project_id" class="form-control" style="height:32px; font-size:0.82rem; max-width:220px;" required=true>
+                    {project_options}
+                </select>
+                <input type="text" name="dest_subdir" placeholder=i18n.template_dest_folder_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:180px;" />
+                <button type="submit" class="btn btn-primary btn-sm">{i18n.template_apply_to_project()}</button>
+            </form>
+        }
+        .into_any(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_version_content_preview(template_id: Uuid, version_id: Uuid, kind: &str, content: &serde_json::Value, compiled: Option<&CompiledPreview>, i18n: I18n) -> impl IntoView {
     match kind {
         "kanban" => match template_library::kanban_columns_from_content(content) {
             Ok(columns) => {
@@ -228,6 +312,42 @@ fn render_version_content_preview(kind: &str, content: &serde_json::Value, i18n:
             }
             Err(e) => view! { <div class="alert alert-danger">{e.to_string()}</div> }.into_any(),
         },
+        "typst" | "slides" => {
+            // Compiled ahead of time in the async handler (see `compile_typst_files_for_preview`)
+            // -- Typst (and slides, which are Typst underneath) compiles natively with no sandbox
+            // needed, unlike LaTeX, so these two kinds get a real rendered preview instead of a
+            // source dump.
+            match compiled {
+                Some(c) if c.error.is_none() && !c.svg_pages.is_empty() => {
+                    let pages: Vec<_> = c
+                        .svg_pages
+                        .iter()
+                        .map(|svg| view! { <div class="svg-page-box" style="margin-bottom:0.75rem;" inner_html=svg.clone()></div> })
+                        .collect();
+                    view! { <div>{pages}</div> }.into_any()
+                }
+                Some(c) => {
+                    let msg = c.error.clone().unwrap_or_else(|| "Compilation produced no pages".to_string());
+                    view! { <div class="alert alert-danger" style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.8rem;">{msg}</div> }.into_any()
+                }
+                None => view! { <div class="alert alert-danger">"Preview not compiled"</div> }.into_any(),
+            }
+        }
+        "latex" => {
+            // Compiled on demand in a throwaway sandbox container (see
+            // `latex_template_preview_pdf_action` / `ProjectManager::compile_latex_preview_ephemeral`)
+            // -- real `pdflatex` output, not a source dump. The container only spins up once this
+            // <iframe> actually loads, which browsers defer while its `<details>` stays collapsed.
+            let pdf_url = format!("/templates/{template_id}/versions/{version_id}/preview.pdf");
+            view! {
+                <iframe
+                    src=pdf_url
+                    style="width:100%; height:600px; border:1px solid var(--border-subtle); border-radius:8px;"
+                    title=i18n.template_preview_heading().to_string()
+                ></iframe>
+            }
+            .into_any()
+        }
         _ => match template_library::files_from_content(content) {
             Ok(files) => {
                 let blocks: Vec<_> = files

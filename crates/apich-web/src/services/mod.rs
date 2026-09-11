@@ -1,5 +1,7 @@
 pub mod agent_login;
 pub mod ai_service;
+pub mod cargo_slide_helpers;
+pub mod default_templates;
 pub mod demo_project;
 pub mod document_renderer;
 pub mod git_server;

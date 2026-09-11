@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Auto-seed default administrative credentials and sample workspace if database is uninitialized
     let repo = db.repository();
     let existing_users = repo.list_users().await?;
+    let mut bootstrap_admin_id: Option<uuid::Uuid> = None;
     if existing_users.is_empty() {
         info!("Database initialized without users. Seeding default platform administrator and demo workspace...");
         let admin_user = repo
@@ -90,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 storage_quota_bytes: None,
             })
             .await?;
+        bootstrap_admin_id = Some(admin_user.id);
 
         let demo_org = repo
             .create_organization(
@@ -144,6 +146,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
 
         info!("Default bootstrap complete: Admin user 'admin' (pass: Admin123!) created with 'Demo Project'.");
+    }
+
+    // Seed the Template Library's starter templates -- unlike the block above, this always runs
+    // (not gated on "no users exist yet"), since it has its own idempotency check (reserved slugs
+    // per owner, see `default_templates::seed_default_templates`) and needs to backfill an
+    // already-populated database too, not just a brand-new one.
+    let template_owner_id = match bootstrap_admin_id {
+        Some(id) => Some(id),
+        None => {
+            let users = repo.list_users().await?;
+            users
+                .iter()
+                .find(|u| u.is_platform_admin)
+                .or_else(|| users.first())
+                .map(|u| u.id)
+        }
+    };
+    if let Some(owner_id) = template_owner_id {
+        apich_web::services::default_templates::seed_default_templates(&repo, owner_id).await?;
     }
 
     let sandbox_image = std::env::var("APICH_SANDBOX_IMAGE")

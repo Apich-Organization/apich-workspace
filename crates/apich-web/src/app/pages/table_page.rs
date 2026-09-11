@@ -39,10 +39,10 @@ pub fn TablePage(
     let db_selector = if databases.is_empty() {
         view! {
             <div class="empty-state" style="margin-bottom:1.5rem;">
-                <h3 class="empty-title">"No SQLite Databases Found"</h3>
-                <p class="empty-desc">"Every table in APICH is a physical SQLite database file (.db/.sqlite/.table) in your version-controlled repository."</p>
+                <h3 class="empty-title">{i18n.table_no_tables_title()}</h3>
+                <p class="empty-desc">{i18n.table_no_tables_desc()}</p>
                 <form method="post" action=format!("/projects/{}/table/create-db", project_id)>
-                    <button type="submit" class="btn btn-primary">"+ Initialize data.db"</button>
+                    <button type="submit" class="btn btn-primary">{i18n.table_init_first()}</button>
                 </form>
             </div>
         }.into_any()
@@ -54,18 +54,18 @@ pub fn TablePage(
                 let size_kb = db.size_bytes.div_ceil(1024);
                 view! {
                     <a href=format!("/projects/{}/table?file={}&mode={}", project_id, urlencoding::encode(&db.relative_path), mode) class="db-file-pill" class:active=is_sel>
-                        "📁 " {db.relative_path.clone()} " (" {size_kb} " KB)"
+                        "📊 " {db.relative_path.clone()} " (" {size_kb} " KB)"
                     </a>
                 }
             })
             .collect();
         view! {
             <div style="margin-bottom:1rem;">
-                <div style="font-size:0.775rem; font-weight:600; color:var(--text-sub); margin-bottom:0.35rem; text-transform:uppercase; letter-spacing:0.5px;">"Active Database File:"</div>
+                <div style="font-size:0.775rem; font-weight:600; color:var(--text-sub); margin-bottom:0.35rem; text-transform:uppercase; letter-spacing:0.5px;">{i18n.table_active_file_label()}</div>
                 <div class="db-selector-bar">
                     {pills}
                     <form method="post" action=format!("/projects/{}/table/create-db", project_id) class="inline-form" style="margin-left:auto;">
-                        <button type="submit" class="btn btn-ghost btn-sm">"+ New .db File"</button>
+                        <button type="submit" class="btn btn-ghost btn-sm">"+ "{i18n.table_new_file()}</button>
                     </form>
                 </div>
             </div>

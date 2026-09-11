@@ -1160,52 +1160,103 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     outline: none;
     border-color: var(--primary);
 }
+/* Spreadsheet grid -- deliberately styled to read as a polished spreadsheet (Google
+   Sheets/Excel-like: muted grid lines, zebra striping, right-aligned numbers, a header that
+   states the column name first and its SQL type second and quietly) rather than a raw database
+   query result grid, even though every table here really is backed by a physical SQLite file --
+   that fact doesn't need to dominate the visual design of the thing people actually read and
+   edit day to day. */
 .spreadsheet-grid-wrap {
     overflow-x: auto;
     background: #ffffff;
     max-height: 480px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
 }
 .spreadsheet-grid {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 0.85rem;
     font-family: var(--font-sans);
 }
 .spreadsheet-grid th, .spreadsheet-grid td {
-    border: 1px solid rgba(226, 232, 240, 0.9);
-    padding: 0.45rem 0.65rem;
-    height: 32px;
+    border-bottom: 1px solid var(--border-subtle);
+    border-right: 1px solid rgba(226, 232, 240, 0.6);
+    padding: 0.5rem 0.75rem;
+    height: 34px;
+}
+.spreadsheet-grid th:last-child, .spreadsheet-grid td:last-child {
+    border-right: none;
 }
 .spreadsheet-grid th {
-    background: rgba(248, 250, 252, 0.9);
-    font-weight: 600;
-    text-align: center;
+    background: #f8fafc;
+    text-align: left;
     position: sticky;
     top: 0;
     z-index: 10;
+    border-bottom: 2px solid var(--border-subtle);
+}
+.spreadsheet-grid .col-letter {
+    font-size: 0.7rem;
+    color: var(--text-sub);
+    font-weight: 500;
+}
+.spreadsheet-grid .col-name {
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+}
+.spreadsheet-grid .col-type {
+    font-size: 0.68rem;
+    color: var(--text-sub);
+    font-weight: 400;
+    text-transform: lowercase;
+    margin-top: 1px;
+}
+.spreadsheet-grid .col-pk-badge {
+    font-size: 0.62rem;
+    background: var(--primary-light);
+    color: var(--primary);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+    font-weight: 700;
+    vertical-align: middle;
+}
+.spreadsheet-grid th.col-numeric, .spreadsheet-grid td.col-numeric {
+    text-align: right;
 }
 .spreadsheet-grid .row-index-cell {
-    background: rgba(248, 250, 252, 0.9);
+    background: #f8fafc;
     color: var(--text-sub);
-    font-weight: 600;
+    font-weight: 500;
     text-align: center;
     width: 45px;
     min-width: 45px;
     cursor: pointer;
 }
+.spreadsheet-grid tbody tr:nth-child(even) td.cell-data {
+    background: #fbfcfd;
+}
+.spreadsheet-grid tbody tr:hover td.cell-data {
+    background: #f1f5f9;
+}
 .spreadsheet-grid td.cell-data {
     cursor: cell;
     background: #ffffff;
     min-width: 110px;
+    font-variant-numeric: tabular-nums;
 }
 .spreadsheet-grid td.cell-selected {
     outline: 2px solid var(--primary) !important;
+    outline-offset: -2px;
     background: #eff6ff !important;
 }
 .spreadsheet-grid .summary-row td {
-    background: rgba(248, 250, 252, 0.9);
+    background: #f8fafc;
     font-weight: 600;
-    border-top: 2px solid #cbd5e1;
+    border-top: 2px solid var(--border-subtle);
 }
 .summary-dropdown {
     font-size: 0.75rem;
@@ -1625,6 +1676,14 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
 }
 .terminal-input::placeholder {
     color: #64748b;
+}
+.terminal-input:disabled {
+    /* Disabled only while the island's wasm hasn't hydrated yet (see terminal.rs's `hydrated`
+       signal) -- an italic placeholder is a much clearer "still loading" signal here than the
+       browser's own barely-visible default disabled-input dimming would be against this dark
+       background. */
+    font-style: italic;
+    cursor: wait;
 }
 .script-plot-card img {
     max-width: 100%;

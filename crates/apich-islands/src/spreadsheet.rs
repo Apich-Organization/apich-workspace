@@ -147,25 +147,38 @@ pub fn SpreadsheetIsland(
     };
     let active_style = move || active.get().and_then(|(r, c)| styles.with(|m| m.get(&(r, c)).cloned())).unwrap_or_default();
 
+    // A spreadsheet reads numbers right-aligned and text left-aligned; SQLite's own type-affinity
+    // keywords (see https://www.sqlite.org/datatype3.html#type_affinity) are enough of a signal
+    // for this without needing to sniff actual cell values.
+    let is_numeric_type = |t: &str| {
+        let up = t.to_ascii_uppercase();
+        ["INT", "REAL", "FLOA", "DOUB", "NUMERIC", "DECIMAL"].iter().any(|kw| up.contains(kw))
+    };
+    let col_is_numeric: Vec<bool> = column_types.iter().map(|t| is_numeric_type(t)).collect();
+
     let header_cells: Vec<_> = columns
         .iter()
         .enumerate()
         .map(|(c, name)| {
             let type_str = column_types.get(c).cloned().unwrap_or_else(|| "TEXT".to_string());
+            let type_str_title = type_str.clone();
+            let numeric = col_is_numeric.get(c).copied().unwrap_or(false);
             let is_pk = primary_keys.get(c).copied().unwrap_or(false);
             let name = name.clone();
             view! {
                 <th
                     data-col=c.to_string()
-                    style="cursor:pointer;"
-                    title="Click to select column"
+                    class="col-header"
+                    class:col-numeric=numeric
+                    title=format!("{type_str_title} column -- click to select")
                     on:click=move |_| highlight.set(Highlight::Col(c))
                 >
-                    <div style="font-size:0.75rem; color:var(--text-sub);">{col_letter(c)}</div>
-                    <div style="font-weight:600;">
-                        {name} " (" {type_str} ")"
-                        {is_pk.then(|| view! { <span style="font-size:0.65rem; background:var(--primary-light); color:var(--primary); padding:1px 4px; border-radius:3px; margin-left:2px; font-weight:700;">"PK"</span> })}
+                    <div class="col-letter">{col_letter(c)}</div>
+                    <div class="col-name">
+                        {name}
+                        {is_pk.then(|| view! { <span class="col-pk-badge">"PK"</span> })}
                     </div>
+                    <div class="col-type">{type_str}</div>
                 </th>
             }
         })
@@ -179,6 +192,7 @@ pub fn SpreadsheetIsland(
                     view! {
                         <td
                             class="cell-data"
+                            class:col-numeric=col_is_numeric.get(c).copied().unwrap_or(false)
                             class:cell-selected=move || {
                                 if editing.get() == Some((r, c)) { return false; }
                                 active.get() == Some((r, c))

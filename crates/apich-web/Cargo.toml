@@ -15,7 +15,7 @@ apich-islands = { path = "../apich-islands", features = ["ssr"] }
 # Web Framework & SSR
 axum = { version = "0.7.9", features = ["macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace", "set-header"] }
 leptos = { version = "0.7.7", features = ["ssr", "islands"] }
 hydration_context = "0.2"
 

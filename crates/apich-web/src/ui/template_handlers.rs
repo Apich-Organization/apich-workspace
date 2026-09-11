@@ -3,8 +3,8 @@
 //! in its own module -- see `handlers.rs`'s `build_ui_router`, which merges this router in --
 //! since it's a self-contained feature with no other handler depending on it.
 
-use super::handlers::{get_i18n, load_project_kanban_columns, redirect_error, redirect_notice, resolve_project};
-use crate::app::pages::template_library_page::{TemplateDetailPage, TemplateGalleryPage, TemplateShareDisplay};
+use super::handlers::{get_i18n, html_escape, load_project_kanban_columns, redirect_error, redirect_notice, resolve_project};
+use crate::app::pages::template_library_page::{CompiledPreview, ShareTargetOption, TemplateDetailPage, TemplateGalleryPage, TemplateShareDisplay};
 use crate::auth::AuthUser;
 use crate::error::{WebError, WebResult};
 use crate::services::{template_library, KnowledgeSyncService};
@@ -12,7 +12,7 @@ use crate::state::AppState;
 use apich_db::{CreateTemplateDto, IdentityPermissionResolver, PublishTemplateVersionDto};
 use axum::{
     extract::{Form, Path, Query, State},
-    http::HeaderMap,
+    http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
@@ -24,6 +24,7 @@ pub fn build_template_router() -> Router<AppState> {
     Router::new()
         .route("/templates", get(template_gallery_page))
         .route("/templates/:id", get(template_detail_page))
+        .route("/templates/:id/versions/:version_id/preview.pdf", get(latex_template_preview_pdf_action))
         .route("/templates/:id/visibility", post(update_template_visibility_action))
         .route("/templates/:id/share", post(add_template_share_action))
         .route("/templates/:id/share/:share_id/delete", post(remove_template_share_action))
@@ -37,6 +38,16 @@ pub fn build_template_router() -> Router<AppState> {
         .route("/templates/create-from-file", post(create_template_from_file_action))
         .route("/templates/:id/publish-version-file", post(publish_file_version_action))
         .route("/projects/:id/apply-file-template", post(apply_file_template_action))
+        // The three routes above take the target project from the URL path -- fine for the
+        // "Apply a Template" pickers on the kanban board/note editor/document editor themselves,
+        // which are already scoped to one project. The Template Library's own gallery/detail
+        // pages aren't scoped to any project, so applying *from there* needs the project chosen
+        // in the form instead -- these three are that same underlying logic, just addressed by a
+        // form field rather than the path, and redirecting to the target project afterward
+        // instead of back to the template.
+        .route("/templates/apply-to-kanban", post(apply_kanban_template_from_library_action))
+        .route("/templates/apply-to-note", post(apply_note_template_from_library_action))
+        .route("/templates/apply-to-file", post(apply_file_template_from_library_action))
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,8 +121,26 @@ async fn template_detail_page(
     };
     let versions = repo.list_template_versions(id).await.unwrap_or_default();
     let is_owner = template.owner_user_id == user.id;
+    let user_projects = repo.list_projects_for_user(user.id).await.unwrap_or_default();
+
+    // Typst and slides (also Typst under the hood) compile natively, in-process, with no sandbox
+    // container needed -- unlike LaTeX (`pdflatex` only exists inside a project's sandbox), so
+    // there's no reason these two kinds should be stuck with a source-only preview the way LaTeX
+    // currently has to be. Compiled once per page load in an ephemeral scratch directory (cleaned
+    // up immediately after), not cached -- acceptable for the version counts a template
+    // realistically has.
+    let mut compiled_previews = std::collections::HashMap::new();
+    if matches!(template.kind.as_str(), "typst" | "slides") {
+        for version in &versions {
+            if let Ok(files) = template_library::files_from_content(&version.content) {
+                let preview = compile_typst_files_for_preview(&files, template.kind == "slides").await;
+                compiled_previews.insert(version.id, preview);
+            }
+        }
+    }
 
     let mut shares = Vec::new();
+    let mut share_targets = Vec::new();
     if is_owner {
         for share in repo.list_template_shares(id).await.unwrap_or_default() {
             let label = if let Some(org_id) = share.org_id {
@@ -129,6 +158,16 @@ async fn template_detail_page(
             };
             shares.push(TemplateShareDisplay { id: share.id, label });
         }
+
+        // Every org/team on the instance, not just ones the owner belongs to -- sharing a
+        // template was explicitly asked to not be limited to the publisher's own org/team, so the
+        // picker needs to offer all of them, not a "my orgs" shortcut list.
+        for org in repo.list_organizations(500).await.unwrap_or_default() {
+            share_targets.push(ShareTargetOption { value: format!("org:{}", org.id), label: format!("🏢 {} (org)", org.name) });
+            for team in repo.list_teams_by_org(org.id).await.unwrap_or_default() {
+                share_targets.push(ShareTargetOption { value: format!("team:{}", team.id), label: format!("　└ {} / {}", org.name, team.name) });
+            }
+        }
     }
 
     let current_path = format!("/templates/{id}");
@@ -139,7 +178,10 @@ async fn template_detail_page(
                 is_org_or_team_admin=is_org_admin
                 template=template
                 versions=versions
+                compiled_previews=compiled_previews
+                user_projects=user_projects
                 shares=shares
+                share_targets=share_targets
                 is_owner=is_owner
                 notice=query.notice
                 error=query.error
@@ -149,6 +191,55 @@ async fn template_detail_page(
         }
     });
     Html(html).into_response()
+}
+
+/// Serves a LaTeX-kind template version compiled fresh, on demand, in a throwaway sandbox
+/// container (see `ProjectManager::compile_latex_preview_ephemeral`) -- embedded via a plain
+/// `<iframe>` on the detail page rather than eagerly compiled for every version the way
+/// typst/slides previews are, since spinning a whole container up and down takes real seconds,
+/// not milliseconds; fetched only once someone actually opens that version's Preview section.
+async fn latex_template_preview_pdf_action(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Path((_id, version_id)): Path<(Uuid, Uuid)>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response(),
+    };
+
+    let repo = state.db.repository();
+    let Some(version) = repo.get_template_version_by_id(version_id).await.unwrap_or(None) else {
+        return (StatusCode::NOT_FOUND, Html("Template version not found")).into_response();
+    };
+    if !IdentityPermissionResolver::can_access_template(state.db.pool(), user.id, version.template_id).await.unwrap_or(false) {
+        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
+    }
+    let Some(template) = repo.get_template_by_id(version.template_id).await.unwrap_or(None) else {
+        return (StatusCode::NOT_FOUND, Html("Template not found")).into_response();
+    };
+    if template.kind != "latex" {
+        return (StatusCode::BAD_REQUEST, Html("Not a LaTeX template")).into_response();
+    }
+
+    let files = match template_library::files_from_content(&version.content) {
+        Ok(f) => f.into_iter().map(|f| (f.path, f.content)).collect::<Vec<_>>(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Html(e.to_string())).into_response(),
+    };
+
+    match state.project_manager.compile_latex_preview_ephemeral(&files).await {
+        Ok(Ok(pdf_bytes)) => ([(header::CONTENT_TYPE, "application/pdf")], pdf_bytes).into_response(),
+        Ok(Err(compile_log)) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            Html(format!(
+                "<html><body style=\"background:#1e1e1e; color:#f87171; font-family:monospace; white-space:pre-wrap; padding:1.5rem; margin:0; font-size:0.85rem;\">⚠️ LaTeX compilation failed:\n\n{}</body></html>",
+                html_escape(&compile_log)
+            )),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Html(format!("Failed to start preview container: {e}"))).into_response(),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,8 +267,10 @@ async fn update_template_visibility_action(
 
 #[derive(Debug, Deserialize)]
 pub struct AddShareForm {
-    pub org_slug: String,
-    pub team_slug: Option<String>,
+    /// "org:<uuid>" or "team:<uuid>" -- one flat picker covering every org and team on the
+    /// instance (see `template_detail_page`'s `share_targets`), not just the ones the owner
+    /// happens to belong to, since sharing was explicitly asked to not be limited that way.
+    pub share_target: String,
 }
 
 async fn add_template_share_action(
@@ -194,23 +287,17 @@ async fn add_template_share_action(
         return (axum::http::StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
     }
     let repo = state.db.repository();
-    let org_slug = payload.org_slug.trim();
-    let Some(org) = repo.get_organization_by_slug(org_slug).await.unwrap_or(None) else {
-        return redirect_error(&format!("/templates/{id}"), format!("No org found with slug '{org_slug}'"));
+    let (org_id, team_id) = match payload.share_target.split_once(':') {
+        Some(("org", rest)) => match Uuid::parse_str(rest) {
+            Ok(org_id) => (Some(org_id), None),
+            Err(_) => return redirect_error(&format!("/templates/{id}"), "Invalid org selection"),
+        },
+        Some(("team", rest)) => match Uuid::parse_str(rest) {
+            Ok(team_id) => (None, Some(team_id)),
+            Err(_) => return redirect_error(&format!("/templates/{id}"), "Invalid team selection"),
+        },
+        _ => return redirect_error(&format!("/templates/{id}"), "Select an org or team to share with"),
     };
-
-    let team_slug = payload.team_slug.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let team_id = if let Some(team_slug) = team_slug {
-        let teams = repo.list_teams_by_org(org.id).await.unwrap_or_default();
-        match teams.into_iter().find(|t| t.slug == team_slug) {
-            Some(t) => Some(t.id),
-            None => return redirect_error(&format!("/templates/{id}"), format!("No team '{team_slug}' found in org '{org_slug}'")),
-        }
-    } else {
-        None
-    };
-
-    let (org_id, team_id) = if team_id.is_some() { (None, team_id) } else { (Some(org.id), None) };
     if repo.add_template_share(id, org_id, team_id).await.is_err() {
         return redirect_error(&format!("/templates/{id}"), "Failed to add share (maybe it already exists)");
     }
@@ -645,6 +732,7 @@ async fn apply_file_template_action(auth: Option<AuthUser>, State(state): State<
     if !IdentityPermissionResolver::can_access_template(state.db.pool(), user.id, version.template_id).await.unwrap_or(false) {
         return redirect_error(&back, "You don't have access to that template");
     }
+    ensure_slide_helpers_if_applicable(&repo, &project.storage_path, version.template_id).await;
 
     match template_library::apply_files_content_to_project(&project.storage_path, &version.content, &payload.dest_subdir) {
         Ok(written) => {
@@ -654,6 +742,182 @@ async fn apply_file_template_action(auth: Option<AuthUser>, State(state): State<
             redirect_notice(&back, &format!("Wrote {} file(s) from the template", written.len()))
         }
         Err(e) => redirect_error(&back, e),
+    }
+}
+
+/// A "slides"-kind template's file imports `theme.typ`/`slide.typ` -- provision both into the
+/// target project if this template needs them and they're not already there (see
+/// `cargo_slide_helpers`'s own doc comment on why a fresh project otherwise has neither).
+/// Best-effort: a failure here shouldn't block applying the template's own file, since a real
+/// write error will surface from `apply_files_content_to_project`/the compile itself anyway.
+async fn ensure_slide_helpers_if_applicable(repo: &apich_db::Repository<'_>, storage_path: &str, template_id: Uuid) {
+    if let Ok(Some(template)) = repo.get_template_by_id(template_id).await {
+        if template.kind == "slides" {
+            let _ = crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(storage_path).await;
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyKanbanTemplateFromLibraryForm {
+    pub project_id: Uuid,
+    pub template_version_id: Uuid,
+}
+
+/// Same logic as `apply_kanban_template_action`, addressed by a `project_id` form field instead
+/// of a path segment -- used by the "Apply to Project" action on the template's own detail page
+/// (`/templates/:id`), which isn't scoped to any one project the way the kanban board's own
+/// picker is.
+async fn apply_kanban_template_from_library_action(auth: Option<AuthUser>, State(state): State<AppState>, Form(payload): Form<ApplyKanbanTemplateFromLibraryForm>) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
+        return Redirect::to("/").into_response();
+    };
+    let back = format!("/projects/{}/note?view=kanban", project.id);
+    if !apich_db::IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false) {
+        return (axum::http::StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let repo = state.db.repository();
+    let Some(version) = repo.get_template_version_by_id(payload.template_version_id).await.unwrap_or(None) else {
+        return redirect_error(&back, "Template version not found");
+    };
+    if !IdentityPermissionResolver::can_access_template(state.db.pool(), user.id, version.template_id).await.unwrap_or(false) {
+        return redirect_error(&back, "You don't have access to that template");
+    }
+
+    let columns = match template_library::kanban_columns_from_content(&version.content) {
+        Ok(c) => c,
+        Err(e) => return redirect_error(&back, e),
+    };
+    let mut settings = project.settings.clone();
+    settings["kanban_columns"] = KnowledgeSyncService::serialize_kanban_columns(&columns);
+    let _ = repo.update_project_settings(project.id, settings).await;
+    redirect_notice(&back, "Applied template columns to this board")
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyNoteTemplateFromLibraryForm {
+    pub project_id: Uuid,
+    pub template_version_id: Uuid,
+    pub new_file_name: String,
+}
+
+async fn apply_note_template_from_library_action(auth: Option<AuthUser>, State(state): State<AppState>, Form(payload): Form<ApplyNoteTemplateFromLibraryForm>) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
+        return Redirect::to("/").into_response();
+    };
+    let back = format!("/projects/{}/note", project.id);
+    if !apich_db::IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false) {
+        return (axum::http::StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let clean_name = payload.new_file_name.trim().trim_start_matches('/');
+    if clean_name.is_empty() || clean_name.contains("..") {
+        return redirect_error(&back, "Invalid file name");
+    }
+    let file_name = if clean_name.ends_with(".anote") || clean_name.ends_with(".md") { clean_name.to_string() } else { format!("{clean_name}.anote") };
+
+    let repo = state.db.repository();
+    let Some(version) = repo.get_template_version_by_id(payload.template_version_id).await.unwrap_or(None) else {
+        return redirect_error(&back, "Template version not found");
+    };
+    if !IdentityPermissionResolver::can_access_template(state.db.pool(), user.id, version.template_id).await.unwrap_or(false) {
+        return redirect_error(&back, "You don't have access to that template");
+    }
+
+    let body = match template_library::note_body_from_content(&version.content) {
+        Ok(b) => b,
+        Err(e) => return redirect_error(&back, e),
+    };
+    if state.project_manager.read_file(project.id, &file_name).await.map(|c| !c.is_empty()).unwrap_or(false) {
+        return redirect_error(&back, format!("{file_name} already exists in this project"));
+    }
+    if state.project_manager.write_file(project.id, user.id, &file_name, &body).await.is_err() {
+        return redirect_error(&back, "Failed to write the new note file");
+    }
+    redirect_notice(&format!("/projects/{}/note?file={}", project.id, urlencoding::encode(&file_name)), "Created note from template")
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyFileTemplateFromLibraryForm {
+    pub project_id: Uuid,
+    pub template_version_id: Uuid,
+    #[serde(default)]
+    pub dest_subdir: String,
+}
+
+async fn apply_file_template_from_library_action(auth: Option<AuthUser>, State(state): State<AppState>, Form(payload): Form<ApplyFileTemplateFromLibraryForm>) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
+        return Redirect::to("/").into_response();
+    };
+    let back = format!("/projects/{}?tab=files", project.id);
+    if !apich_db::IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false) {
+        return (axum::http::StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let repo = state.db.repository();
+    let Some(version) = repo.get_template_version_by_id(payload.template_version_id).await.unwrap_or(None) else {
+        return redirect_error(&back, "Template version not found");
+    };
+    if !IdentityPermissionResolver::can_access_template(state.db.pool(), user.id, version.template_id).await.unwrap_or(false) {
+        return redirect_error(&back, "You don't have access to that template");
+    }
+    ensure_slide_helpers_if_applicable(&repo, &project.storage_path, version.template_id).await;
+
+    match template_library::apply_files_content_to_project(&project.storage_path, &version.content, &payload.dest_subdir) {
+        Ok(written) => {
+            if let Ok(vcs) = apich_vcs::api::ProjectVcs::open_or_init(&project.storage_path) {
+                let _ = vcs.snapshot_if_changed(format!("Applied template files: {}", written.join(", ")));
+            }
+            redirect_notice(&back, &format!("Wrote {} file(s) from the template", written.len()))
+        }
+        Err(e) => redirect_error(&back, e),
+    }
+}
+
+/// Actually compiles a "typst"/"slides"-kind version's file(s) for preview -- writes them into a
+/// throwaway directory under the OS temp dir (removed again immediately after), provisioning
+/// `theme.typ`/`slide.typ` alongside for `is_slides` the same way applying the template for real
+/// would (see `cargo_slide_helpers`), then runs the exact same native Typst compiler this app's
+/// own document editor uses. No sandbox container involved -- unlike LaTeX, which is why this
+/// exists for these two kinds and not that one.
+async fn compile_typst_files_for_preview(files: &[template_library::TemplateFile], is_slides: bool) -> CompiledPreview {
+    let dir = std::env::temp_dir().join(format!("apich-template-preview-{}", Uuid::new_v4()));
+    if tokio::fs::create_dir_all(&dir).await.is_err() {
+        return CompiledPreview { svg_pages: Vec::new(), error: Some("Failed to create a preview workspace".to_string()) };
+    }
+
+    for f in files {
+        let target = dir.join(&f.path);
+        if let Some(parent) = target.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let _ = tokio::fs::write(&target, &f.content).await;
+    }
+    if is_slides {
+        let _ = crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(&dir).await;
+    }
+
+    let main_file = files.first().map(|f| f.path.clone()).unwrap_or_default();
+    let result = crate::services::document_renderer::DocumentRenderer::compile_typst(&dir, &main_file, false).await;
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+
+    if result.success {
+        CompiledPreview { svg_pages: result.pages_svg, error: None }
+    } else {
+        CompiledPreview { svg_pages: Vec::new(), error: Some(result.error_message.unwrap_or_else(|| "Compilation failed".to_string())) }
     }
 }
 

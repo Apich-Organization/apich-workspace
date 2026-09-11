@@ -209,17 +209,19 @@ impl I18n {
         }
     }
 
-    pub fn template_share_with_org_field(&self) -> &'static str {
+    /// Placeholder for the share-target `<select>` (org/team picker) -- distinct from a real
+    /// option so `required=true` + this staying `disabled` forces an actual choice before submit.
+    pub fn template_share_target_placeholder(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Share with org (slug)",
-            Lang::Zh => "共享给组织（slug）",
+            Lang::En => "Select an org or team to share with...",
+            Lang::Zh => "选择要共享的组织或团队…",
         }
     }
 
-    pub fn template_share_with_team_field(&self) -> &'static str {
+    pub fn template_no_share_targets(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Team within that org (slug, optional)",
-            Lang::Zh => "该组织内的团队（slug，可选）",
+            Lang::En => "No orgs or teams exist on this instance yet to share with.",
+            Lang::Zh => "当前实例中还没有可共享的组织或团队。",
         }
     }
 
@@ -337,8 +339,8 @@ impl I18n {
 
     pub fn template_source_only_preview_note(&self) -> &'static str {
         match self.lang {
-            Lang::En => "Full compiled preview isn't available for this template kind yet -- showing source. Applying it still writes the real files into your project, where the project's own preview works normally.",
-            Lang::Zh => "该模板类型暂不支持完整编译预览——以下为源码显示。应用后会将真实文件写入你的项目，届时可使用项目自身的预览功能正常查看。",
+            Lang::En => "Compiled PDF preview isn't available here for LaTeX (it needs a real project sandbox to run pdflatex in) -- showing source. Applying it still writes the real file into your project, where the project's own preview compiles it normally.",
+            Lang::Zh => "此处暂不支持 LaTeX 的编译 PDF 预览（需要在真实的项目沙箱中运行 pdflatex）——以下为源码显示。应用后会将真实文件写入你的项目，届时可通过项目自身的预览正常编译查看。",
         }
     }
 
@@ -360,6 +362,13 @@ impl I18n {
         match self.lang {
             Lang::En => "destination folder (optional)",
             Lang::Zh => "目标文件夹（可选）",
+        }
+    }
+
+    pub fn template_no_projects_to_apply(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "You don't have any projects to apply this to yet.",
+            Lang::Zh => "你还没有可应用此模板的项目。",
         }
     }
 
@@ -1418,6 +1427,45 @@ impl I18n {
         match self.lang {
             Lang::En => "Tables (SQLite)",
             Lang::Zh => "SQLite 数据库表格",
+        }
+    }
+
+    /// The table page's own file switcher -- kept deliberately less "database"-sounding than
+    /// `tab_tables` above (a one-time nav label vs. text sitting right above the grid on every
+    /// visit): every table here really is a physical SQLite file, but that fact doesn't need to
+    /// dominate the day-to-day spreadsheet-editing experience.
+    pub fn table_active_file_label(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Table file:",
+            Lang::Zh => "表格文件：",
+        }
+    }
+
+    pub fn table_new_file(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "New table file",
+            Lang::Zh => "新建表格文件",
+        }
+    }
+
+    pub fn table_no_tables_title(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "No tables yet",
+            Lang::Zh => "暂无表格",
+        }
+    }
+
+    pub fn table_no_tables_desc(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "Tables are stored as real, version-controlled SQLite files -- create the first one to get started.",
+            Lang::Zh => "表格以真实的、受版本控制的 SQLite 文件形式存储——创建第一个表格即可开始使用。",
+        }
+    }
+
+    pub fn table_init_first(&self) -> &'static str {
+        match self.lang {
+            Lang::En => "+ Create first table",
+            Lang::Zh => "+ 创建第一个表格",
         }
     }
 
