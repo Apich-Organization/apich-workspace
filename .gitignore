@@ -4,3 +4,11 @@ data/
 *.log
 crates/apich-web/pkg/
 scratch/workspace/
+
+# Working/reference notes, not project documentation -- README.md is the only root-level
+# markdown file meant to be tracked and public.
+/plan.md
+/bugs.md
+/needs.md
+/agy.md
+/remote.md

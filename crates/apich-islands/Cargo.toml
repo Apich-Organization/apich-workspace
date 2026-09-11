@@ -3,9 +3,13 @@ name = "apich-islands"
 version = "0.1.0"
 edition = "2021"
 description = "Interactive Leptos islands (real Rust, compiled to WASM) shared between the apich-web SSR server and its browser client bundle. Zero dependency on server-only crates (apich-db/apich-sandbox/apich-vcs/sqlx/tokio) so it can compile for wasm32-unknown-unknown."
+license = "AGPL-3.0-or-later"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
 
 [dependencies]
 leptos = { version = "0.7.7", default-features = false, features = ["islands"] }

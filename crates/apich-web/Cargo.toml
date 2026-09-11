@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 authors = ["APICH Team"]
 description = "Full-Stack Web Server with a Leptos SSR Frontend, Project Lifecycle Sandbox, SSO Provider, and Passkey/FIDO2 Auth for APICH"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-or-later"
+
+[lints]
+workspace = true
 
 [dependencies]
 apich-db = { path = "../apich-db" }

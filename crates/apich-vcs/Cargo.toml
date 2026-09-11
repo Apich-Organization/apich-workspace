@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 authors = ["APICH Team"]
 description = "Weave-free, continuous auto-saving, FastCDC-chunked version control system with bidirectional Git bridge for APICH Technical & Academic Workspace"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-or-later"
+
+[lints]
+workspace = true
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

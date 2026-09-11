@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 authors = ["APICH Team"]
 description = "PostgreSQL container lifecycle, persistence, backups, permissions, and core data models for APICH Technical & Academic Workspace"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-or-later"
+
+[lints]
+workspace = true
 
 [dependencies]
 apich-sandbox = { path = "../apich-sandbox" }
