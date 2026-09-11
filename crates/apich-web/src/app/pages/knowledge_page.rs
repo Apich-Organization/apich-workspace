@@ -241,7 +241,7 @@ fn render_kanban_template_panel(
     }
 }
 
-pub(crate) fn render_wiki(graph: &KnowledgeGraph) -> impl IntoView {
+pub(crate) fn render_wiki(project_id: uuid::Uuid, graph: &KnowledgeGraph) -> impl IntoView {
     let nodes: Vec<_> = graph
         .nodes
         .iter()
@@ -249,13 +249,28 @@ pub(crate) fn render_wiki(graph: &KnowledgeGraph) -> impl IntoView {
             let status_tag = if n.exists {
                 view! { <span style="font-size:0.7rem; color:var(--text-sub);">{n.backlink_count} " backlinks • " {n.task_count} " tasks"</span> }.into_any()
             } else {
-                view! { <span style="font-size:0.7rem; color:#d97706; background:#fffbeb; padding:1px 5px; border-radius:3px;">"Placeholder / Uncreated"</span> }.into_any()
+                let create_action = format!("/projects/{}/note/create-page", project_id);
+                view! {
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <span style="font-size:0.7rem; color:#d97706; background:#fffbeb; padding:1px 5px; border-radius:3px;">"Placeholder / Uncreated"</span>
+                        <form method="post" action=create_action class="inline-form">
+                            <input type="hidden" name="title" value=n.label.clone() />
+                            <button type="submit" class="btn btn-primary btn-sm" style="padding:0.15rem 0.5rem; font-size:0.72rem;">"+ Create this page"</button>
+                        </form>
+                    </div>
+                }.into_any()
+            };
+            let title_view = if let Some(path) = &n.file_path {
+                let href = format!("/projects/{}/note?file={}&view=editor", project_id, urlencoding::encode(path));
+                view! { <a href=href class="wiki-link-title" style="text-decoration:none;">"[[" {n.label.clone()} "]]"</a> }.into_any()
+            } else {
+                view! { <span class="wiki-link-title">"[[" {n.label.clone()} "]]"</span> }.into_any()
             };
             let path_info = n.file_path.clone().map(|p| view! { <code style="font-size:0.7rem;">{p}</code> });
             view! {
                 <div class="wiki-node-item">
                     <div>
-                        <span class="wiki-link-title">"[[" {n.label.clone()} "]]"</span>
+                        {title_view}
                         <div style="margin-top:2px;">{path_info}</div>
                     </div>
                     <div>{status_tag}</div>
@@ -283,10 +298,25 @@ pub(crate) fn render_wiki(graph: &KnowledgeGraph) -> impl IntoView {
             .collect()
     };
 
+    let new_page_form = {
+        let action = format!("/projects/{}/note/create-page", project_id);
+        view! {
+            <form method="post" action=action class="form-row" style="align-items:flex-end; margin-bottom:1rem;">
+                <div class="form-group" style="margin-bottom:0; flex-grow:1;">
+                    <label style="font-size:0.75rem;">"New page title"</label>
+                    <input type="text" name="title" placeholder="e.g. Project Roadmap" required=true class="form-control" />
+                </div>
+                <input type="hidden" name="view" value="wiki" />
+                <button type="submit" class="btn btn-primary btn-sm">"+ New Page"</button>
+            </form>
+        }
+    };
+
     view! {
         <div class="wiki-container">
             <div class="wiki-card">
                 <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.85rem; color:var(--text-main);">"Notes & Concepts (" {graph.nodes.len()} " nodes)"</h3>
+                {new_page_form}
                 <div class="wiki-node-list">{nodes}</div>
             </div>
             <div class="wiki-card">

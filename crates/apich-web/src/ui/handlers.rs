@@ -245,6 +245,7 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/table/notebook/run-cell", post(notebook_run_cell_action))
         // Dedicated Unified Note Studio (.anote, .note.md, etc.)
         .route("/projects/:id/note", get(project_note_page))
+        .route("/projects/:id/note/create-page", post(create_note_page_action))
         .route("/projects/:id/note/save", post(save_note_action))
         .route("/projects/:id/note/whiteboard", post(save_whiteboard_action))
         // Project Knowledge Hub (Tasks, Kanban, Wiki, Calendar)
@@ -3820,6 +3821,66 @@ async fn project_knowledge_page(
 
     let view = params.view.unwrap_or_else(|| "kanban".to_string());
     Redirect::to(&format!("/projects/{}/note?view={}", project.id, view)).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateNotePageForm {
+    pub title: String,
+    #[serde(default)]
+    pub view: String,
+}
+
+/// Manually create a new page in the unified note space -- previously the *only* way to start a
+/// new note-kind file was the generic Files tab's "+ New File" picker (pick a filename with the
+/// right extension, then a template), which doesn't read as "add a page" the way this feature's
+/// own Wiki view (a graph of notes and the [[links]] between them) implies it should support.
+/// This gives that view its own direct "+ New Page" affordance, and lets a placeholder node (a
+/// [[Link]] with no backing file yet, shown in the Wiki tab as "Placeholder / Uncreated") be
+/// materialized into a real page with one click, using its exact label as both filename and title
+/// so the link that pointed to it starts resolving immediately.
+async fn create_note_page_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<CreateNotePageForm>,
+) -> Response {
+    let AuthUser(user) = match auth {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+    let project = match resolve_project(&state, &id_or_slug).await {
+        Some(p) => p,
+        None => return Redirect::to("/").into_response(),
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id).await.unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let title = payload.title.trim();
+    let view = if payload.view.is_empty() { "wiki".to_string() } else { payload.view.clone() };
+    if title.is_empty() {
+        return redirect_error(&format!("/projects/{}/note?view={}", project.id, view), "Page title cannot be empty");
+    }
+
+    let base_slug = crate::services::knowledge_sync::KnowledgeSyncService::slugify_page_title(title);
+    let safe_title = title.replace('"', "'");
+    let content = format!("---\ntitle: \"{}\"\n---\n\n# {}\n", safe_title, title);
+
+    let mut filename = format!("{}.anote", base_slug);
+    let mut attempt = 2;
+    loop {
+        match state.project_manager.create_file_with_content(project.id, user.id, &filename, &content).await {
+            Ok(()) => break,
+            Err(WebError::Conflict(_)) if attempt <= 50 => {
+                filename = format!("{}-{}.anote", base_slug, attempt);
+                attempt += 1;
+            }
+            Err(e) => return redirect_error(&format!("/projects/{}/note?view={}", project.id, view), e),
+        }
+    }
+
+    Redirect::to(&format!("/projects/{}/note?file={}&view=editor&notice={}", project.id, urlencoding::encode(&filename), urlencoding::encode("Page created."))).into_response()
 }
 
 /// Toggle task status in the physical Markdown document

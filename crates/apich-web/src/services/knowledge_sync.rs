@@ -188,6 +188,28 @@ impl KnowledgeSyncService {
         slug
     }
 
+    /// Turn a free-typed page title into a safe `.anote` filename base -- same approach as
+    /// `slugify_kanban_column_id`, just without a caller-supplied uniqueness list (page filenames
+    /// are de-duplicated by `create_note_page_action` trying the plain slug first, then
+    /// `-2`, `-3`, ... on conflict).
+    pub fn slugify_page_title(title: &str) -> String {
+        let slug: String = title
+            .trim()
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+            .split('-')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        if slug.is_empty() {
+            "untitled".to_string()
+        } else {
+            slug
+        }
+    }
+
     /// Discover all Markdown and Unified Note (.anote, .note, .md) files in a workspace directory
     pub fn discover_markdown_files<P: AsRef<Path>>(project_dir: P) -> Vec<PathBuf> {
         let mut md_files = Vec::new();

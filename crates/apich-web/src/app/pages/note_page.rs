@@ -125,7 +125,7 @@ pub fn NotePage(
         )
         .into_any(),
         NoteView::Whiteboard => render_whiteboard_view(project_id, &file_path, &meta).into_any(),
-        NoteView::Wiki => render_wiki(&graph).into_any(),
+        NoteView::Wiki => render_wiki(project.id, &graph).into_any(),
         NoteView::Calendar => render_calendar(&calendar).into_any(),
         NoteView::Kanban => render_kanban(&project, &kanban, &own_kanban_templates, &visible_kanban_templates, i18n).into_any(),
     };
