@@ -69,13 +69,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting APICH Web Server on port {}", port);
 
-    // Default development Postgres configuration
+    // Default development Postgres configuration with optional environment overrides
+    let pg_host = std::env::var("POSTGRES_HOST").unwrap_or_else(|_| "localhost".to_string());
+    let pg_port: u16 = std::env::var("POSTGRES_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(5432);
+    let pg_user = std::env::var("POSTGRES_USER").unwrap_or_else(|_| "postgres".to_string());
+    let pg_password = std::env::var("POSTGRES_PASSWORD").unwrap_or_else(|_| "postgres".to_string());
+    let pg_db = std::env::var("POSTGRES_DB").unwrap_or_else(|_| "apich_workspace".to_string());
+
     let pg_config = PostgresConfig::builder("./scratch/pg_data", "./scratch/pg_backup")
         .container_name("apich-postgres-web")
-        .host_port(5432)
-        .database("apich_workspace")
-        .admin_user("postgres")
-        .admin_password("postgres")
+        .host_port(pg_port)
+        .database(&pg_db)
+        .admin_user(&pg_user)
+        .admin_password(&pg_password)
         .selinux_relabel(true)
         .build();
 
@@ -87,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("Note waiting for Postgres container: {}", e);
     }
 
-    let db = Arc::new(Database::connect_admin(&pg_config, "localhost").await?);
+    let db = Arc::new(Database::connect_admin(&pg_config, &pg_host).await?);
     db.run_migrations().await?;
 
     // Auto-seed default administrative credentials and sample workspace if database is uninitialized

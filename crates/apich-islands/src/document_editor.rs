@@ -221,7 +221,7 @@ pub fn DocumentEditorIsland(
         let project_id = project_id.clone();
         let file_path = file_path.clone();
         move |_| {
-            if is_typst_preview {
+            if is_typst_preview || is_slide {
                 debounced_typst_preview(TypstPreviewArgs {
                     code_ref,
                     project_id: project_id.clone(),
@@ -258,7 +258,15 @@ pub fn DocumentEditorIsland(
 
     let preview = if is_script {
         render_script_console(project_id.clone(), file_path.clone()).into_any()
-    } else if is_typst_preview {
+    } else if is_typst_preview || is_slide {
+        // Cargo-slide decks compile through the exact same Typst pipeline as a plain `.typ` file
+        // (see `render_doc_preview_action`, which branches on file extension, not on this flag),
+        // so they need the same SVG-pages preview -- previously this branch only checked
+        // `is_typst_preview` (true only for `DocumentPreviewKind::Typst`), which is mutually
+        // exclusive with `DocumentPreviewKind::Slide` (see `DocEditorFlags`). Every slide file
+        // fell through to the plain-markdown branch below instead, rendering an empty
+        // `markdown_html_sig` (never populated for slides) -- the preview panel showed nothing at
+        // all, and typing never recompiled anything (see `on_code_input`'s matching fix).
         render_typst_preview(compile_error_sig, pages, current_slide).into_any()
     } else if is_latex_preview {
         // Real `pdflatex` compilation happens inside the project's sandbox container (it has a

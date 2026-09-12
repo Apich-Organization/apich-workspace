@@ -18,6 +18,11 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+/// How long a finished (`Done` or `Failed`) job's record -- including the built binary's bytes,
+/// for `Done` -- stays available for polling/download after it completes. See the doc comment at
+/// its use site in `start()` for why this was raised from an earlier 10-minute value.
+const RETENTION: std::time::Duration = std::time::Duration::from_hours(2);
+
 #[derive(Debug, Clone)]
 pub enum SlideBuildStatus {
     Running { percent: u8, message: String },
@@ -123,7 +128,7 @@ impl SlideBuildRegistry {
                 let message = last_error
                     .unwrap_or_else(|| format!("Build process exited with code {exit_code}"));
                 *job.status.lock().await = SlideBuildStatus::Failed { message };
-                tokio::time::sleep(std::time::Duration::from_mins(10)).await;
+                tokio::time::sleep(RETENTION).await;
                 registry.jobs.lock().await.remove(&id);
                 return;
             }
@@ -142,10 +147,16 @@ impl SlideBuildRegistry {
             }
             let _ = container.exec(["rm", "-f", &out_rel_path]).await;
 
-            // Keep the finished record around briefly so a client mid-poll (or about to click
-            // download) still sees it, then drop it -- these are low-volume but must not
-            // accumulate forever in a long-running server.
-            tokio::time::sleep(std::time::Duration::from_mins(10)).await;
+            // Keep the finished record around so a client mid-poll (or about to click download)
+            // still sees it, then drop it -- these are low-volume but must not accumulate forever
+            // in a long-running server. Was 10 minutes, which was routinely shorter than how long
+            // a real cross-compiled build (several minutes itself) plus the time a user actually
+            // takes to notice the finished download link and click it -- confirmed as the cause
+            // of live "Build job not found"/404 reports on the download endpoint (see
+            // `slide_binary_download_action`) that had nothing to do with the build itself having
+            // failed. Two hours gives a real margin without keeping a finished binary's bytes
+            // resident in memory indefinitely.
+            tokio::time::sleep(RETENTION).await;
             registry.jobs.lock().await.remove(&id);
         });
 

@@ -22,6 +22,22 @@ pub fn SlideBuildIsland(
     #[prop(into)] project_id: String,
     #[prop(into)] file_path: String,
 ) -> impl IntoView {
+    // Defaults to "host" (dynamically linked against the sandbox image's own glibc/X11), NOT one
+    // of the musl targets -- confirmed live: a `x86_64-unknown-linux-musl` build is *fully static*
+    // (Rust's musl targets default `crt-static` on), and the player's window (`minifb`) opens its
+    // X11/Wayland backend via `dlopen()` at runtime, not a compile-time link. A fully static
+    // binary has no dynamic linker segment for `dlopen()` to work at all -- musl's own libc stub
+    // for it unconditionally returns "Dynamic loading not supported", on every machine, X server
+    // or not. So the musl targets can never open a presentation window; they were briefly this
+    // picker's default under the mistaken assumption that "static" meant "more portable" here,
+    // which made the download strictly worse (guaranteed failure everywhere, vs. sometimes-works).
+    // They're kept in the list below only for someone building a *headless* consumer of the
+    // deck's data, not for anyone who plans to actually watch the presentation run.
+    // "host" being dynamically linked against glibc/X11 means the binary can still fail at
+    // *runtime* on a sufficiently different Linux machine (mismatched shared library versions --
+    // e.g. the `BadWindow`/`X_DeleteProperty` report that started this) -- there's no target this
+    // picker can offer that's both statically self-contained and able to open a real window, since
+    // `dlopen`-based windowing fundamentally requires a dynamic linker to exist at runtime.
     let target = RwSignal::new("host".to_string());
     let job_id = RwSignal::new(None::<String>);
     let percent = RwSignal::new(0u8);
@@ -81,11 +97,11 @@ pub fn SlideBuildIsland(
                     prop:value=move || target.get()
                     on:change=move |ev| target.set(event_target_value(&ev))
                 >
-                    <option value="host">"This server (Linux, native)"</option>
+                    <option value="host">"Linux (native, recommended -- opens a real window)"</option>
                     <option value="x86_64-pc-windows-gnu">"Windows x86_64"</option>
                     <option value="aarch64-pc-windows-gnullvm">"Windows ARM64"</option>
-                    <option value="x86_64-unknown-linux-musl">"Linux x86_64 (musl)"</option>
-                    <option value="aarch64-unknown-linux-musl">"Linux ARM64 (musl)"</option>
+                    <option value="x86_64-unknown-linux-musl">"Linux x86_64 (musl, static -- cannot open a window, headless use only)"</option>
+                    <option value="aarch64-unknown-linux-musl">"Linux ARM64 (musl, static -- cannot open a window, headless use only)"</option>
                 </select>
                 <button
                     type="button"

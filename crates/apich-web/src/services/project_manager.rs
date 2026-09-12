@@ -31,12 +31,19 @@ impl ProjectManager {
     /// the host's own native platform. Each value is a real Rust target triple `cargo slide build
     /// --target <triple>` is passed verbatim, validated against this allow-list before it ever
     /// reaches a shell command (see `start_slide_build`).
+    /// The musl targets are still valid to request (and still built), but produce a fully static
+    /// binary that can never actually open the presentation window: `minifb` loads its X11/Wayland
+    /// backend via `dlopen()` at runtime, and a fully static binary has no dynamic linker for that
+    /// call to work through at all -- musl's own libc stub for it unconditionally fails with
+    /// "Dynamic loading not supported", confirmed live, regardless of what's installed on the
+    /// machine that runs it. Kept in the allow-list for a headless consumer of the deck's data
+    /// (not this UI's own picker default -- see `apich_islands::SlideBuildIsland`'s doc comment).
     pub const SLIDE_BUILD_TARGETS: &'static [(&'static str, &'static str)] = &[
         ("host", "This server's own platform (Linux, native)"),
         ("x86_64-pc-windows-gnu", "Windows x86_64"),
         ("aarch64-pc-windows-gnullvm", "Windows ARM64"),
-        ("x86_64-unknown-linux-musl", "Linux x86_64 (musl, static)"),
-        ("aarch64-unknown-linux-musl", "Linux ARM64 (musl, static)"),
+        ("x86_64-unknown-linux-musl", "Linux x86_64 (musl, static -- cannot open a window)"),
+        ("aarch64-unknown-linux-musl", "Linux ARM64 (musl, static -- cannot open a window)"),
     ];
 
     pub fn new(
@@ -1670,6 +1677,11 @@ impl ProjectManager {
 
         let mut items = Vec::new();
         let mut dirs = vec![proj_root.clone()];
+        // Every subdirectory walked (relative path), so a folder with no *files* anywhere under
+        // it -- e.g. one just created via `create_folder`, still holding only its `.gitkeep`
+        // placeholder -- can still get a synthetic row below instead of being silently invisible
+        // (this loop only ever emits `ProjectFileItem`s for real files as it walks).
+        let mut dirs_seen: Vec<String> = Vec::new();
 
         while let Some(dir) = dirs.pop() {
             let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
@@ -1699,6 +1711,12 @@ impl ProjectManager {
 
                 if let Ok(ft) = entry.file_type().await {
                     if ft.is_dir() {
+                        let rel = path
+                            .strip_prefix(&proj_root)
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/");
+                        dirs_seen.push(rel);
                         dirs.push(path);
                     } else if ft.is_file() {
                         let rel = path
@@ -1750,7 +1768,19 @@ impl ProjectManager {
                                 "script".to_string()
                             } else if matches!(
                                 ext.as_str(),
-                                "tsv" | "json" | "png" | "jpg" | "jpeg" | "svg"
+                                // Text-ish data formats still better served raw than force-fit
+                                // into the plain-text editor.
+                                "tsv" | "json"
+                                // Images
+                                | "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" | "svg"
+                                | "avif" | "tiff"
+                                // Audio
+                                | "mp3" | "wav" | "ogg" | "flac" | "m4a" | "aac" | "opus"
+                                // Video
+                                | "mp4" | "webm" | "mov" | "avi" | "mkv" | "m4v"
+                                // Documents/archives/fonts/generic binaries
+                                | "pdf" | "zip" | "tar" | "gz" | "7z" | "rar" | "woff" | "woff2"
+                                | "ttf" | "otf" | "wasm" | "exe" | "dll" | "so" | "bin"
                             ) {
                                 "asset".to_string()
                             } else {
@@ -1758,13 +1788,6 @@ impl ProjectManager {
                             };
 
                         let open_url = match category.as_str() {
-                            | "slide" | "typst" | "latex" | "script" => {
-                                format!(
-                                    "/projects/{}/editor?file={}",
-                                    project_id,
-                                    urlencoding::encode(&rel)
-                                )
-                            },
                             | "table" => {
                                 format!(
                                     "/projects/{}/table?file={}",
@@ -1779,17 +1802,34 @@ impl ProjectManager {
                                     urlencoding::encode(&rel)
                                 )
                             },
-                            // "asset"/"other" cover real binary content (PDFs -- typically the
-                            // compiled output sitting next to a .tex source, images, audio) that
-                            // the text-based editor studio's `read_file` (a `String`) simply
-                            // cannot represent -- routing these through `/editor` used to either
-                            // error on invalid UTF-8 or silently render mangled bytes as "markdown
-                            // source". The raw endpoint serves real bytes with a real
-                            // content-type, so the browser can actually display (PDF, image) or
-                            // download (anything else) it.
-                            | _ => {
+                            // "asset" is the only category covering real binary content (images,
+                            // audio, video, PDFs, archives, fonts) that the text-based editor
+                            // studio's `read_file` (a `String`) simply cannot represent -- routing
+                            // these through `/editor` used to either error on invalid UTF-8 or
+                            // silently render mangled bytes as "markdown source". The raw endpoint
+                            // serves real bytes with a real content-type, so the browser can
+                            // actually display (PDF, image) or download (anything else) it.
+                            | "asset" => {
                                 format!(
                                     "/projects/{}/files/raw?file={}",
+                                    project_id,
+                                    urlencoding::encode(&rel)
+                                )
+                            },
+                            // Everything else opens in the in-app editor: "slide"/"typst"/
+                            // "latex"/"script" each have a dedicated mode there, and "other" --
+                            // an extension this app doesn't have dedicated editor or
+                            // recognized-binary handling for (.txt, .yaml, .toml, a file with no
+                            // extension at all, ...) -- falls back to the same plain-text editor
+                            // branch (`document_editor.rs`'s markdown fallback). "other" used to
+                            // be lumped in with "asset" and forced through the raw/download
+                            // endpoint instead -- confirmed live: creating a plain new file (an
+                            // extension not matching any case above, e.g. via "+ New File") made
+                            // clicking it download instead of open, even though it's ordinary
+                            // UTF-8 text `create_file` itself just wrote.
+                            | _ => {
+                                format!(
+                                    "/projects/{}/editor?file={}",
                                     project_id,
                                     urlencoding::encode(&rel)
                                 )
@@ -1818,6 +1858,35 @@ impl ProjectManager {
                     }
                 }
             }
+        }
+
+        // A directory with no file anywhere under it (a freshly `create_folder`'d one, still
+        // holding only its hidden `.gitkeep`) has no row yet -- add a synthetic one so it's
+        // actually visible (and usable as an upload destination) instead of looking like folder
+        // creation silently did nothing.
+        for dir_rel in dirs_seen {
+            let has_file_under = items
+                .iter()
+                .any(|it| it.path.starts_with(&format!("{dir_rel}/")));
+            if has_file_under {
+                continue;
+            }
+            let name = dir_rel
+                .rsplit('/')
+                .next()
+                .unwrap_or(&dir_rel)
+                .to_string();
+            items.push(ProjectFileItem {
+                path: dir_rel,
+                name,
+                is_dir: true,
+                size_bytes: 0,
+                extension: String::new(),
+                category: "folder".to_string(),
+                modified_rfc3339: None,
+                open_url: String::new(),
+                share_info: None,
+            });
         }
 
         items.sort_by(|a, b| a.path.cmp(&b.path));
@@ -2079,6 +2148,7 @@ INSERT INTO records (item_name, category, value, status, notes) VALUES
                 })?;
             }
             let initial_content = match template {
+                | "empty" => "",
                 | "typst" => {
                     r#"#set page(paper: "a4", margin: 2.5cm)
 #set text(font: "Linux Libertine", size: 11pt)
@@ -2226,6 +2296,104 @@ status: "in_progress"
         Ok(())
     }
 
+    /// Creates an empty folder (arbitrarily nested, e.g. `assets/videos`) inside the project's
+    /// workspace -- mainly so a user has somewhere to organize uploads (`upload_file`) into
+    /// *before* uploading the first file there, rather than only being able to create a folder as
+    /// a side effect of writing into it.
+    ///
+    /// Folders aren't file content, so the `FastCDC` snapshot layer (which versions file bytes, not
+    /// directory structure) has nothing to actually track for an empty one -- and `list_files`
+    /// only ever walks and lists *files*, so a directory with nothing in it would otherwise be
+    /// silently invisible in the Files tab the moment after creating it, with no way to tell it
+    /// worked. A `.gitkeep` placeholder (the same convention `git` users already know, since this
+    /// project's own VCS layer -- `apich_vcs` -- otherwise has nothing to snapshot either) keeps
+    /// the directory both non-empty on disk and present in the file listing (see
+    /// `list_files`'s matching change) until real content lands in it.
+    pub async fn create_folder(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+    ) -> WebResult<()> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let clean = rel_path.trim().trim_matches('/');
+        if clean.contains("..") || clean.is_empty() {
+            return Err(WebError::BadRequest("Invalid folder path".to_string()));
+        }
+
+        let full_path = PathBuf::from(&proj.storage_path).join(clean);
+        if full_path.exists() {
+            return Err(WebError::Conflict(format!(
+                "'{rel_path}' already exists"
+            )));
+        }
+
+        tokio::fs::create_dir_all(&full_path)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to create folder: {e}")))?;
+        tokio::fs::write(full_path.join(".gitkeep"), b"")
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to create folder: {e}")))?;
+
+        let user_hex = user_id.simple().to_string();
+        let user_suffix = &user_hex[24..];
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let _ = vcs.snapshot_if_changed(format!("Create folder {clean} (by user {user_suffix})"))?;
+
+        Ok(())
+    }
+
+    /// Uploads binary content (a video/audio/image/etc. asset, or anything else -- no type
+    /// restriction, this just writes bytes) to `rel_path` inside the project's workspace,
+    /// creating any parent folders that don't exist yet. Same path-safety/VCS-snapshot shape as
+    /// `create_file_with_content`, except: this overwrites an existing file at the same path
+    /// instead of rejecting the upload outright -- re-uploading the same asset (a corrected
+    /// image, a re-exported video) to replace what's there is the expected use, not an error case
+    /// the way accidentally clobbering a hand-written source file via "+ New File" would be.
+    /// The caller (`upload_file_action`) is responsible for any size cap -- this just writes
+    /// whatever bytes it's given.
+    pub async fn upload_file(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+        content: &[u8],
+    ) -> WebResult<()> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let clean = rel_path.trim().trim_start_matches('/');
+        if clean.contains("..") || clean.is_empty() {
+            return Err(WebError::BadRequest("Invalid file path".to_string()));
+        }
+
+        let full_path = PathBuf::from(&proj.storage_path).join(clean);
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                WebError::Internal(format!("Failed to create parent directory: {e}"))
+            })?;
+        }
+
+        tokio::fs::write(&full_path, content)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to write uploaded file: {e}")))?;
+
+        let user_hex = user_id.simple().to_string();
+        let user_suffix = &user_hex[24..];
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let _ = vcs.snapshot_if_changed(format!("Upload {clean} (by user {user_suffix})"))?;
+
+        Ok(())
+    }
+
     /// Delete file from project workspace
     pub async fn delete_file(
         &self,
@@ -2249,9 +2417,20 @@ status: "in_progress"
             return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
         }
 
-        tokio::fs::remove_file(&full_path)
-            .await
-            .map_err(|e| WebError::Internal(format!("Failed to delete file: {e}")))?;
+        // Handles both a plain file and a folder (e.g. one from `create_folder`, or any directory
+        // that accumulated real uploads) through the same action -- the Files tab's "Del" button
+        // posts the same form regardless of which kind of row it's on (see `project_detail.rs`),
+        // so this needs to actually delete whichever it's given rather than erroring on a
+        // directory the way `remove_file` alone would.
+        if full_path.is_dir() {
+            tokio::fs::remove_dir_all(&full_path)
+                .await
+                .map_err(|e| WebError::Internal(format!("Failed to delete folder: {e}")))?;
+        } else {
+            tokio::fs::remove_file(&full_path)
+                .await
+                .map_err(|e| WebError::Internal(format!("Failed to delete file: {e}")))?;
+        }
 
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];

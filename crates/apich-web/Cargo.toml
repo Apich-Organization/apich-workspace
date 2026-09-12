@@ -16,7 +16,7 @@ apich-vcs = { path = "../apich-vcs" }
 apich-islands = { path = "../apich-islands", features = ["ssr"] }
 
 # Web Framework & SSR
-axum = { version = "0.7.9", features = ["macros"] }
+axum = { version = "0.7.9", features = ["macros", "multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "trace", "set-header"] }
 leptos = { version = "0.7.7", features = ["ssr", "islands"] }

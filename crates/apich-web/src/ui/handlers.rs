@@ -19,6 +19,7 @@ use apich_db::Project;
 use apich_vcs::api::ProjectVcs;
 use axum::extract::Form;
 use axum::extract::Json;
+use axum::extract::Multipart;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
@@ -225,6 +226,12 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/files/new", post(create_file_action))
         .route("/projects/:id/files/delete", post(delete_file_action))
         .route("/projects/:id/files/raw", get(file_raw_action))
+        .route("/projects/:id/folders/new", post(create_folder_action))
+        .route(
+            "/projects/:id/files/upload",
+            post(upload_file_action)
+                .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
         .route("/projects/:id/sandbox/start", post(start_sandbox_action))
         .route("/projects/:id/sandbox/stop", post(stop_sandbox_action))
         .route("/projects/:id/snapshot", post(snapshot_action))
@@ -880,6 +887,12 @@ async fn project_detail_page(
         .unwrap_or_else(|| "files".to_string());
     let notice = params.get("notice").map(|s| {
         match s.as_str() {
+            | "file_created" => "File created.",
+            | "file_uploaded" => "File uploaded.",
+            | "folder_created" => "Folder created.",
+            | "file_deleted" => "File deleted.",
+            | "demo_created" => "Demo project created.",
+            | "demo_seeded" => "Demo files seeded.",
             | "reconciled" => "Branch merge complete. Any conflicts are marked below.",
             | "conflict_resolved" => "Merge conflict successfully resolved and snapshot recorded.",
             | "git_synced" => "Exported and committed to local Git repository.",
@@ -919,6 +932,18 @@ async fn project_detail_page(
         );
     }
 
+    // Files-tab browsing state: "tree" (default) shows one directory level at a time and lets the
+    // user walk into folders; "flat" is the original every-file-at-once listing, kept because it's
+    // genuinely better for finding something by name in a project whose layout you already know.
+    let files_view = params
+        .get("view")
+        .filter(|v| v.as_str() == "flat")
+        .map_or_else(|| "tree".to_string(), Clone::clone);
+    let files_dir = params
+        .get("dir")
+        .map(|d| d.trim().trim_matches('/').to_string())
+        .unwrap_or_default();
+
     let current_path = format!("/projects/{id_or_slug}?tab={active_tab}");
     let html = crate::app::components::render_document(move || {
         leptos::prelude::view! {
@@ -937,6 +962,8 @@ async fn project_detail_page(
                 all_users=all_users
                 git_status=git_status
                 files=files
+                files_view=files_view
+                files_dir=files_dir
                 ignore_config=ignore_config
                 gitignore_content=gitignore_content
                 apichignore_content=apichignore_content
@@ -1154,6 +1181,10 @@ async fn seed_demo_files_action(
 pub struct CreateFileForm {
     pub filename: String,
     pub template: Option<String>,
+    /// Destination folder for the new file, relative to the project root ("" = root). Lets a
+    /// user put a new file straight into a folder they've made rather than only ever creating at
+    /// the root and having no way to move it afterwards.
+    pub folder: Option<String>,
     /// When set, overrides `template`'s fixed builtin starters entirely -- content comes from a
     /// published Template Library version instead (note body, or a latex/typst/slides template's
     /// single captured file; kanban-kind templates aren't offered here, they apply onto a
@@ -1164,6 +1195,22 @@ pub struct CreateFileForm {
     pub template_version_id: Option<String>,
 }
 
+/// The file extension each builtin starter kind implies. A user who picks "Typst Paper" from the
+/// type dropdown and types a bare name ("notes") reasonably expects `notes.typ` -- previously the
+/// chosen type only ever decided the file's *contents*, and the extension had to be typed by hand
+/// into the name field, so a bare name produced an extension-less file that then didn't match any
+/// of the editor/preview routes keyed off extension (a Typst starter's content sitting in a file
+/// nothing would ever compile as Typst).
+fn starter_extension(template: &str) -> Option<&'static str> {
+    match template {
+        | "typst" | "slide" => Some("typ"),
+        | "latex" => Some("tex"),
+        | "note" => Some("anote"),
+        | "table" => Some("table"),
+        | _ => None,
+    }
+}
+
 /// Create new file in project workspace
 async fn create_file_action(
     AuthUser(user): AuthUser,
@@ -1171,13 +1218,37 @@ async fn create_file_action(
     State(state): State<AppState>,
     Form(payload): Form<CreateFileForm>,
 ) -> Result<Response, WebError> {
-    let filename = payload.filename.trim();
-    if filename.is_empty() {
+    let raw_name = payload.filename.trim();
+    if raw_name.is_empty() {
         return Ok(Redirect::to(&format!(
             "/projects/{id}?tab=files&error=Filename+cannot+be+empty"
         ))
         .into_response());
     }
+
+    // Append the chosen type's extension when the typed name doesn't already carry one. Only when
+    // there's no extension at all -- a user who explicitly typed `notes.md` gets `notes.md`, not
+    // `notes.md.typ`.
+    let template_kind = payload.template.as_deref().unwrap_or("empty");
+    let has_extension = std::path::Path::new(raw_name).extension().is_some();
+    let with_ext = match starter_extension(template_kind) {
+        | Some(ext) if !has_extension => format!("{raw_name}.{ext}"),
+        | _ => raw_name.to_string(),
+    };
+
+    let folder = payload
+        .folder
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches('/')
+        .to_string();
+    let full_name = if folder.is_empty() {
+        with_ext
+    } else {
+        format!("{folder}/{with_ext}")
+    };
+    let filename = full_name.as_str();
 
     let version_id = payload
         .template_version_id
@@ -1274,10 +1345,146 @@ async fn create_file_action(
                 urlencoding::encode(filename)
             )
         },
-        | _ => format!("/projects/{id}?tab=files&notice=file_created"),
+        // Land back in the folder the file was created in, not the project root, so a user
+        // working inside a folder isn't bounced out of it on every create.
+        | _ => {
+            format!(
+                "/projects/{id}?tab=files&dir={}&notice=file_created",
+                urlencoding::encode(&folder)
+            )
+        },
     };
 
     Ok(Redirect::to(&redirect_url).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateFolderForm {
+    pub folder: String,
+}
+
+/// Creates an empty folder in the project's workspace (see `ProjectManager::create_folder`'s doc
+/// comment for why an empty one still needs a real backing action, not just falling out of
+/// uploading a file into a not-yet-existing path).
+async fn create_folder_action(
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<CreateFolderForm>,
+) -> Result<Response, WebError> {
+    let folder = payload.folder.trim();
+    if folder.is_empty() {
+        return Ok(Redirect::to(&format!(
+            "/projects/{id}?tab=files&error=Folder+name+cannot+be+empty"
+        ))
+        .into_response());
+    }
+    state.project_manager.create_folder(id, user.id, folder).await?;
+    // Drop the user straight into the folder they just made -- it's empty, and the next thing
+    // they want is almost always to put something in it.
+    Ok(Redirect::to(&format!(
+        "/projects/{id}?tab=files&dir={}&notice=folder_created",
+        urlencoding::encode(folder)
+    ))
+    .into_response())
+}
+
+/// Cap on a single uploaded asset's size -- generous enough for a real video/audio clip while
+/// still bounding how much of this request the server ever buffers in memory at once (see
+/// `upload_file_action`'s doc comment on why the whole field is read into a `Vec<u8>` rather than
+/// streamed straight to disk). Enforced twice: as an axum `DefaultBodyLimit` on the route itself
+/// (rejects an oversized request before this handler even runs) and again here (a defense-in-depth
+/// check on the one multipart field this handler actually cares about, in case the two ever drift).
+const MAX_UPLOAD_BYTES: usize = 200 * 1024 * 1024;
+
+/// Uploads a binary asset (video/audio/image/etc, no type restriction) into the project's
+/// workspace via a real `multipart/form-data` file input -- previously there was no way to get
+/// binary content into a project at all except the sandbox's agent CLI writing files itself; a
+/// human working through the browser had no upload affordance whatsoever.
+///
+/// Reads the whole field into memory rather than streaming it straight to disk: `axum::Multipart`
+/// exposes a field as a byte stream, but this project's file-write path
+/// (`ProjectManager::upload_file`, shared with every other file-creation action so uploads get
+/// the exact same path-safety checks and VCS snapshot as everything else) takes a plain byte
+/// slice -- streaming would need a second, upload-specific write path duplicating those checks.
+/// `MAX_UPLOAD_BYTES` bounds how bad that tradeoff can get for a single request.
+async fn upload_file_action(
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Response, WebError> {
+    let mut folder = String::new();
+    let mut file_name: Option<String> = None;
+    let mut file_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| WebError::BadRequest(format!("Invalid upload: {e}")))?
+    {
+        match field.name().unwrap_or("") {
+            | "folder" => {
+                folder = field.text().await.unwrap_or_default();
+            },
+            | "file" => {
+                file_name = field.file_name().map(str::to_string);
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| WebError::BadRequest(format!("Invalid upload: {e}")))?;
+                if bytes.len() > MAX_UPLOAD_BYTES {
+                    return Ok(Redirect::to(&format!(
+                        "/projects/{id}?tab=files&error=File+too+large+(max+{}MB)",
+                        MAX_UPLOAD_BYTES / (1024 * 1024)
+                    ))
+                    .into_response());
+                }
+                file_bytes = Some(bytes.to_vec());
+            },
+            | _ => {},
+        }
+    }
+
+    let Some(name) = file_name.filter(|n| !n.trim().is_empty()) else {
+        return Ok(Redirect::to(&format!(
+            "/projects/{id}?tab=files&error=No+file+selected"
+        ))
+        .into_response());
+    };
+    let Some(bytes) = file_bytes else {
+        return Ok(Redirect::to(&format!(
+            "/projects/{id}?tab=files&error=No+file+selected"
+        ))
+        .into_response());
+    };
+
+    // Browsers send a file input's `filename` as just the base name (no directory component),
+    // but guard against a crafted multipart request claiming one anyway -- `upload_file` already
+    // rejects `..`, this additionally strips any literal path separator so the destination is
+    // always exactly `folder/<base name>`, never wherever an attacker-controlled `file_name`
+    // segment could otherwise redirect it within the (still sandboxed to this project) tree.
+    let base_name = std::path::Path::new(&name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&name);
+    let folder = folder.trim().trim_matches('/');
+    let rel_path = if folder.is_empty() {
+        base_name.to_string()
+    } else {
+        format!("{folder}/{base_name}")
+    };
+
+    state
+        .project_manager
+        .upload_file(id, user.id, &rel_path, &bytes)
+        .await?;
+
+    Ok(Redirect::to(&format!(
+        "/projects/{id}?tab=files&dir={}&notice=file_uploaded",
+        urlencoding::encode(folder)
+    ))
+    .into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1296,7 +1503,16 @@ async fn delete_file_action(
         .project_manager
         .delete_file(id, user.id, &payload.file)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{id}?tab=files&notice=file_deleted")).into_response())
+    // Stay in the deleted item's parent folder rather than jumping back to the project root.
+    let parent = payload
+        .file
+        .rsplit_once('/')
+        .map_or("", |(parent, _)| parent);
+    Ok(Redirect::to(&format!(
+        "/projects/{id}?tab=files&dir={}&notice=file_deleted",
+        urlencoding::encode(parent)
+    ))
+    .into_response())
 }
 
 #[derive(Debug, Deserialize)]

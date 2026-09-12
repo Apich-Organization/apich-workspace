@@ -255,10 +255,68 @@ pub fn AppShell(
                         <main class="app-main">{children()}</main>
                     </div>
                 </div>
+                <script>{ALERT_AUTO_DISMISS_JS}</script>
             </body>
         </html>
     }
 }
+
+/// A server-rendered `.alert-success`/`.alert-danger` (a "File created", "Saved", etc. notice
+/// from a `?notice=`/`?error=` query param baked into the initial HTML -- see `project_detail.rs`
+/// and `document_editor_page.rs`) used to just sit on screen forever: it was static markup with
+/// no dismiss affordance and no timer, so it only ever went away on a full navigation that
+/// dropped the query param. A `MutationObserver` (not a one-shot scan on load) is required, not
+/// optional, because pages built as Leptos islands mutate their own DOM after initial render --
+/// e.g. `ConfirmSubmitButton`'s own success path, or any island that inserts a fresh alert client
+/// side -- and a plain `querySelectorAll` at page-load time would silently miss all of those.
+const ALERT_AUTO_DISMISS_JS: &str = r"
+(function(){
+    function dismiss(el){
+        if (el.__apichDismissing) { return; }
+        el.__apichDismissing = true;
+        el.style.transition = 'opacity 0.3s ease, margin 0.3s ease, padding 0.3s ease, max-height 0.3s ease';
+        el.style.maxHeight = el.offsetHeight + 'px';
+        el.style.overflow = 'hidden';
+        requestAnimationFrame(function(){
+            el.style.opacity = '0';
+            el.style.maxHeight = '0';
+            el.style.marginTop = '0';
+            el.style.marginBottom = '0';
+            el.style.paddingTop = '0';
+            el.style.paddingBottom = '0';
+        });
+        setTimeout(function(){ el.remove(); }, 320);
+    }
+
+    function wire(el){
+        if (el.__apichWired) { return; }
+        el.__apichWired = true;
+        var close = document.createElement('button');
+        close.type = 'button';
+        close.setAttribute('aria-label', 'Dismiss');
+        close.textContent = '×';
+        close.style.cssText = 'float:right; background:none; border:none; cursor:pointer; font-size:1.1rem; line-height:1; color:inherit; opacity:0.6; padding:0 0 0 0.75rem; margin:-2px 0 0 0;';
+        close.addEventListener('click', function(){ dismiss(el); });
+        el.appendChild(close);
+        setTimeout(function(){ dismiss(el); }, 5000);
+    }
+
+    function scan(root){
+        root.querySelectorAll('.alert-success, .alert-danger').forEach(wire);
+    }
+
+    scan(document);
+    new MutationObserver(function(mutations){
+        mutations.forEach(function(m){
+            m.addedNodes.forEach(function(node){
+                if (node.nodeType !== 1) { return; }
+                if (node.matches && (node.matches('.alert-success') || node.matches('.alert-danger'))) { wire(node); }
+                if (node.querySelectorAll) { scan(node); }
+            });
+        });
+    }).observe(document.body, {childList: true, subtree: true});
+})();
+";
 
 /// Per-file sharing modal shared by every file-type studio (files tab, note editor,
 /// document/slide editor). Real component now: `apich_islands::FileShareModalIsland`. Trigger

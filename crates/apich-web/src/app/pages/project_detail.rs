@@ -48,6 +48,10 @@ pub fn ProjectDetailPage(
     all_users: Vec<User>,
     git_status: GitStatusView,
     files: Vec<ProjectFileItem>,
+    /// "tree" (browse one directory at a time) or "flat" (every file at once).
+    files_view: String,
+    /// Directory currently being browsed in "tree" view, relative to the project root ("" = root).
+    files_dir: String,
     ignore_config: apich_vcs::IgnoreConfig,
     gitignore_content: String,
     apichignore_content: String,
@@ -86,7 +90,16 @@ pub fn ProjectDetailPage(
 
     let tab_content = match tab {
         | ProjectTab::Files => {
-            render_files_tab(&project, files, all_users, new_file_templates, i18n).into_any()
+            render_files_tab(
+                &project,
+                files,
+                all_users,
+                new_file_templates,
+                files_view,
+                files_dir,
+                i18n,
+            )
+            .into_any()
         },
         | ProjectTab::Vcs => {
             render_vcs_tab(VcsTabArgs {
@@ -225,14 +238,93 @@ fn render_tab_bar(
     }
 }
 
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn render_files_tab(
     project: &Project,
     files: Vec<ProjectFileItem>,
     all_users: Vec<User>,
     new_file_templates: Vec<apich_db::TemplateWithLatestVersion>,
+    files_view: String,
+    files_dir: String,
     i18n: I18n,
 ) -> impl IntoView {
     let project_id = project.id;
+    let is_tree = files_view != "flat";
+    let cur_dir = files_dir.trim_matches('/').to_string();
+    drop(files_view);
+    drop(files_dir);
+
+    // In tree view, `files` (a flat list of every file in the project, at every depth -- see
+    // `ProjectManager::list_files`) is collapsed to just what lives *directly* in `cur_dir`:
+    // its own immediate files, plus one synthetic row per immediate subdirectory, so a folder is
+    // something the user can actually click into rather than only ever being implied by the
+    // slashes in some deeper file's path. `list_files` already emits real rows for *empty*
+    // directories, so those are kept as-is and only non-empty ones need synthesizing here.
+    let (files, breadcrumbs): (Vec<ProjectFileItem>, Vec<(String, String)>) = if is_tree {
+        let prefix = if cur_dir.is_empty() {
+            String::new()
+        } else {
+            format!("{cur_dir}/")
+        };
+
+        let mut here: Vec<ProjectFileItem> = Vec::new();
+        let mut subdirs: Vec<String> = Vec::new();
+        for f in files {
+            let Some(rest) = f.path.strip_prefix(&prefix) else {
+                continue;
+            };
+            if rest.is_empty() {
+                continue;
+            }
+            match rest.split_once('/') {
+                // Lives in a deeper directory -- surface only that directory, once.
+                | Some((child_dir, _)) => {
+                    let child = format!("{prefix}{child_dir}");
+                    if !subdirs.contains(&child) {
+                        subdirs.push(child);
+                    }
+                },
+                | None => here.push(f),
+            }
+        }
+        // An empty directory already has its own row from `list_files`; drop it from `subdirs` so
+        // it isn't listed twice.
+        let existing_dirs: Vec<String> =
+            here.iter().filter(|f| f.is_dir).map(|f| f.path.clone()).collect();
+        for dir_path in subdirs {
+            if existing_dirs.contains(&dir_path) {
+                continue;
+            }
+            let name = dir_path.rsplit('/').next().unwrap_or(&dir_path).to_string();
+            here.push(ProjectFileItem {
+                path: dir_path,
+                name,
+                is_dir: true,
+                size_bytes: 0,
+                extension: String::new(),
+                category: "folder".to_string(),
+                modified_rfc3339: None,
+                open_url: String::new(),
+                share_info: None,
+            });
+        }
+        // Folders first, then files, each alphabetical -- the conventional file-browser ordering.
+        here.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.path.cmp(&b.path)));
+
+        let mut crumbs = vec![(String::new(), "Project root".to_string())];
+        let mut walked = String::new();
+        for seg in cur_dir.split('/').filter(|s| !s.is_empty()) {
+            if walked.is_empty() {
+                walked = seg.to_string();
+            } else {
+                walked = format!("{walked}/{seg}");
+            }
+            crumbs.push((walked.clone(), seg.to_string()));
+        }
+        (here, crumbs)
+    } else {
+        (files, Vec::new())
+    };
 
     // Built as fully owned data before the `<apich_islands::ModalIsland>` below rather than
     // inline inside its children: islands require their children to be `'static`, but this
@@ -265,10 +357,78 @@ fn render_files_tab(
         }
     });
 
+    // Each modal below is an island whose children must be `'static`, so every one that
+    // pre-fills the browsed directory needs its own owned copy.
+    let cur_dir_for_new_file = cur_dir.clone();
+    let cur_dir_for_upload = cur_dir.clone();
+
+    // Creating a folder while browsing inside one should default to nesting under where you
+    // already are, not silently creating a sibling at the project root.
+    let new_folder_prefill = if cur_dir.is_empty() {
+        String::new()
+    } else {
+        format!("{cur_dir}/")
+    };
+
+    // "Browsing: root / assets / videos" -- each ancestor clickable to jump back up. Only
+    // meaningful in tree view (flat view isn't scoped to a directory at all).
+    let breadcrumb_bar = (is_tree && !breadcrumbs.is_empty()).then(|| {
+        let last_idx = breadcrumbs.len().saturating_sub(1);
+        let crumbs: Vec<_> = breadcrumbs
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (dir_path, label))| {
+                let is_last = idx == last_idx;
+                let sep = (idx > 0).then(|| view! { <span style="color:var(--text-sub); margin:0 0.35rem;">"/"</span> });
+                let crumb = if is_last {
+                    view! { <span style="font-weight:600;">{label}</span> }.into_any()
+                } else {
+                    let href = format!(
+                        "/projects/{}?tab=files&dir={}",
+                        project_id,
+                        urlencoding::encode(&dir_path)
+                    );
+                    view! { <a href=href>{label}</a> }.into_any()
+                };
+                view! { <span>{sep}{crumb}</span> }
+            })
+            .collect();
+        view! {
+            <div style="display:flex; align-items:center; font-size:0.85rem; margin-bottom:0.85rem;">
+                <span style="color:var(--text-sub); margin-right:0.5rem;">"📂"</span>
+                {crumbs}
+            </div>
+        }
+    });
+
+    let flat_url = format!("/projects/{project_id}?tab=files&view=flat");
+    let tree_url = format!("/projects/{project_id}?tab=files");
+    let view_toggle = view! {
+        <div style="display:flex; gap:0.35rem; align-items:center;">
+            <a
+                href=tree_url
+                class=if is_tree { "btn btn-primary btn-sm" } else { "btn btn-secondary btn-sm" }
+                style="padding:0.2rem 0.6rem; font-size:0.75rem;"
+                title="Browse one folder at a time"
+            >"📂 Folders"</a>
+            <a
+                href=flat_url
+                class=if is_tree { "btn btn-secondary btn-sm" } else { "btn btn-primary btn-sm" }
+                style="padding:0.2rem 0.6rem; font-size:0.75rem;"
+                title="List every file in the project at once"
+            >"☰ All files"</a>
+        </div>
+    };
+
     let rows = if files.is_empty() {
+        let empty_msg = if is_tree && !cur_dir.is_empty() {
+            "This folder is empty. Use 'Upload File' or '+ New File' to add something to it."
+        } else {
+            "No files yet. Click '+ New File' below to get started."
+        };
         view! {
             <tr><td colspan="6" style="text-align:center; padding:2.5rem; color:var(--text-sub);">
-                "No files yet. Click '+ New File' below to get started."
+                {empty_msg}
             </td></tr>
         }
         .into_any()
@@ -276,6 +436,61 @@ fn render_files_tab(
         files
             .into_iter()
             .map(|f| {
+                // A folder has no content/preview/share affordances of its own -- just a name to
+                // click into and a way to remove it -- so it gets its own short-circuited row
+                // rather than falling through the file-row layout below with a bunch of
+                // meaningless blank cells (a 0-byte "size", no share state, an "Open" link to
+                // nowhere).
+                if f.is_dir {
+                    let path = f.path;
+                    // Only navigable in tree view: flat view deliberately shows every file at
+                    // every depth at once, so "descend into this directory" has no meaning there.
+                    let browse_url = format!(
+                        "/projects/{}?tab=files&dir={}",
+                        project_id,
+                        urlencoding::encode(&path)
+                    );
+                    let label = f.name;
+                    let name_cell = if is_tree {
+                        view! {
+                            <a href=browse_url.clone()>{label} "/"</a>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <span style="color:var(--text-sub);">{path.clone()} "/"</span>
+                        }.into_any()
+                    };
+                    return view! {
+                        <tr>
+                            <td>
+                                <div class="file-name-cell">
+                                    <span style="font-size:1.1rem;">"📁"</span>
+                                    {name_cell}
+                                </div>
+                            </td>
+                            <td><span class="file-type-pill pill-asset">"folder"</span></td>
+                            <td></td>
+                            <td style="color:var(--text-sub); font-size:0.8rem;">"-"</td>
+                            <td style="color:var(--text-sub); font-size:0.8rem;">"-"</td>
+                            <td style="text-align:right;">
+                                <div style="display:flex; justify-content:flex-end; gap:0.35rem; align-items:center;">
+                                    {is_tree.then(|| view! {
+                                        <a href=browse_url class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;">"Open"</a>
+                                    })}
+                                    <form method="post" action=format!("/projects/{}/files/delete", project_id) class="inline-form">
+                                        <input type="hidden" name="file" value=path />
+                                        <apich_islands::ConfirmSubmitButton
+                                            label="Del".to_string()
+                                            message="Delete this folder and everything in it?".to_string()
+                                            button_class="btn btn-ghost btn-sm text-danger".to_string()
+                                            button_style="padding:0.2rem 0.45rem; font-size:0.75rem;".to_string()
+                                        />
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    }.into_any();
+                }
                 let (icon, pill_class) = match f.category.as_str() {
                     "script" => ("🐍", "pill-script"),
                     "slide" => ("📊", "pill-slide"),
@@ -299,16 +514,22 @@ fn render_files_tab(
                 let role = f.share_info.as_ref().map_or_else(|| "read".to_string(), |s| s.role.clone());
                 let users_csv = f.share_info.as_ref().map(|s| s.allowed_users.join(",")).unwrap_or_default();
                 let path = f.path;
+                // Tree view is already scoped to one directory (and shows a breadcrumb for where
+                // that is), so repeating the full path on every row would be pure noise; flat
+                // view has no such context and needs the path to disambiguate same-named files
+                // in different folders.
+                let display_name = if is_tree { f.name.clone() } else { path.clone() };
                 let open_url = f.open_url;
-                // "asset"/"other" files (PDFs, images, audio -- anything routed to the raw-bytes
-                // endpoint rather than an in-app editor route, see `ProjectFileItem::open_url`'s
-                // doc comment) used to open with a plain same-tab link: for a PDF specifically,
-                // the browser's native inline viewer then *replaces* this whole app page --
-                // there's no "back to the file list" without an actual browser Back navigation,
-                // and any in-progress state (open editors, unsaved form fields) on this page is
-                // gone. The in-app editor routes (slide/typst/latex/script/table/note) stay
-                // same-tab on purpose -- those aren't raw content, they're this SPA's own pages.
-                let open_target = if matches!(f.category.as_str(), "slide" | "typst" | "latex" | "script" | "table" | "note") { "_self" } else { "_blank" };
+                // "asset" files (PDFs, images, audio -- anything routed to the raw-bytes endpoint
+                // rather than an in-app editor route, see `ProjectFileItem::open_url`'s doc
+                // comment) used to open with a plain same-tab link: for a PDF specifically, the
+                // browser's native inline viewer then *replaces* this whole app page -- there's
+                // no "back to the file list" without an actual browser Back navigation, and any
+                // in-progress state (open editors, unsaved form fields) on this page is gone. The
+                // in-app editor routes (slide/typst/latex/script/table/note/other -- "other" now
+                // also opens in the plain-text editor, see `open_url`'s doc comment) stay
+                // same-tab on purpose -- only "asset" is raw, non-SPA content.
+                let open_target = if f.category == "asset" { "_blank" } else { "_self" };
                 let share_detail = serde_json::json!({ "path": path, "mode": mode, "role": role, "users": users_csv }).to_string();
                 let onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))");
 
@@ -317,7 +538,7 @@ fn render_files_tab(
                         <td>
                             <div class="file-name-cell">
                                 <span style="font-size:1.1rem;">{icon}</span>
-                                <a href=open_url.clone() target=open_target>{path.clone()}</a>
+                                <a href=open_url.clone() target=open_target>{display_name}</a>
                             </div>
                         </td>
                         <td><span class=format!("file-type-pill {}", pill_class)>{f.category}</span></td>
@@ -328,7 +549,7 @@ fn render_files_tab(
                             <div style="display:flex; justify-content:flex-end; gap:0.35rem; align-items:center;">
                                 <a href=open_url target=open_target class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;">"Open"</a>
                                 <button type="button" class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;" onclick=onclick>"Share"</button>
-                                <form method="post" action=format!("/projects/{}/delete-file", project_id) class="inline-form">
+                                <form method="post" action=format!("/projects/{}/files/delete", project_id) class="inline-form">
                                     <input type="hidden" name="file" value=path />
                                     <apich_islands::ConfirmSubmitButton
                                         label="Del".to_string()
@@ -340,7 +561,7 @@ fn render_files_tab(
                             </div>
                         </td>
                     </tr>
-                }
+                }.into_any()
             })
             .collect::<Vec<_>>()
             .into_any()
@@ -356,21 +577,33 @@ fn render_files_tab(
                     </p>
                 </div>
                 <div class="header-actions">
+                    {view_toggle}
                     <apich_islands::ModalIsland trigger_label="+ New File".to_string() trigger_class="btn btn-primary".to_string() title="Create New File".to_string()>
-                        <form method="post" action=format!("/projects/{}/create-file", project_id)>
+                        <form method="post" action=format!("/projects/{}/files/new", project_id)>
                             <div class="form-group">
-                                <label>"File Name (with extension: .typ, .tex, .md, .py, .csv...)"</label>
-                                <input type="text" name="name" required=true placeholder="e.g. paper.typ, slides.md, script.py" class="form-control" />
+                                <label>"File Name (extension optional -- added from the type below if omitted)"</label>
+                                <input type="text" name="filename" required=true placeholder="e.g. paper, slides.md, script.py" class="form-control" />
+                            </div>
+                            <div class="form-group">
+                                <label>"Destination Folder (optional -- leave blank for the project root)"</label>
+                                <input type="text" name="folder" value=cur_dir_for_new_file placeholder="e.g. assets, assets/videos" class="form-control" />
                             </div>
                             <div class="form-group">
                                 <label>"Initial Content / Starter Template"</label>
-                                <select name="starter" class="form-control">
+                                // Values here must match one of `ProjectManager::create_file`'s
+                                // recognized `template` strings ("table"/"slide"/"typst"/"latex"/
+                                // "note", anything else falls back to a blank starter) -- this
+                                // used to offer "typst_paper"/"marp_slide"/etc., none of which
+                                // that function has ever recognized, so every option except
+                                // "Empty file" silently produced the same generic blank content
+                                // its label promised something more specific than.
+                                <select name="template" class="form-control">
                                     <option value="empty">"Empty file"</option>
-                                    <option value="typst_paper">"Typst Paper (template)"</option>
-                                    <option value="typst_slide">"Typst Presentation Slides"</option>
-                                    <option value="latex_paper">"LaTeX Article"</option>
-                                    <option value="marp_slide">"Marp Slide Deck (Markdown)"</option>
-                                    <option value="python_script">"Python Script"</option>
+                                    <option value="typst">"Typst Paper (template)"</option>
+                                    <option value="slide">"Typst Presentation Slides"</option>
+                                    <option value="latex">"LaTeX Article"</option>
+                                    <option value="note">"Unified Note"</option>
+                                    <option value="table">"SQLite Table"</option>
                                 </select>
                             </div>
                             {new_file_template_picker}
@@ -379,8 +612,38 @@ fn render_files_tab(
                             </div>
                         </form>
                     </apich_islands::ModalIsland>
+                    <apich_islands::ModalIsland trigger_label="+ New Folder".to_string() trigger_class="btn btn-secondary".to_string() title="Create New Folder".to_string()>
+                        <form method="post" action=format!("/projects/{}/folders/new", project_id)>
+                            <div class="form-group">
+                                <label>"Folder Path (nested paths allowed, e.g. assets/videos)"</label>
+                                <input type="text" name="folder" required=true value=new_folder_prefill placeholder="e.g. assets, assets/videos" class="form-control" />
+                            </div>
+                            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
+                                <button type="submit" class="btn btn-primary">"Create Folder"</button>
+                            </div>
+                        </form>
+                    </apich_islands::ModalIsland>
+                    <apich_islands::ModalIsland trigger_label="⬆ Upload File".to_string() trigger_class="btn btn-secondary".to_string() title="Upload File".to_string()>
+                        <form method="post" action=format!("/projects/{}/files/upload", project_id) enctype="multipart/form-data">
+                            <div class="form-group">
+                                <label>"File"</label>
+                                <input type="file" name="file" required=true class="form-control" />
+                            </div>
+                            <div class="form-group">
+                                <label>"Destination Folder (optional -- leave blank for the project root)"</label>
+                                <input type="text" name="folder" value=cur_dir_for_upload placeholder="e.g. assets, assets/videos" class="form-control" />
+                            </div>
+                            <p style="font-size:0.78rem; color:var(--text-sub); margin:0.25rem 0 0;">
+                                "Any file type -- video, audio, images, etc. Max 200MB per file."
+                            </p>
+                            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
+                                <button type="submit" class="btn btn-primary">"Upload"</button>
+                            </div>
+                        </form>
+                    </apich_islands::ModalIsland>
                 </div>
             </div>
+            {breadcrumb_bar}
             <div class="file-table-wrap">
                 <table class="file-table">
                     <thead>
