@@ -1,3 +1,5 @@
+//! Sandbox configuration and resource limit models.
+
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -16,12 +18,16 @@ pub struct ResourceLimits {
 }
 
 /// Extra volume/bind mount configuration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MountSpec {
+    /// Source filesystem path on the host.
     pub host_path: PathBuf,
+    /// Target filesystem path within the container.
     pub container_path: PathBuf,
+    /// Whether the mount should be mounted read-only.
     pub read_only: bool,
-    pub selinux_label: Option<String>, // e.g. "Z" or "z"
+    /// Optional `SELinux` mount label (e.g., "Z" for private or "z" for shared).
+    pub selinux_label: Option<String>,
 }
 
 /// Configuration for creating and running a user sandbox container
@@ -47,7 +53,7 @@ pub struct SandboxConfig {
     pub labels: HashMap<String, String>,
     /// Network mode (e.g. "none", "bridge", "slirp4netns", "pasta", "host")
     pub network: Option<String>,
-    /// Whether to apply SELinux ':Z' flag on workspace mount
+    /// Whether to apply `SELinux` ':Z' flag on workspace mount
     pub selinux_relabel: bool,
     /// Run with --userns=keep-id in rootless mode to preserve host UID
     pub keep_id: bool,
@@ -56,6 +62,7 @@ pub struct SandboxConfig {
 }
 
 impl SandboxConfig {
+    /// Creates a new builder for configuring a sandbox container.
     pub fn builder(
         user_id: impl Into<String>,
         host_workspace_dir: impl AsRef<Path>,
@@ -64,11 +71,14 @@ impl SandboxConfig {
     }
 
     /// Default container name generation
+    #[must_use]
     pub fn default_container_name(user_id: &str) -> String {
-        format!("apich-sandbox-{}", user_id)
+        format!("apich-sandbox-{user_id}")
     }
 }
 
+/// Fluent builder for constructing a `SandboxConfig`.
+#[must_use]
 pub struct SandboxConfigBuilder {
     user_id: String,
     container_name: Option<String>,
@@ -86,6 +96,7 @@ pub struct SandboxConfigBuilder {
 }
 
 impl SandboxConfigBuilder {
+    /// Creates a new `SandboxConfigBuilder` with required user ID and workspace path.
     pub fn new(
         user_id: impl Into<String>,
         host_workspace_dir: impl AsRef<Path>,
@@ -113,6 +124,7 @@ impl SandboxConfigBuilder {
         }
     }
 
+    /// Overrides the container name.
     pub fn container_name(
         mut self,
         name: impl Into<String>,
@@ -121,6 +133,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Sets the OCI container image to run.
     pub fn image(
         mut self,
         image: impl Into<String>,
@@ -129,6 +142,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Sets the working directory inside the container.
     pub fn container_workspace_dir(
         mut self,
         dir: impl AsRef<Path>,
@@ -137,6 +151,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Sets the memory limit constraint (e.g. "2g", "512m").
     pub fn memory_limit(
         mut self,
         memory: impl Into<String>,
@@ -145,7 +160,8 @@ impl SandboxConfigBuilder {
         self
     }
 
-    pub fn cpu_limit(
+    /// Sets the CPU cores limit.
+    pub const fn cpu_limit(
         mut self,
         cpus: f64,
     ) -> Self {
@@ -153,7 +169,8 @@ impl SandboxConfigBuilder {
         self
     }
 
-    pub fn pids_limit(
+    /// Sets the maximum process/thread limit (pids-limit).
+    pub const fn pids_limit(
         mut self,
         pids: u64,
     ) -> Self {
@@ -161,6 +178,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Adds an environment variable.
     pub fn env(
         mut self,
         key: impl Into<String>,
@@ -170,6 +188,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Adds multiple environment variables.
     pub fn envs(
         mut self,
         envs: HashMap<String, String>,
@@ -178,6 +197,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Adds an additional volume or bind mount.
     pub fn add_mount(
         mut self,
         mount: MountSpec,
@@ -186,6 +206,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Adds a container label.
     pub fn add_label(
         mut self,
         key: impl Into<String>,
@@ -195,6 +216,7 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Sets the network mode (e.g. "none", "bridge", "host").
     pub fn network(
         mut self,
         network: impl Into<String>,
@@ -203,7 +225,8 @@ impl SandboxConfigBuilder {
         self
     }
 
-    pub fn selinux_relabel(
+    /// Enables or disables `SELinux` relabeling on workspace mounts.
+    pub const fn selinux_relabel(
         mut self,
         enable: bool,
     ) -> Self {
@@ -211,7 +234,8 @@ impl SandboxConfigBuilder {
         self
     }
 
-    pub fn keep_id(
+    /// Enables or disables rootless `--userns=keep-id`.
+    pub const fn keep_id(
         mut self,
         enable: bool,
     ) -> Self {
@@ -219,7 +243,8 @@ impl SandboxConfigBuilder {
         self
     }
 
-    pub fn init_process(
+    /// Enables or disables the container init process (`--init`).
+    pub const fn init_process(
         mut self,
         enable: bool,
     ) -> Self {
@@ -227,6 +252,8 @@ impl SandboxConfigBuilder {
         self
     }
 
+    /// Builds and returns the configured `SandboxConfig`.
+    #[must_use]
     pub fn build(self) -> SandboxConfig {
         let container_name = self
             .container_name

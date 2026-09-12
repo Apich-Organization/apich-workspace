@@ -53,16 +53,14 @@ pub fn SettingsPage(
             .into_iter()
             .map(|cred| {
                 let last_used = cred
-                    .last_used_at
-                    .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-                    .unwrap_or_else(|| "Never".to_string());
+                    .last_used_at.map_or_else(|| "Never".to_string(), |t| t.format("%Y-%m-%d %H:%M").to_string());
                 let created = cred.created_at.format("%Y-%m-%d").to_string();
                 view! {
                     <div class="passkey-item">
                         <div class="passkey-icon">"🔑"</div>
                         <div class="passkey-info">
                             <span class="passkey-name">{cred.device_name}</span>
-                            <span class="passkey-meta">{format!("Enrolled {} • Last used {}", created, last_used)}</span>
+                            <span class="passkey-meta">{format!("Enrolled {created} • Last used {last_used}")}</span>
                         </div>
                         <span class="badge badge-active">"Active"</span>
                     </div>
@@ -85,7 +83,7 @@ pub fn SettingsPage(
     } else {
         let items = pats.into_iter().map(|t| {
             let created = t.created_at.format("%Y-%m-%d").to_string();
-            let last_used = t.last_used_at.map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_else(|| "Never".to_string());
+            let last_used = t.last_used_at.map_or_else(|| "Never".to_string(), |d| d.format("%Y-%m-%d %H:%M").to_string());
             let is_active = t.is_active();
             let status_label = if is_active { "Active" } else { "Revoked/Expired" };
             let status_class = if is_active { "badge badge-active" } else { "badge badge-idle" };
@@ -94,7 +92,7 @@ pub fn SettingsPage(
                     <div class="passkey-icon">"🔑"</div>
                     <div class="passkey-info">
                         <span class="passkey-name">{t.name} " (" {t.token_prefix} "…)"</span>
-                        <span class="passkey-meta">{format!("Created {} • Last used {}", created, last_used)}</span>
+                        <span class="passkey-meta">{format!("Created {created} • Last used {last_used}")}</span>
                     </div>
                     <span class=status_class>{status_label}</span>
                     {is_active.then(|| view! {

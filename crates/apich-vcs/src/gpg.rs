@@ -1,9 +1,12 @@
-//! GPG signing and verification for apich-vcs snapshots, shelling out to the real `gpg` binary
-//! rather than reimplementing OpenPGP -- signing always happens against the *caller's own* real
-//! keyring (so a private key never has to be handed to this library), while verification always
-//! runs against an isolated, throwaway `GNUPGHOME` seeded only with the one public key being
-//! checked, so a verification result reflects trust in that specific registered key alone, never
-//! whatever else happens to be in the local user's ambient keyring.
+//! GPG signing and verification for apich-vcs snapshots.
+//!
+//! Shells out to the real `gpg` binary rather than reimplementing OpenPGP --
+//! signing always happens against the *caller's own* real keyring (so a private
+//! key never has to be handed to this library), while verification always runs
+//! against an isolated, throwaway `GNUPGHOME` seeded only with the one public
+//! key being checked, so a verification result reflects trust in that specific
+//! registered key alone, never whatever else happens to be in the local user's
+//! ambient keyring.
 
 use crate::error::Result;
 use crate::error::VcsError;
@@ -11,17 +14,26 @@ use std::io::Write;
 use std::process::Command;
 use std::process::Stdio;
 
+/// Verification status of a GPG digital signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SignatureStatus {
     /// Signature verified against the given public key; carries the signing key's fingerprint.
-    Valid { fingerprint: String },
+    Valid {
+        /// Hex fingerprint of the verified signing key.
+        fingerprint: String,
+    },
     /// A signature is present but did not verify (wrong key, tampered payload, expired key, ...).
     Invalid(String),
 }
 
-/// Detached-sign `payload` using the local `gpg` keyring. `key_id` selects which local secret key
+/// Detached-sign `payload` using the local `gpg` keyring.
+///
+/// `key_id` selects which local secret key
 /// to sign with (a fingerprint, key ID, or email `gpg` can resolve) -- if `None`, `gpg` falls back
 /// to its own configured default key. Returns the ASCII-armored detached signature.
+///
+/// # Errors
+/// Returns an error if the operation fails.
 pub fn sign_payload(
     payload: &[u8],
     key_id: Option<&str>,
@@ -29,8 +41,9 @@ pub fn sign_payload(
     sign_payload_with_home(payload, key_id, None)
 }
 
-/// Same as `sign_payload`, but lets the caller pin `GNUPGHOME` explicitly instead of inheriting
-/// the process's ambient environment. Production code never needs this (a real signer just wants
+/// Same as `sign_payload`, but lets the caller pin `GNUPGHOME` explicitly.
+///
+/// Production code never needs this (a real signer just wants
 /// their own real keyring); it exists so tests can use an isolated per-test keyring without
 /// mutating process-global environment state, which isn't safe across Rust's parallel test
 /// execution within one binary (a real bug this crate's own tests hit: two `#[test]`s racing on
@@ -59,7 +72,7 @@ pub(crate) fn sign_payload_with_home(
     child
         .stdin
         .take()
-        .expect("stdin was piped")
+        .ok_or_else(|| VcsError::Internal("stdin was piped".to_string()))?
         .write_all(payload)
         .map_err(VcsError::Io)?;
     let output = child.wait_with_output().map_err(VcsError::Io)?;
@@ -75,6 +88,9 @@ pub(crate) fn sign_payload_with_home(
 
 /// Verify `signature_armored` over `payload` against `public_key_armored`, using a fresh
 /// throwaway keyring for the duration of this call only.
+///
+/// # Errors
+/// Returns an error if the operation fails.
 pub fn verify_signature(
     payload: &[u8],
     signature_armored: &str,
@@ -103,7 +119,7 @@ pub fn verify_signature(
     import_child
         .stdin
         .take()
-        .expect("stdin was piped")
+        .ok_or_else(|| VcsError::Internal("stdin was piped".to_string()))?
         .write_all(public_key_armored.as_bytes())
         .map_err(VcsError::Io)?;
     let import_out = import_child.wait_with_output().map_err(VcsError::Io)?;

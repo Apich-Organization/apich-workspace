@@ -1,10 +1,15 @@
+//! FastCDC (Fast Content-Defined Chunking) implementation.
+
 use super::gear::GEAR_TABLE;
 
 /// Configuration parameters for Content-Defined Chunking
 #[derive(Debug, Clone, Copy)]
 pub struct FastCdcConfig {
+    /// Minimum allowable chunk size in bytes.
     pub min_size: usize,
+    /// Target average chunk size in bytes.
     pub avg_size: usize,
+    /// Hard upper bound chunk size in bytes.
     pub max_size: usize,
 }
 
@@ -20,7 +25,8 @@ impl Default for FastCdcConfig {
 
 impl FastCdcConfig {
     /// Configuration optimized for smaller documents (Markdown, Typst, LaTeX)
-    pub fn document() -> Self {
+    #[must_use]
+    pub const fn document() -> Self {
         Self {
             min_size: 4 * 1024,  // 4 KB
             avg_size: 16 * 1024, // 16 KB
@@ -29,7 +35,8 @@ impl FastCdcConfig {
     }
 
     /// Configuration optimized for large datasets / SQLite tables / PDFs
-    pub fn large_file() -> Self {
+    #[must_use]
+    pub const fn large_file() -> Self {
         Self {
             min_size: 64 * 1024,   // 64 KB
             avg_size: 256 * 1024,  // 256 KB
@@ -38,15 +45,18 @@ impl FastCdcConfig {
     }
 }
 
-/// A chunk cut emitted by the FastCDC algorithm
+/// A chunk cut emitted by the `FastCDC` algorithm
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chunk<'a> {
+    /// Byte offset within the source buffer where this chunk begins.
     pub offset: usize,
+    /// Size of the chunk in bytes.
     pub length: usize,
+    /// Borrowed byte slice containing chunk data.
     pub data: &'a [u8],
 }
 
-/// FastCDC chunk iterator over a byte buffer
+/// `FastCDC` chunk iterator over a byte buffer
 pub struct FastCdc<'a> {
     data: &'a [u8],
     config: FastCdcConfig,
@@ -56,14 +66,16 @@ pub struct FastCdc<'a> {
 }
 
 impl<'a> FastCdc<'a> {
+    /// Creates a new `FastCdc` iterator over the provided data buffer.
+    #[must_use]
     pub fn new(
         data: &'a [u8],
         config: FastCdcConfig,
     ) -> Self {
         // Calculate logarithmic power for masks
-        let bits = (config.avg_size as f64).log2().round() as u32;
-        let mask_s = (1u64 << (bits + 1)) - 1;
-        let mask_l = (1u64 << (bits - 1)) - 1;
+        let bits = config.avg_size.checked_ilog2().unwrap_or(18);
+        let mask_s = (1u64.checked_shl(bits.saturating_add(1)).unwrap_or(0)).saturating_sub(1);
+        let mask_l = (1u64.checked_shl(bits.saturating_sub(1)).unwrap_or(0)).saturating_sub(1);
 
         Self {
             data,
@@ -79,7 +91,7 @@ impl<'a> Iterator for FastCdc<'a> {
     type Item = Chunk<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let remaining = self.data.len() - self.cursor;
+        let remaining = self.data.len().saturating_sub(self.cursor);
         if remaining == 0 {
             return None;
         }
@@ -92,7 +104,7 @@ impl<'a> Iterator for FastCdc<'a> {
             return Some(Chunk {
                 offset: chunk_start,
                 length: remaining,
-                data: &self.data[chunk_start..self.cursor],
+                data: self.data.get(chunk_start..self.cursor).unwrap_or_default(),
             });
         }
 
@@ -104,42 +116,52 @@ impl<'a> Iterator for FastCdc<'a> {
 
         // Region 1: between min_size and avg_size, use mask_s
         while offset < normal_size {
-            let byte = self.data[self.cursor + offset];
-            fingerprint = (fingerprint << 1).wrapping_add(GEAR_TABLE[byte as usize]);
+            let idx = self.cursor.saturating_add(offset);
+            let byte = self.data.get(idx).copied().unwrap_or_default();
+            let gear = GEAR_TABLE
+                .get(usize::from(byte))
+                .copied()
+                .unwrap_or_default();
+            fingerprint = (fingerprint << 1).wrapping_add(gear);
             if (fingerprint & self.mask_s) == 0 {
-                offset += 1;
-                self.cursor += offset;
+                offset = offset.saturating_add(1);
+                self.cursor = self.cursor.saturating_add(offset);
                 return Some(Chunk {
                     offset: chunk_start,
                     length: offset,
-                    data: &self.data[chunk_start..self.cursor],
+                    data: self.data.get(chunk_start..self.cursor).unwrap_or_default(),
                 });
             }
-            offset += 1;
+            offset = offset.saturating_add(1);
         }
 
         // Region 2: between avg_size and max_size, use mask_l
         while offset < max_chunk {
-            let byte = self.data[self.cursor + offset];
-            fingerprint = (fingerprint << 1).wrapping_add(GEAR_TABLE[byte as usize]);
+            let idx = self.cursor.saturating_add(offset);
+            let byte = self.data.get(idx).copied().unwrap_or_default();
+            let gear = GEAR_TABLE
+                .get(usize::from(byte))
+                .copied()
+                .unwrap_or_default();
+            fingerprint = (fingerprint << 1).wrapping_add(gear);
             if (fingerprint & self.mask_l) == 0 {
-                offset += 1;
-                self.cursor += offset;
+                offset = offset.saturating_add(1);
+                self.cursor = self.cursor.saturating_add(offset);
                 return Some(Chunk {
                     offset: chunk_start,
                     length: offset,
-                    data: &self.data[chunk_start..self.cursor],
+                    data: self.data.get(chunk_start..self.cursor).unwrap_or_default(),
                 });
             }
-            offset += 1;
+            offset = offset.saturating_add(1);
         }
 
         // Hit max_size or EOF boundary
-        self.cursor += offset;
+        self.cursor = self.cursor.saturating_add(offset);
         Some(Chunk {
             offset: chunk_start,
             length: offset,
-            data: &self.data[chunk_start..self.cursor],
+            data: self.data.get(chunk_start..self.cursor).unwrap_or_default(),
         })
     }
 }

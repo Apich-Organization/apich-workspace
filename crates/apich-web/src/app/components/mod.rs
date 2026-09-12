@@ -79,8 +79,7 @@ fn IslandScript() -> impl IntoView {
         <link rel="preload" href="/pkg/apich_islands_bg.wasm" r#as="fetch" r#type="application/wasm" />
         <script type="module">
             {format!(
-                "{}(\"\", \"pkg\", \"apich_islands\", \"apich_islands_bg\")",
-                ISLAND_BOOTSTRAP_JS,
+                "{ISLAND_BOOTSTRAP_JS}(\"\", \"pkg\", \"apich_islands\", \"apich_islands_bg\")",
             )}
         </script>
     }
@@ -101,7 +100,7 @@ pub enum ActiveNav {
 impl ActiveNav {
     fn is(
         &self,
-        other: ActiveNav,
+        other: Self,
     ) -> bool {
         *self == other
     }
@@ -215,7 +214,7 @@ pub fn AppShell(
                                 <div class="sidebar-user-card">
                                     <div class="sidebar-user-avatar">{user_initial}</div>
                                     <div class="sidebar-user-info">
-                                        <div class="sidebar-user-name" title=user.display_name.clone()>{user.display_name.clone()}</div>
+                                        <div class="sidebar-user-name" title=user.display_name>{user.display_name.clone()}</div>
                                         <div class="sidebar-user-role">{role_title}</div>
                                     </div>
                                 </div>

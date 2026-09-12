@@ -1,3 +1,5 @@
+//! Secure workspace filesystem utilities and traversal defenses.
+
 use crate::error::Result;
 use crate::error::SandboxError;
 use chrono::DateTime;
@@ -10,19 +12,30 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Metadata for a file or directory entry inside a workspace.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileEntry {
+    /// File or directory base name.
     pub name: String,
+    /// Path relative to the workspace root.
     pub rel_path: PathBuf,
+    /// True if entry is a directory.
     pub is_dir: bool,
+    /// True if entry is a regular file.
     pub is_file: bool,
+    /// True if entry is a symbolic link.
     pub is_symlink: bool,
+    /// File size in bytes (0 for directories).
     pub size: u64,
+    /// Last modification timestamp in UTC.
     pub modified: Option<DateTime<Utc>>,
 }
 
 /// Safely resolve a relative path against a base host workspace directory,
 /// preventing path traversal attacks (e.g. `../../etc/passwd`).
+///
+/// # Errors
+/// Returns `SandboxError::InvalidPath` if the user path attempts path traversal.
 pub fn resolve_safe_path(
     base_dir: &Path,
     user_path: &Path,
@@ -33,22 +46,18 @@ pub fn resolve_safe_path(
             | Component::ParentDir => {
                 return Err(SandboxError::InvalidPath(user_path.to_path_buf()));
             },
-            | Component::Prefix(_) | Component::RootDir => {
-                // If it's absolute, check if it starts with /workspace
-                // We'll normalize later
-            },
-            | Component::Normal(_) | Component::CurDir => {},
+            | Component::Prefix(_)
+            | Component::RootDir
+            | Component::Normal(_)
+            | Component::CurDir => {},
         }
     }
 
     // Strip leading `/` or `/workspace/` if user provided container path
-    let clean_rel = if let Ok(stripped) = user_path.strip_prefix("/workspace") {
-        stripped
-    } else if let Ok(stripped) = user_path.strip_prefix("/") {
-        stripped
-    } else {
-        user_path
-    };
+    let clean_rel = user_path
+        .strip_prefix("/workspace")
+        .or_else(|_| user_path.strip_prefix("/"))
+        .unwrap_or(user_path);
 
     let mut full_path = base_dir.to_path_buf();
     for comp in clean_rel.components() {
@@ -66,6 +75,9 @@ pub fn resolve_safe_path(
 }
 
 /// Save file content to workspace
+///
+/// # Errors
+/// Returns an error if path resolution or writing file to disk fails.
 pub fn write_file_safe(
     base_dir: &Path,
     rel_path: &Path,
@@ -80,6 +92,9 @@ pub fn write_file_safe(
 }
 
 /// Read file content from workspace
+///
+/// # Errors
+/// Returns an error if path resolution or reading file from disk fails.
 pub fn read_file_safe(
     base_dir: &Path,
     rel_path: &Path,
@@ -90,18 +105,18 @@ pub fn read_file_safe(
 }
 
 /// Check if file exists in workspace
+#[must_use]
 pub fn file_exists_safe(
     base_dir: &Path,
     rel_path: &Path,
 ) -> bool {
-    if let Ok(target) = resolve_safe_path(base_dir, rel_path) {
-        target.exists()
-    } else {
-        false
-    }
+    resolve_safe_path(base_dir, rel_path).is_ok_and(|target| target.exists())
 }
 
 /// Delete file in workspace
+///
+/// # Errors
+/// Returns an error if path resolution or removing file from disk fails.
 pub fn remove_file_safe(
     base_dir: &Path,
     rel_path: &Path,
@@ -116,6 +131,9 @@ pub fn remove_file_safe(
 }
 
 /// Create directory hierarchy in workspace
+///
+/// # Errors
+/// Returns an error if path resolution or creating directory hierarchy fails.
 pub fn create_dir_all_safe(
     base_dir: &Path,
     rel_path: &Path,
@@ -126,6 +144,9 @@ pub fn create_dir_all_safe(
 }
 
 /// List files in workspace directory
+///
+/// # Errors
+/// Returns an error if reading directory contents fails.
 pub fn list_dir_safe(
     base_dir: &Path,
     rel_path: &Path,

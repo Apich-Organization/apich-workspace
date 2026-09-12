@@ -1,5 +1,12 @@
+//! # APICH CLI
+//!
+//! Command-line interface for the APICH Version Control System.
+//! Provides standalone local-first version control operations, `FastCDC` snapshotting,
+//! milestones, undo/redo, timeline browsing, and Git bridge integration.
+
 use clap::Parser;
 use clap::Subcommand;
+use std::io::Write;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -37,14 +44,15 @@ enum Commands {
     /// Show working tree status compared to HEAD snapshot
     Status,
 
-    /// Create an immutable snapshot (deduplicated via FastCDC)
+    /// Create an immutable snapshot (deduplicated via `FastCDC`)
     #[command(alias = "commit")]
     Snapshot {
         /// Snapshot commit message
         #[arg(short, long)]
         message: String,
-        /// GPG-sign this snapshot using the local keyring. Pass a key ID/fingerprint/email to
-        /// select which key, or use the flag alone to sign with gpg's own default key.
+        /// GPG-sign this snapshot using the local keyring.
+        ///
+        /// Pass a key ID/fingerprint/email to select which key, or use the flag alone to sign with gpg's own default key.
         #[arg(long, num_args = 0..=1, default_missing_value = "")]
         sign: Option<String>,
     },
@@ -114,10 +122,10 @@ enum Commands {
         snapshot_id: Uuid,
     },
 
-    /// Undo last operation in OpLog
+    /// Undo last operation in `OpLog`
     Undo,
 
-    /// Redo last undone operation in OpLog
+    /// Redo last undone operation in `OpLog`
     Redo,
 
     /// Show full reversible operation audit log
@@ -162,8 +170,9 @@ enum Commands {
         command: ConfigCommands,
     },
 
-    /// apich-vcs's own remote protocol (distinct from the Git bridge above): clone, push, and
-    /// pull a project's native apich-vcs history over HTTP.
+    /// Native apich-vcs remote protocol (distinct from Git bridge).
+    ///
+    /// Clone, push, and pull a project's native apich-vcs history over HTTP.
     Remote {
         #[command(subcommand)]
         command: RemoteCommands,
@@ -172,18 +181,20 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum RemoteCommands {
-    /// Clone a project from its apich-vcs remote URL
-    /// (e.g. https://host/vcs-remote/<project-id-or-slug>/bundle)
+    /// Clone a project from its apich-vcs remote URL.
+    ///
+    /// (e.g. <https://host/vcs-remote>/<project-id-or-slug>/bundle)
     Clone {
         url: String,
         /// Destination directory (defaults to the last path segment before "/bundle")
         dest: Option<PathBuf>,
-        /// Personal access token (or set APICH_TOKEN)
+        /// Personal access token (or set `APICH_TOKEN`)
         #[arg(long, env = "APICH_TOKEN")]
         token: Option<String>,
     },
-    /// Push local apich-vcs history to a remote URL (fast-forward only -- rejected branches are
-    /// reported, not silently discarded)
+    /// Push local apich-vcs history to a remote URL.
+    ///
+    /// Fast-forward only -- rejected branches are reported, not silently discarded.
     Push {
         url: String,
         #[arg(long, env = "APICH_TOKEN")]
@@ -357,13 +368,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 println!("\nChanges to be committed (FastCDC continuous tracking):");
                 for f in &status.added {
-                    println!("  new file:   {}", f);
+                    println!("  new file:   {f}");
                 }
                 for f in &status.modified {
-                    println!("  modified:   {}", f);
+                    println!("  modified:   {f}");
                 }
                 for f in &status.removed {
-                    println!("  deleted:    {}", f);
+                    println!("  deleted:    {f}");
                 }
             }
             println!("\nTotal tracked files: {}", status.total_files);
@@ -420,17 +431,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let public_key = std::fs::read_to_string(&pubkey)?;
             match vcs.verify_snapshot_signature(snapshot_id, &public_key)? {
                 | None => {
-                    println!("Snapshot {} is not signed.", snapshot_id);
+                    println!("Snapshot {snapshot_id} is not signed.");
                     std::process::exit(1);
                 },
                 | Some(apich_vcs::SignatureStatus::Valid { fingerprint }) => {
-                    println!(
-                        "Good signature from key {} on snapshot {}.",
-                        fingerprint, snapshot_id
-                    );
+                    println!("Good signature from key {fingerprint} on snapshot {snapshot_id}.");
                 },
                 | Some(apich_vcs::SignatureStatus::Invalid(reason)) => {
-                    println!("BAD signature on snapshot {}: {}", snapshot_id, reason);
+                    println!("BAD signature on snapshot {snapshot_id}: {reason}");
                     std::process::exit(1);
                 },
             }
@@ -450,7 +458,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
             if let Some(ref oid) = snap.git_commit_oid {
-                println!("Git-Commit:  {}", oid);
+                println!("Git-Commit:  {oid}");
             }
             if snap.gpg_signature.is_some() {
                 println!(
@@ -471,7 +479,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         | Commands::Cat { file, snapshot } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             let content = vcs.read_file_content(snapshot, &file)?;
-            use std::io::Write;
             std::io::stdout().write_all(&content)?;
         },
         | Commands::Diff { from, to } => {
@@ -485,13 +492,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("No differences found.");
             } else {
                 for f in added {
-                    println!("+ {}", f);
+                    println!("+ {f}");
                 }
                 for f in modified {
-                    println!("M {}", f);
+                    println!("M {f}");
                 }
                 for f in removed {
-                    println!("- {}", f);
+                    println!("- {f}");
                 }
             }
         },
@@ -503,47 +510,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let branches = vcs.list_branches()?;
                     for b in branches {
                         if b == current {
-                            println!("* {}", b);
+                            println!("* {b}");
                         } else {
-                            println!("  {}", b);
+                            println!("  {b}");
                         }
                     }
                 },
                 | BranchCommands::Create { name } => {
                     vcs.branch_create(&name)?;
-                    println!("Created branch '{}'", name);
+                    println!("Created branch '{name}'");
                 },
                 | BranchCommands::Switch { name } => {
                     vcs.branch_switch(&name)?;
-                    println!("Switched to branch '{}'", name);
+                    println!("Switched to branch '{name}'");
                 },
             }
         },
         | Commands::Checkout { branch } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             vcs.branch_switch(&branch)?;
-            println!("Switched to branch '{}'", branch);
+            println!("Switched to branch '{branch}'");
         },
         | Commands::Merge { branch } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             let result = vcs.merge(&branch)?;
-            if !result.conflicts.is_empty() {
+            if result.conflicts.is_empty() {
+                println!("Merged branch '{branch}' cleanly (weave-free).");
+            } else {
                 eprintln!("Merge completed with {} conflicts:", result.conflicts.len());
                 for c in &result.conflicts {
                     eprintln!("  CONFLICT in {}", c.path);
                 }
                 println!("Inline conflict markers were placed in the affected files.");
-            } else {
-                println!("Merged branch '{}' cleanly (weave-free).", branch);
             }
         },
         | Commands::Undo => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             if let Some(target_id) = vcs.undo()? {
-                println!(
-                    "Successfully undid last operation; HEAD is now at snapshot {}",
-                    target_id
-                );
+                println!("Successfully undid last operation; HEAD is now at snapshot {target_id}");
             } else {
                 println!("Nothing to undo (OpLog is empty or at the beginning).");
             }
@@ -551,10 +555,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         | Commands::Redo => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             if let Some(target_id) = vcs.redo()? {
-                println!(
-                    "Successfully redid operation; HEAD is now at snapshot {}",
-                    target_id
-                );
+                println!("Successfully redid operation; HEAD is now at snapshot {target_id}");
             } else {
                 println!("Nothing to redo (no undone operations to restore).");
             }
@@ -568,15 +569,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for (i, op) in ops.iter().enumerate() {
                     let before = op
                         .snapshot_before
-                        .map(|u| u.to_string())
-                        .unwrap_or_else(|| "none".to_string());
+                        .map_or_else(|| "none".to_string(), |u| u.to_string());
                     let after = op
                         .snapshot_after
-                        .map(|u| u.to_string())
-                        .unwrap_or_else(|| "none".to_string());
+                        .map_or_else(|| "none".to_string(), |u| u.to_string());
                     println!(
                         "[{:3}] {:?} ({} -> {}): {}",
-                        i + 1,
+                        i.saturating_add(1),
                         op.action,
                         &before[..before.len().min(8)],
                         &after[..after.len().min(8)],
@@ -588,7 +587,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         | Commands::Revert { snapshot_id } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
             vcs.revert_to(snapshot_id)?;
-            println!("Working copy and HEAD reverted to snapshot {}", snapshot_id);
+            println!("Working copy and HEAD reverted to snapshot {snapshot_id}");
         },
         | Commands::Milestone { name, desc } => {
             let vcs = ProjectVcs::open_or_init(repo_path)?;
@@ -665,15 +664,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
                     let oid =
                         vcs.git_export_commit(&branch, &message, &author_name, &author_email)?;
-                    println!(
-                        "Exported snapshot to Git commit: {} on branch '{}'",
-                        oid, branch
-                    );
+                    println!("Exported snapshot to Git commit: {oid} on branch '{branch}'");
                 },
                 | GitCommands::RemoteAdd { name, url } => {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.git_setup_remote(&name, &url)?;
-                    println!("Added Git remote '{}' -> {}", name, url);
+                    println!("Added Git remote '{name}' -> {url}");
                 },
                 | GitCommands::Remotes => {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
@@ -682,29 +678,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("No Git remotes configured.");
                     } else {
                         for (name, url) in remotes {
-                            println!("{} -> {}", name, url);
+                            println!("{name} -> {url}");
                         }
                     }
                 },
                 | GitCommands::Push { remote, branch } => {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.git_push(&remote, &branch)?;
-                    println!("Pushed to remote '{}' branch '{}'", remote, branch);
+                    println!("Pushed to remote '{remote}' branch '{branch}'");
                 },
                 | GitCommands::Pull { remote, branch } => {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.git_pull(&remote, &branch)?;
-                    println!("Pulled from remote '{}' branch '{}'", remote, branch);
+                    println!("Pulled from remote '{remote}' branch '{branch}'");
                 },
                 | GitCommands::Fetch { remote } => {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.git_fetch(&remote)?;
-                    println!("Fetched from remote '{}'", remote);
+                    println!("Fetched from remote '{remote}'");
                 },
                 | GitCommands::Rebase { upstream } => {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.git_rebase(&upstream)?;
-                    println!("Rebased current branch onto '{}'", upstream);
+                    println!("Rebased current branch onto '{upstream}'");
                 },
             }
         },
@@ -740,34 +736,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let vcs = ProjectVcs::open_or_init(repo_path)?;
                     let toml_str = toml::to_string_pretty(vcs.config())
                         .map_err(|e| apich_vcs::VcsError::Internal(e.to_string()))?;
-                    println!("{}", toml_str);
+                    println!("{toml_str}");
                 },
                 | ConfigCommands::IgnoreAdd { pattern } => {
                     let mut vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.add_ignore_rule(&pattern)?;
                     vcs.save_config()?;
-                    println!("Added ignore pattern '{}' and updated config", pattern);
+                    println!("Added ignore pattern '{pattern}' and updated config");
                 },
                 | ConfigCommands::IgnoreRemove { pattern } => {
                     let mut vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.remove_ignore_rule(&pattern)?;
                     vcs.save_config()?;
-                    println!("Removed ignore pattern '{}' and updated config", pattern);
+                    println!("Removed ignore pattern '{pattern}' and updated config");
                 },
                 | ConfigCommands::LfsAdd { pattern } => {
                     let mut vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.add_lfs_pattern(&pattern);
                     vcs.save_config()?;
-                    println!("Added LFS pattern '{}' and updated config", pattern);
+                    println!("Added LFS pattern '{pattern}' and updated config");
                 },
                 | ConfigCommands::LfsThreshold { bytes } => {
                     let mut vcs = ProjectVcs::open_or_init(repo_path)?;
                     vcs.set_lfs_size_threshold(bytes);
                     vcs.save_config()?;
-                    println!(
-                        "Set LFS size threshold to {} bytes and updated config",
-                        bytes
-                    );
+                    println!("Set LFS size threshold to {bytes} bytes and updated config");
                 },
             }
         },
@@ -859,10 +852,10 @@ fn remote_post(
 
 fn print_push_outcome(outcome: &apich_vcs::PushOutcome) {
     for b in &outcome.accepted_branches {
-        println!("  {} -> accepted", b);
+        println!("  {b} -> accepted");
     }
     for (b, reason) in &outcome.rejected_branches {
-        println!("  {} -> rejected: {}", b, reason);
+        println!("  {b} -> rejected: {reason}");
     }
     if outcome.accepted_branches.is_empty() && outcome.rejected_branches.is_empty() {
         println!("  (no branches in bundle)");

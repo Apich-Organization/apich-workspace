@@ -1,10 +1,8 @@
-//! Shared click-to-jump-to-source-line, used by every reverse-search surface in this crate:
-//! `document_editor.rs`'s Typst/slide SVG clicks and plain-markdown-preview clicks (both real
-//! Leptos `on:click` handlers calling this directly), `note_editor.rs`'s outline + preview clicks
-//! (same), and the LaTeX PDF viewer's click handler (PDF.js, an external JS library with no real
-//! Rust/WASM equivalent -- see `document_editor.rs`'s `LATEX_PDF_VIEWER_JS` doc comment -- so it
-//! reaches this through one `CustomEvent` bridge, `wire_jump_to_line_listener` below, the same
-//! bridge pattern `file_share.rs`'s `wire_open_listener` already uses for `apich-open-share-modal`).
+//! Shared click-to-jump-to-source-line helper for reverse-search surfaces.
+//!
+//! Used by every reverse-search surface in this crate: `document_editor.rs`'s Typst/slide SVG
+//! clicks and plain-markdown-preview clicks, `note_editor.rs`'s outline + preview clicks, and
+//! the LaTeX PDF viewer's click handler.
 //!
 //! This used to be two separate, near-duplicate implementations (`document_editor.rs`'s
 //! `jump_to_line_in_dom` and `note_editor.rs`'s own `jump_to_line`) doing the same thing: move a
@@ -56,7 +54,7 @@ pub(crate) fn jump_to_line_in_dom(
     ta.set_scroll_top(((line as f64 - 4.0).max(0.0) * line_height_px) as i32);
 }
 #[cfg(not(feature = "hydrate"))]
-pub(crate) fn jump_to_line_in_dom(
+pub(crate) const fn jump_to_line_in_dom(
     _textarea_id: &str,
     _line: u32,
 ) {
@@ -84,4 +82,4 @@ pub(crate) fn wire_jump_to_line_listener(textarea_id: &'static str) {
     closure.forget();
 }
 #[cfg(not(feature = "hydrate"))]
-pub(crate) fn wire_jump_to_line_listener(_textarea_id: &'static str) {}
+pub(crate) const fn wire_jump_to_line_listener(_textarea_id: &'static str) {}

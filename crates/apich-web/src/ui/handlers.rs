@@ -144,7 +144,7 @@ pub struct RemoveProjectMemberForm {
 }
 
 /// Helper to get current active language
-pub(crate) fn get_i18n(
+pub fn get_i18n(
     headers: &HeaderMap,
     params: Option<&HashMap<String, String>>,
 ) -> I18n {
@@ -175,7 +175,7 @@ async fn resolve_user_id(
 }
 
 /// Helper to build redirect with notice query parameter
-pub(crate) fn redirect_notice(
+pub fn redirect_notice(
     path: &str,
     msg: &str,
 ) -> Response {
@@ -185,11 +185,11 @@ pub(crate) fn redirect_notice(
     } else {
         "?"
     };
-    Redirect::to(&format!("{}{}notice={}", path, sep, encoded)).into_response()
+    Redirect::to(&format!("{path}{sep}notice={encoded}")).into_response()
 }
 
 /// Helper to build redirect with error query parameter
-pub(crate) fn redirect_error(
+pub fn redirect_error(
     path: &str,
     err: impl std::fmt::Display,
 ) -> Response {
@@ -200,7 +200,7 @@ pub(crate) fn redirect_error(
     } else {
         "?"
     };
-    Redirect::to(&format!("{}{}error={}", path, sep, encoded)).into_response()
+    Redirect::to(&format!("{path}{sep}error={encoded}")).into_response()
 }
 
 /// Build the top-level UI router providing seamless browser navigation and admin controls
@@ -441,19 +441,15 @@ pub fn build_ui_router() -> Router<AppState> {
         .merge(crate::ui::template_handlers::build_template_router())
 }
 
-
 /// Set language action: sets cookie and redirects back
 async fn set_language_action(Query(query): Query<SetLangQuery>) -> Response {
     let lang = Lang::parse(&query.lang).code();
-    let cookie = format!(
-        "apich_lang={}; Path=/; Max-Age=31536000; SameSite=Lax",
-        lang
-    );
+    let cookie = format!("apich_lang={lang}; Path=/; Max-Age=31536000; SameSite=Lax");
     let target = query.return_to.unwrap_or_else(|| "/".to_string());
     ([(header::SET_COOKIE, cookie)], Redirect::to(&target)).into_response()
 }
 
-/// Helper to build redirect to login with optional session_expired notice and return_to
+/// Helper to build redirect to login with optional `session_expired` notice and `return_to`
 fn redirect_to_login(
     headers: &HeaderMap,
     target_path: &str,
@@ -461,20 +457,18 @@ fn redirect_to_login(
     let has_session = headers
         .get(header::COOKIE)
         .and_then(|h| h.to_str().ok())
-        .map(|s| s.contains("apich_session="))
-        .unwrap_or(false);
+        .is_some_and(|s| s.contains("apich_session="));
     if has_session {
         let encoded_return = urlencoding::encode(target_path);
         Redirect::to(&format!(
-            "/login?notice=session_expired&return_to={}",
-            encoded_return
+            "/login?notice=session_expired&return_to={encoded_return}"
         ))
         .into_response()
     } else if target_path == "/" {
         Redirect::to("/login").into_response()
     } else {
         let encoded_return = urlencoding::encode(target_path);
-        Redirect::to(&format!("/login?return_to={}", encoded_return)).into_response()
+        Redirect::to(&format!("/login?return_to={encoded_return}")).into_response()
     }
 }
 
@@ -618,7 +612,7 @@ async fn register_page(
 
     let i18n = get_i18n(&headers, Some(&params));
     let error = params.get("error").cloned();
-    let registration_mode = settings.registration_mode.clone();
+    let registration_mode = settings.registration_mode;
 
     let html = crate::app::components::render_document(move || {
         leptos::prelude::view! {
@@ -748,7 +742,7 @@ async fn logout_action(
 }
 
 /// Helper to find project by UUID string or Slug
-pub(crate) async fn resolve_project(
+pub async fn resolve_project(
     state: &AppState,
     id_or_slug: &str,
 ) -> Option<Project> {
@@ -778,7 +772,7 @@ async fn project_detail_page(
 ) -> Response {
     let AuthUser(user) = match auth {
         | Some(u) => u,
-        | None => return redirect_to_login(&headers, &format!("/projects/{}", id_or_slug)),
+        | None => return redirect_to_login(&headers, &format!("/projects/{id_or_slug}")),
     };
 
     let i18n = get_i18n(&headers, Some(&params));
@@ -930,7 +924,7 @@ async fn project_detail_page(
         );
     }
 
-    let current_path = format!("/projects/{}?tab={}", id_or_slug, active_tab);
+    let current_path = format!("/projects/{id_or_slug}?tab={active_tab}");
     let html = crate::app::components::render_document(move || {
         leptos::prelude::view! {
             <crate::app::pages::project_detail::ProjectDetailPage
@@ -964,7 +958,7 @@ async fn project_detail_page(
 }
 
 /// Anonymous public-link viewer: honors the project's persisted `share_mode`/`share_role`
-/// (set via the Sharing tab's "Public Link" form). No AuthUser required; 404 unless the
+/// (set via the Sharing tab's "Public Link" form). No `AuthUser` required; 404 unless the
 /// project has actually been made public.
 async fn shared_project_page(
     headers: HeaderMap,
@@ -1161,7 +1155,7 @@ async fn seed_demo_files_action(
 
     crate::services::demo_project::DemoProjectService::seed_demo_files(&proj.storage_path).await?;
 
-    Ok(Redirect::to(&format!("/projects/{}?tab=files&notice=demo_seeded", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=files&notice=demo_seeded")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1188,8 +1182,7 @@ async fn create_file_action(
     let filename = payload.filename.trim();
     if filename.is_empty() {
         return Ok(Redirect::to(&format!(
-            "/projects/{}?tab=files&error=Filename+cannot+be+empty",
-            id
+            "/projects/{id}?tab=files&error=Filename+cannot+be+empty"
         ))
         .into_response());
     }
@@ -1205,8 +1198,7 @@ async fn create_file_action(
         let repo = state.db.repository();
         let Some(version) = repo.get_template_version_by_id(version_id).await? else {
             return Ok(Redirect::to(&format!(
-                "/projects/{}?tab=files&error=Template+version+not+found",
-                id
+                "/projects/{id}?tab=files&error=Template+version+not+found"
             ))
             .into_response());
         };
@@ -1219,15 +1211,13 @@ async fn create_file_action(
         .unwrap_or(false)
         {
             return Ok(Redirect::to(&format!(
-                "/projects/{}?tab=files&error=No+access+to+that+template",
-                id
+                "/projects/{id}?tab=files&error=No+access+to+that+template"
             ))
             .into_response());
         }
         let Some(template) = repo.get_template_by_id(version.template_id).await? else {
             return Ok(Redirect::to(&format!(
-                "/projects/{}?tab=files&error=Template+not+found",
-                id
+                "/projects/{id}?tab=files&error=Template+not+found"
             ))
             .into_response());
         };
@@ -1242,8 +1232,7 @@ async fn create_file_action(
             },
             | _ => {
                 return Ok(Redirect::to(&format!(
-                    "/projects/{}?tab=files&error=That+template+kind+can%27t+start+a+new+file",
-                    id
+                    "/projects/{id}?tab=files&error=That+template+kind+can%27t+start+a+new+file"
                 ))
                 .into_response())
             },
@@ -1293,7 +1282,7 @@ async fn create_file_action(
                 urlencoding::encode(filename)
             )
         },
-        | _ => format!("/projects/{}?tab=files&notice=file_created", id),
+        | _ => format!("/projects/{id}?tab=files&notice=file_created"),
     };
 
     Ok(Redirect::to(&redirect_url).into_response())
@@ -1315,7 +1304,7 @@ async fn delete_file_action(
         .project_manager
         .delete_file(id, user.id, &payload.file)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=files&notice=file_deleted", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=files&notice=file_deleted")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1364,7 +1353,7 @@ async fn file_raw_action(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("download");
-        if let Ok(value) = format!("attachment; filename=\"{}\"", name).parse() {
+        if let Ok(value) = format!("attachment; filename=\"{name}\"").parse() {
             headers.insert(header::CONTENT_DISPOSITION, value);
         }
     }
@@ -1563,7 +1552,7 @@ async fn project_editor_page(
                 compile_error=compile_error
                 file_share=file_share
                 all_users=all_users
-                template_kind=file_template_kind.map(|k| k.to_string())
+                template_kind=file_template_kind.map(std::string::ToString::to_string)
                 own_file_templates=own_file_templates
                 visible_file_templates=visible_file_templates
                 notice=notice
@@ -1745,7 +1734,7 @@ async fn latex_sync_action(
     }
 }
 
-pub(crate) fn html_escape(s: &str) -> String {
+pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -1784,7 +1773,7 @@ async fn typst_pdf_action(
             (
                 [
                     (header::CONTENT_TYPE, "application/pdf".to_string()),
-                    (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}.pdf\"", download_name)),
+                    (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{download_name}.pdf\"")),
                 ],
                 pdf_bytes,
             ).into_response()
@@ -1953,7 +1942,7 @@ async fn slide_binary_download_action(
             (header::CONTENT_TYPE, "application/octet-stream".to_string()),
             (
                 header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", filename),
+                format!("attachment; filename=\"{filename}\""),
             ),
         ],
         bytes,
@@ -2145,7 +2134,7 @@ async fn git_http_backend_action(
         | Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("git http-backend failed: {}", e),
+                format!("git http-backend failed: {e}"),
             )
                 .into_response()
         },
@@ -2233,7 +2222,7 @@ async fn start_sandbox_action(
     State(state): State<AppState>,
 ) -> Result<Response, WebError> {
     let _ = state.project_manager.launch_sandbox(id, user.id).await?;
-    Ok(Redirect::to(&format!("/projects/{}", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}")).into_response())
 }
 
 /// Stop container sandbox from web UI
@@ -2243,7 +2232,7 @@ async fn stop_sandbox_action(
     State(state): State<AppState>,
 ) -> Result<Response, WebError> {
     let _ = state.project_manager.stop_sandbox(id, user.id).await?;
-    Ok(Redirect::to(&format!("/projects/{}", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}")).into_response())
 }
 
 /// Snapshot from web UI
@@ -2257,7 +2246,7 @@ async fn snapshot_action(
         .project_manager
         .snapshot_project(id, user.id, &payload.message)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=timeline", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=timeline")).into_response())
 }
 
 /// Weave-free merge from web UI
@@ -2271,7 +2260,7 @@ async fn merge_action(
         .project_manager
         .merge_branch(id, &payload.branch)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=merge&notice=reconciled", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=merge&notice=reconciled")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2288,13 +2277,12 @@ async fn branch_create_action(
     let name = payload.name.trim();
     if name.is_empty() {
         return Ok(Redirect::to(&format!(
-            "/projects/{}?tab=vcs&error=Branch+name+cannot+be+empty",
-            id
+            "/projects/{id}?tab=vcs&error=Branch+name+cannot+be+empty"
         ))
         .into_response());
     }
     state.project_manager.branch_create(id, name).await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=branch_created", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=branch_created")).into_response())
 }
 
 async fn branch_switch_action(
@@ -2307,7 +2295,7 @@ async fn branch_switch_action(
         .project_manager
         .branch_switch(id, payload.name.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=branch_switched", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=branch_switched")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2326,8 +2314,7 @@ async fn milestone_create_action(
     let name = payload.name.trim();
     if name.is_empty() {
         return Ok(Redirect::to(&format!(
-            "/projects/{}?tab=vcs&error=Milestone+name+cannot+be+empty",
-            id
+            "/projects/{id}?tab=vcs&error=Milestone+name+cannot+be+empty"
         ))
         .into_response());
     }
@@ -2335,11 +2322,7 @@ async fn milestone_create_action(
         .project_manager
         .create_milestone(id, name, payload.desc.trim())
         .await?;
-    Ok(Redirect::to(&format!(
-        "/projects/{}?tab=vcs&notice=milestone_created",
-        id
-    ))
-    .into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=milestone_created")).into_response())
 }
 
 async fn vcs_undo_action(
@@ -2353,7 +2336,7 @@ async fn vcs_undo_action(
     } else {
         "vcs_nothing_to_undo"
     };
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice={}", id, notice)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice={notice}")).into_response())
 }
 
 async fn vcs_redo_action(
@@ -2367,7 +2350,7 @@ async fn vcs_redo_action(
     } else {
         "vcs_nothing_to_redo"
     };
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice={}", id, notice)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice={notice}")).into_response())
 }
 
 /// Resolve conflict from web UI
@@ -2388,8 +2371,7 @@ async fn resolve_conflict_action(
         .await?;
 
     Ok(Redirect::to(&format!(
-        "/projects/{}?tab=merge&notice=conflict_resolved",
-        id
+        "/projects/{id}?tab=merge&notice=conflict_resolved"
     ))
     .into_response())
 }
@@ -2402,7 +2384,7 @@ async fn git_sync_action(
     Form(payload): Form<GitSyncForm>,
 ) -> Result<Response, WebError> {
     let _ = state.project_manager.git_sync(id, &payload.message).await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=git&notice=git_synced", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=git&notice=git_synced")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2421,7 +2403,7 @@ async fn git_remote_add_action(
         .project_manager
         .git_add_remote(id, payload.name.trim(), payload.url.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2439,7 +2421,7 @@ async fn git_fetch_action(
         .project_manager
         .git_fetch(id, payload.remote.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=git_fetched", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=git_fetched")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2458,7 +2440,7 @@ async fn git_pull_action(
         .project_manager
         .git_pull(id, payload.remote.trim(), payload.branch.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=git_pulled", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=git_pulled")).into_response())
 }
 
 async fn git_push_action(
@@ -2471,7 +2453,7 @@ async fn git_push_action(
         .project_manager
         .git_push(id, payload.remote.trim(), payload.branch.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=git_pushed", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=git_pushed")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2489,7 +2471,7 @@ async fn git_rebase_action(
         .project_manager
         .git_rebase(id, payload.upstream.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=git_rebased", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=git_rebased")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2509,7 +2491,7 @@ async fn ignore_profile_toggle_action(
         .project_manager
         .set_ignore_profile(id, payload.profile.trim(), enabled)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=ignore_updated")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2527,7 +2509,7 @@ async fn ignore_rule_add_action(
     if !rule.is_empty() {
         state.project_manager.add_ignore_rule(id, rule).await?;
     }
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=ignore_updated")).into_response())
 }
 
 async fn ignore_rule_remove_action(
@@ -2540,7 +2522,7 @@ async fn ignore_rule_remove_action(
         .project_manager
         .remove_ignore_rule(id, payload.rule.trim())
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=ignore_updated")).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -2560,7 +2542,7 @@ async fn ignore_file_save_action(
         .project_manager
         .write_ignore_file(id, payload.file_name.trim(), &payload.content)
         .await?;
-    Ok(Redirect::to(&format!("/projects/{}?tab=vcs&notice=ignore_updated", id)).into_response())
+    Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=ignore_updated")).into_response())
 }
 
 /// Add collaborator to project
@@ -2594,8 +2576,7 @@ async fn add_project_member_form(
 
     repo.add_project_member(id, target_uid, role).await?;
     Ok(Redirect::to(&format!(
-        "/projects/{}?tab=members&notice=collaborator_added",
-        id
+        "/projects/{id}?tab=members&notice=collaborator_added"
     ))
     .into_response())
 }
@@ -2621,8 +2602,7 @@ async fn remove_project_member_form(
 
     repo.remove_project_member(id, payload.user_id).await?;
     Ok(Redirect::to(&format!(
-        "/projects/{}?tab=members&notice=collaborator_removed",
-        id
+        "/projects/{id}?tab=members&notice=collaborator_removed"
     ))
     .into_response())
 }
@@ -2894,12 +2874,12 @@ async fn settings_page(
     Html(html).into_response()
 }
 
-/// Generates a new random personal access token, returning (plaintext, sha256_hash, display_prefix).
+/// Generates a new random personal access token, returning (plaintext, `sha256_hash`, `display_prefix`).
 /// Reuses the same random-byte + SHA-256 scheme as session tokens (see `auth::session`), just with
 /// a distinguishing `apat_` prefix so a PAT is visually recognizable as such wherever it's pasted.
 fn generate_pat() -> (String, String, String) {
     let raw = generate_session_token();
-    let token = format!("apat_{}", raw);
+    let token = format!("apat_{raw}");
     let hash = hash_session_token(&token);
     let prefix = token.chars().take(12).collect::<String>();
     (token, hash, prefix)
@@ -3059,7 +3039,7 @@ async fn add_gpg_key_action(
     }
     let fingerprint = match crate::services::gpg_key_fingerprint(armored) {
         | Ok(fp) => fp,
-        | Err(e) => return redirect_error("/settings", format!("Could not read this key: {}", e)),
+        | Err(e) => return redirect_error("/settings", format!("Could not read this key: {e}")),
     };
 
     let repo = state.db.repository();
@@ -3140,7 +3120,7 @@ async fn change_password_form(
         .change_user_password(user.id, &payload.current_password, &payload.new_password)
         .await
     {
-        | Ok(_) => redirect_notice("/settings", "Password changed successfully"),
+        | Ok(()) => redirect_notice("/settings", "Password changed successfully"),
         | Err(e) => redirect_error("/settings", e),
     }
 }
@@ -3252,8 +3232,7 @@ async fn create_org_form(
     let allow_team_override = payload
         .allow_team_override
         .as_deref()
-        .map(|s| s == "true" || s == "on" || s == "1")
-        .unwrap_or(true);
+        .map_or(true, |s| s == "true" || s == "on" || s == "1");
 
     let dto = apich_db::CreateOrganizationDto {
         slug: payload.slug.trim().to_lowercase(),
@@ -3329,7 +3308,7 @@ async fn delete_org_form(
         .delete_organization(user.id, payload.org_id)
         .await
     {
-        | Ok(_) => redirect_notice("/admin/orgs", "org_deleted"),
+        | Ok(()) => redirect_notice("/admin/orgs", "org_deleted"),
         | Err(e) => redirect_error("/admin/orgs", e),
     }
 }
@@ -3427,7 +3406,7 @@ async fn delete_team_form(
         .delete_team(user.id, payload.team_id)
         .await
     {
-        | Ok(_) => redirect_notice("/admin/orgs", "team_deleted"),
+        | Ok(()) => redirect_notice("/admin/orgs", "team_deleted"),
         | Err(e) => redirect_error("/admin/orgs", e),
     }
 }
@@ -3449,7 +3428,7 @@ async fn add_org_member_form(
         .add_org_member(user.id, payload.org_id, target_uid, &payload.role)
         .await
     {
-        | Ok(_) => redirect_notice("/admin/orgs", "member_added"),
+        | Ok(()) => redirect_notice("/admin/orgs", "member_added"),
         | Err(e) => redirect_error("/admin/orgs", e),
     }
 }
@@ -3465,7 +3444,7 @@ async fn remove_org_member_form(
         .remove_org_member(user.id, payload.org_id, payload.user_id)
         .await
     {
-        | Ok(_) => redirect_notice("/admin/orgs", "member_removed"),
+        | Ok(()) => redirect_notice("/admin/orgs", "member_removed"),
         | Err(e) => redirect_error("/admin/orgs", e),
     }
 }
@@ -3487,7 +3466,7 @@ async fn add_team_member_form(
         .add_team_member(user.id, payload.team_id, target_uid, &payload.role)
         .await
     {
-        | Ok(_) => redirect_notice("/admin/orgs", "team_member_added"),
+        | Ok(()) => redirect_notice("/admin/orgs", "team_member_added"),
         | Err(e) => redirect_error("/admin/orgs", e),
     }
 }
@@ -3503,7 +3482,7 @@ async fn remove_team_member_form(
         .remove_team_member(user.id, payload.team_id, payload.user_id)
         .await
     {
-        | Ok(_) => redirect_notice("/admin/orgs", "team_member_removed"),
+        | Ok(()) => redirect_notice("/admin/orgs", "team_member_removed"),
         | Err(e) => redirect_error("/admin/orgs", e),
     }
 }
@@ -3618,7 +3597,7 @@ async fn test_smtp_form(
     let settings = match state.db.repository().get_system_settings().await {
         | Ok(s) => s,
         | Err(e) => {
-            return redirect_error("/admin/platform", format!("Failed to read settings: {}", e))
+            return redirect_error("/admin/platform", format!("Failed to read settings: {e}"))
         },
     };
 
@@ -3627,7 +3606,7 @@ async fn test_smtp_form(
         .send_test_email(&settings, &payload.test_email)
         .await
     {
-        | Ok(_) => {
+        | Ok(()) => {
             redirect_notice(
                 "/admin/platform",
                 &format!(
@@ -3636,7 +3615,7 @@ async fn test_smtp_form(
                 ),
             )
         },
-        | Err(e) => redirect_error("/admin/platform", format!("SMTP delivery error: {}", e)),
+        | Err(e) => redirect_error("/admin/platform", format!("SMTP delivery error: {e}")),
     }
 }
 
@@ -3757,7 +3736,7 @@ async fn project_table_page(
                 table_data=table_data
                 column_view=column_view
                 query_history=query_history
-                sql_query="".to_string()
+                sql_query=String::new()
                 sql_result=None
                 mode=mode
                 search=search
@@ -4285,9 +4264,7 @@ async fn table_export_action(
         &query.file,
     ) {
         | Ok(p) => p,
-        | Err(e) => {
-            return (StatusCode::NOT_FOUND, Html(format!("<h3>{}</h3>", e))).into_response()
-        },
+        | Err(e) => return (StatusCode::NOT_FOUND, Html(format!("<h3>{e}</h3>"))).into_response(),
     };
     let format = query.format.as_deref().unwrap_or("csv");
     let (content_type, ext, result) = match format {
@@ -4340,7 +4317,7 @@ async fn table_export_action(
                     (header::CONTENT_TYPE, content_type.to_string()),
                     (
                         header::CONTENT_DISPOSITION,
-                        format!("attachment; filename=\"{}\"", filename),
+                        format!("attachment; filename=\"{filename}\""),
                     ),
                 ],
                 data,
@@ -4403,9 +4380,7 @@ async fn table_column_view_action(
         &payload.file,
     ) {
         | Ok(p) => p,
-        | Err(e) => {
-            return (StatusCode::NOT_FOUND, Html(format!("<h3>{}</h3>", e))).into_response()
-        },
+        | Err(e) => return (StatusCode::NOT_FOUND, Html(format!("<h3>{e}</h3>"))).into_response(),
     };
 
     let all_columns: Vec<String> =
@@ -4432,7 +4407,7 @@ async fn table_column_view_action(
         },
         | "move-left" | "move-right" => {
             let visible = config.apply(&all_columns);
-            let mut order = visible.clone();
+            let mut order = visible;
             if let Some(pos) = order.iter().position(|c| c == &payload.column) {
                 if payload.action == "move-left" && pos > 0 {
                     order.swap(pos, pos - 1);
@@ -4460,7 +4435,7 @@ async fn table_column_view_action(
     ) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Html(format!("Failed to save column view: {}", e)),
+            Html(format!("Failed to save column view: {e}")),
         )
             .into_response();
     }
@@ -4964,8 +4939,7 @@ async fn project_note_page(
         KnowledgeSyncService::extract_calendar_events(&project.storage_path).unwrap_or_default();
     let note_id = std::path::Path::new(&file_path)
         .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| file_path.clone());
+        .map_or_else(|| file_path.clone(), |s| s.to_string_lossy().to_string());
     let backlinks: Vec<String> = graph
         .edges
         .iter()
@@ -5305,9 +5279,9 @@ async fn create_note_page_action(
     let base_slug =
         crate::services::knowledge_sync::KnowledgeSyncService::slugify_page_title(title);
     let safe_title = title.replace('"', "'");
-    let content = format!("---\ntitle: \"{}\"\n---\n\n# {}\n", safe_title, title);
+    let content = format!("---\ntitle: \"{safe_title}\"\n---\n\n# {title}\n");
 
-    let mut filename = format!("{}.anote", base_slug);
+    let mut filename = format!("{base_slug}.anote");
     let mut attempt = 2;
     loop {
         match state
@@ -5317,7 +5291,7 @@ async fn create_note_page_action(
         {
             | Ok(()) => break,
             | Err(WebError::Conflict(_)) if attempt <= 50 => {
-                filename = format!("{}-{}.anote", base_slug, attempt);
+                filename = format!("{base_slug}-{attempt}.anote");
                 attempt += 1;
             },
             | Err(e) => {
@@ -5364,8 +5338,7 @@ async fn toggle_task_action(
     let is_done_column = payload
         .done
         .as_deref()
-        .map(|d| d == "true")
-        .unwrap_or_else(|| payload.status == "done");
+        .map_or_else(|| payload.status == "done", |d| d == "true");
     if let Err(e) = KnowledgeSyncService::update_task_status(
         &project.storage_path,
         &payload.file,
@@ -5417,7 +5390,7 @@ pub struct KanbanMoveColumnForm {
 /// columns if it's never been customized) -- shared by all 4 column-management handlers below so
 /// each mutates the same starting point `render_kanban_column_settings`'s forms were rendered
 /// against.
-pub(crate) async fn load_project_kanban_columns(
+pub async fn load_project_kanban_columns(
     state: &AppState,
     project: &apich_db::Project,
     i18n: crate::ui::i18n::I18n,
@@ -5665,9 +5638,7 @@ async fn project_terminal_page(
         .get_project_sandbox(project.id, user.id)
         .await
         .unwrap_or(None);
-    let sandbox_status = sb
-        .map(|s| s.status)
-        .unwrap_or_else(|| "stopped".to_string());
+    let sandbox_status = sb.map_or_else(|| "stopped".to_string(), |s| s.status);
 
     let current_path = format!("/projects/{}/terminal", project.id);
 
@@ -5798,8 +5769,7 @@ fn parse_payload<T: for<'de> Deserialize<'de>>(
     let is_json = headers
         .get(header::CONTENT_TYPE)
         .and_then(|h| h.to_str().ok())
-        .map(|ct| ct.contains("application/json"))
-        .unwrap_or(false)
+        .is_some_and(|ct| ct.contains("application/json"))
         || body.first() == Some(&b'{');
 
     if is_json {
@@ -6056,7 +6026,7 @@ async fn share_file_action(
     let payload: ShareFileForm = match parse_payload(&headers, &body) {
         | Ok(p) => p,
         | Err(e) => {
-            return (StatusCode::BAD_REQUEST, Html(format!("Bad Request: {}", e))).into_response()
+            return (StatusCode::BAD_REQUEST, Html(format!("Bad Request: {e}"))).into_response()
         },
     };
 
@@ -6174,7 +6144,7 @@ async fn update_project_sharing_action(
     let payload: UpdateProjectSharingForm = match parse_payload(&headers, &body) {
         | Ok(p) => p,
         | Err(e) => {
-            return (StatusCode::BAD_REQUEST, Html(format!("Bad Request: {}", e))).into_response()
+            return (StatusCode::BAD_REQUEST, Html(format!("Bad Request: {e}"))).into_response()
         },
     };
 
@@ -6553,7 +6523,7 @@ pub struct AgentLoginStartForm {
     pub agent: String,
 }
 
-fn login_support_json(support: apich_sandbox::tools::LoginSupport) -> &'static str {
+const fn login_support_json(support: apich_sandbox::tools::LoginSupport) -> &'static str {
     match support {
         | apich_sandbox::tools::LoginSupport::None => "none",
         | apich_sandbox::tools::LoginSupport::DeviceCode => "device_code",

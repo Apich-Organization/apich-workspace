@@ -21,6 +21,9 @@ pub struct Database {
 
 impl Database {
     /// Connect to PostgreSQL using administrator credentials
+    ///
+    /// # Errors
+    /// Returns an error if establishing the admin connection pool fails.
     pub async fn connect_admin(
         config: &PostgresConfig,
         host: &str,
@@ -41,6 +44,9 @@ impl Database {
     }
 
     /// Connect or initialize application role connection pool
+    ///
+    /// # Errors
+    /// Returns an error if establishing the application connection pool fails.
     pub async fn init_app_pool(
         &mut self,
         config: &PostgresConfig,
@@ -60,32 +66,44 @@ impl Database {
     }
 
     /// Admin connection pool (for DDL, user administration, backup preparation)
-    pub fn admin_pool(&self) -> &PgPool {
+    #[must_use]
+    pub const fn admin_pool(&self) -> &PgPool {
         &self.admin_pool
     }
 
     /// Application connection pool (for least-privilege operations)
-    pub fn app_pool(&self) -> Option<&PgPool> {
+    #[must_use]
+    pub const fn app_pool(&self) -> Option<&PgPool> {
         self.app_pool.as_ref()
     }
 
-    /// Preferred pool for business queries (app_pool if available, else admin_pool)
+    /// Preferred pool for business queries (`app_pool` if available, else `admin_pool`)
+    #[must_use]
     pub fn pool(&self) -> &PgPool {
         self.app_pool.as_ref().unwrap_or(&self.admin_pool)
     }
 
     /// Verify database connectivity
+    ///
+    /// # Errors
+    /// Returns an error if the ping query to the database pool fails.
     pub async fn ping(&self) -> Result<()> {
         sqlx::query("SELECT 1").execute(self.pool()).await?;
         Ok(())
     }
 
     /// Run default database migrations
+    ///
+    /// # Errors
+    /// Returns an error if executing migrations fails.
     pub async fn run_migrations(&self) -> Result<()> {
         run_migrations(&self.admin_pool).await
     }
 
     /// Run migrations with an extensible `MigrationManager`
+    ///
+    /// # Errors
+    /// Returns an error if executing migrations with the manager fails.
     pub async fn migrate_with(
         &self,
         manager: &MigrationManager,
@@ -94,6 +112,9 @@ impl Database {
     }
 
     /// Configure least-privilege permissions for the application user
+    ///
+    /// # Errors
+    /// Returns an error if setting up least-privilege permissions on the database fails.
     pub async fn setup_permissions(
         &self,
         config: &PostgresConfig,
@@ -102,16 +123,21 @@ impl Database {
     }
 
     /// Get typed repository helper
+    #[must_use]
     pub fn repository(&self) -> Repository<'_> {
         Repository::new(self.pool())
     }
 
     /// Get typed repository helper explicitly bound to admin pool
-    pub fn admin_repository(&self) -> Repository<'_> {
+    #[must_use]
+    pub const fn admin_repository(&self) -> Repository<'_> {
         Repository::new(&self.admin_pool)
     }
 
     /// Begin a user-scoped session enforcing Row-Level Security (RLS)
+    ///
+    /// # Errors
+    /// Returns an error if acquiring a connection or setting session variables fails.
     pub async fn begin_session(
         &self,
         user_id: Option<Uuid>,
@@ -120,6 +146,9 @@ impl Database {
     }
 
     /// Begin a system session with RLS bypassed
+    ///
+    /// # Errors
+    /// Returns an error if acquiring a connection or setting system session flags fails.
     pub async fn begin_system_session(&self) -> Result<DbSession<'_>> {
         DbSession::begin_system(self.pool()).await
     }

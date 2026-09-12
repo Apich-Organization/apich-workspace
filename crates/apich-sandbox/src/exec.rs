@@ -1,3 +1,5 @@
+//! Command execution options, results, and asynchronous output streaming.
+
 use crate::error::Result;
 use crate::error::SandboxError;
 use std::borrow::Cow;
@@ -7,6 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+/// Configuration options for executing a command inside a container.
 #[derive(Debug, Clone)]
 pub struct ExecOptions {
     /// Command and arguments to execute
@@ -24,6 +27,8 @@ pub struct ExecOptions {
 }
 
 impl ExecOptions {
+    /// Creates a new `ExecOptions` instance with the specified command arguments.
+    #[must_use]
     pub fn new<I, S>(cmd: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -39,6 +44,8 @@ impl ExecOptions {
         }
     }
 
+    /// Sets the working directory inside the container for command execution.
+    #[must_use]
     pub fn working_dir(
         mut self,
         dir: impl AsRef<Path>,
@@ -47,6 +54,8 @@ impl ExecOptions {
         self
     }
 
+    /// Adds an environment variable for the command execution.
+    #[must_use]
     pub fn env(
         mut self,
         key: impl Into<String>,
@@ -56,6 +65,8 @@ impl ExecOptions {
         self
     }
 
+    /// Adds multiple environment variables for the command execution.
+    #[must_use]
     pub fn envs(
         mut self,
         envs: HashMap<String, String>,
@@ -64,6 +75,8 @@ impl ExecOptions {
         self
     }
 
+    /// Specifies the container user account to execute the command as.
+    #[must_use]
     pub fn user(
         mut self,
         user: impl Into<String>,
@@ -72,7 +85,9 @@ impl ExecOptions {
         self
     }
 
-    pub fn tty(
+    /// Toggles pseudo-TTY allocation for interactive or color-enabled output.
+    #[must_use]
+    pub const fn tty(
         mut self,
         tty: bool,
     ) -> Self {
@@ -80,7 +95,9 @@ impl ExecOptions {
         self
     }
 
-    pub fn timeout(
+    /// Specifies an execution timeout.
+    #[must_use]
+    pub const fn timeout(
         mut self,
         timeout: Duration,
     ) -> Self {
@@ -92,33 +109,55 @@ impl ExecOptions {
 /// The result of an executed command
 #[derive(Debug, Clone)]
 pub struct ExecResult {
+    /// Process exit code.
     pub exit_code: i32,
+    /// Raw bytes captured from stdout.
     pub stdout: Vec<u8>,
+    /// Raw bytes captured from stderr.
     pub stderr: Vec<u8>,
+    /// Execution elapsed time.
     pub duration: Duration,
 }
 
 impl ExecResult {
-    pub fn success(&self) -> bool {
+    /// Returns true if the process exited with status code 0.
+    #[must_use]
+    pub const fn success(&self) -> bool {
         self.exit_code == 0
     }
 
+    /// Attempts to parse stdout as valid UTF-8 text.
+    ///
+    /// # Errors
+    /// Returns an error if stdout is not valid UTF-8.
     pub fn stdout_str(&self) -> std::result::Result<&str, std::str::Utf8Error> {
         std::str::from_utf8(&self.stdout)
     }
 
+    /// Attempts to parse stderr as valid UTF-8 text.
+    ///
+    /// # Errors
+    /// Returns an error if stderr is not valid UTF-8.
     pub fn stderr_str(&self) -> std::result::Result<&str, std::str::Utf8Error> {
         std::str::from_utf8(&self.stderr)
     }
 
+    /// Converts stdout into a lossy UTF-8 string.
+    #[must_use]
     pub fn stdout_lossy(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.stdout)
     }
 
+    /// Converts stderr into a lossy UTF-8 string.
+    #[must_use]
     pub fn stderr_lossy(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.stderr)
     }
 
+    /// Verifies exit code 0 or returns a `SandboxError::CommandFailed`.
+    ///
+    /// # Errors
+    /// Returns `SandboxError::CommandFailed` if the exit code was non-zero.
     pub fn ensure_success(
         &self,
         container: &str,
@@ -136,10 +175,13 @@ impl ExecResult {
 }
 
 /// Streamed chunk of execution output
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputChunk {
+    /// Standard output data bytes.
     Stdout(Vec<u8>),
+    /// Standard error data bytes.
     Stderr(Vec<u8>),
+    /// Process exit event with exit code.
     Exit(i32),
 }
 
@@ -149,7 +191,9 @@ pub struct ExecStream {
 }
 
 impl ExecStream {
-    pub fn new(receiver: mpsc::Receiver<OutputChunk>) -> Self {
+    /// Creates a new `ExecStream` wrapping an asynchronous channel receiver.
+    #[must_use]
+    pub const fn new(receiver: mpsc::Receiver<OutputChunk>) -> Self {
         Self { receiver }
     }
 
@@ -158,7 +202,7 @@ impl ExecStream {
         self.receiver.recv().await
     }
 
-    /// Read all output from stream until completion and assemble into an ExecResult
+    /// Read all output from stream until completion and assemble into an `ExecResult`
     pub async fn collect_result(
         mut self,
         start_time: std::time::Instant,
@@ -184,14 +228,18 @@ impl ExecStream {
     }
 }
 
-/// A running exec session with a writable stdin, for commands that need real interactive input
+/// A running exec session with a writable stdin.
+///
+/// For commands that need real interactive input
 /// mid-run -- e.g. `claude auth login`, which prints an OAuth URL and then waits for the user to
 /// paste back a code from the browser callback page. Plain `ExecStream` only reads output;
 /// this additionally lets the caller write bytes into the process's stdin at any point before it
 /// exits. Dropping `stdin_tx` (or the whole `InteractiveExec`) closes stdin, which is how a
 /// command that reads until EOF (rather than a specific delimiter) is told input is done.
 pub struct InteractiveExec {
+    /// Output streaming handle.
     pub stream: ExecStream,
+    /// Channel sender to transmit input bytes to the running command's stdin.
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
 }
 

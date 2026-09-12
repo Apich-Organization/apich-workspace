@@ -14,10 +14,10 @@ pub fn CopyLinkIsland(
     #[prop(into)] link: String,
     #[prop(into)] button_label: String,
 ) -> impl IntoView {
-    let status = RwSignal::new(button_label.clone());
+    let status = RwSignal::new(button_label);
     let link_for_copy = link.clone();
     let display_link = RwSignal::new(link.clone());
-    absolutize_display_link(display_link, link.clone());
+    absolutize_display_link(display_link, link);
 
     view! {
         <input type="text" readonly=true prop:value=move || display_link.get() class="form-control" style="background:var(--bg-muted); font-family:var(--font-mono); font-size:0.85rem;" onfocus="this.select()" />
@@ -62,4 +62,4 @@ fn copy_to_clipboard(path: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn copy_to_clipboard(_path: &str) {}
+const fn copy_to_clipboard(_path: &str) {}

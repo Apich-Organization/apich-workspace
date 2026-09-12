@@ -1,9 +1,11 @@
-//! Preset query buttons for the table page's raw SQL console (`table_page.rs`'s
-//! `render_sql_console`). Before this existed, the console was just a bare textarea + "Run SQL"
-//! button -- every query had to be hand-typed even for the handful of things almost every table
-//! user reaches for first (row count, distinct rows, column info, a quick group-by). Matches the
-//! "not enough preset functionalities" half of the table feedback the same way the terminal
-//! page's quick-command buttons already do for shell commands.
+//! Preset query buttons for the table page's raw SQL console.
+//!
+//! Replaces hand-typed queries in `table_page.rs`'s `render_sql_console`. Before this existed,
+//! the console was just a bare textarea + "Run SQL" button -- every query had to be hand-typed
+//! even for the handful of things almost every table user reaches for first (row count, distinct
+//! rows, column info, a quick group-by). Matches the "not enough preset functionalities" half of
+//! the table feedback the same way the terminal page's quick-command buttons already do for
+//! shell commands.
 //!
 //! Clicking a preset fills the textarea (still a real `<textarea name="sql">` inside the
 //! surrounding server-rendered `<form method="post">`) without submitting -- the user can edit
@@ -60,7 +62,7 @@ pub fn SqlConsoleIsland(
                         <button
                             type="button"
                             class="btn btn-ghost btn-sm"
-                            title=q.clone()
+                            title=q
                             style="background:transparent; color:#7dd3fc; border:1px solid #334155; font-size:0.72rem; font-family:var(--font-mono);"
                             on:click=move |_| sql.set(full.clone())
                         >
@@ -123,4 +125,4 @@ fn submit_enclosing_form(ev: &leptos::ev::KeyboardEvent) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn submit_enclosing_form(_ev: &leptos::ev::KeyboardEvent) {}
+const fn submit_enclosing_form(_ev: &leptos::ev::KeyboardEvent) {}

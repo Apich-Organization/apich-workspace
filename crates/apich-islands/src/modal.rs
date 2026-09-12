@@ -1,10 +1,10 @@
-//! Real Rust replacement for the app's several near-identical hand-written "show/hide a modal
-//! backdrop" JS one-liners (`onclick="document.getElementById('modal-x').style.display=...'"`).
-//! One generic, reusable island: the trigger button and the modal (backdrop + card + close
-//! button) share real Rust state instead of each modal getting its own copy-pasted toggle glue.
-//! The modal body itself renders as real server HTML passed in as `children` -- forms inside it
-//! (file names, descriptions, etc.) stay plain, non-interactive `<form>` elements that submit
-//! natively; only open/closed state is reactive.
+//! Reusable reactive modal backdrop and card island.
+//!
+//! Replaces hand-written "show/hide a modal backdrop" JS one-liners. The trigger button and
+//! the modal (backdrop + card + close button) share real Rust state instead of each modal
+//! getting its own copy-pasted toggle glue. The modal body itself renders as real server HTML
+//! passed in as `children` -- forms inside it stay plain, non-interactive `<form>` elements
+//! that submit natively; only open/closed state is reactive.
 
 use leptos::prelude::*;
 

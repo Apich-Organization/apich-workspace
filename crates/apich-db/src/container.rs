@@ -6,10 +6,10 @@ use apich_sandbox::ExecOptions;
 use apich_sandbox::ExecResult;
 use apich_sandbox::PodmanDriver;
 use std::fs;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use tokio::process::Command;
 use tracing::debug;
 use tracing::info;
 use tracing::warn;
@@ -22,6 +22,8 @@ pub struct PostgresContainer {
 }
 
 impl PostgresContainer {
+    /// Creates a new container manager with the specified configuration and default Podman driver.
+    #[must_use]
     pub fn new(config: PostgresConfig) -> Self {
         Self {
             config,
@@ -29,6 +31,8 @@ impl PostgresContainer {
         }
     }
 
+    /// Overrides the Podman driver instance.
+    #[must_use]
     pub fn with_driver(
         mut self,
         driver: PodmanDriver,
@@ -37,33 +41,46 @@ impl PostgresContainer {
         self
     }
 
-    pub fn config(&self) -> &PostgresConfig {
+    /// Returns a reference to the container configuration.
+    #[must_use]
+    pub const fn config(&self) -> &PostgresConfig {
         &self.config
     }
 
-    pub fn driver(&self) -> &Arc<PodmanDriver> {
+    /// Returns a reference to the Podman driver handle.
+    #[must_use]
+    pub const fn driver(&self) -> &Arc<PodmanDriver> {
         &self.driver
     }
 
     /// Check if container is running
+    ///
+    /// # Errors
+    /// Returns an error if querying container inspection details fails.
     pub async fn is_running(&self) -> Result<bool> {
-        if let Some(info) = self.driver.inspect(&self.config.container_name).await? {
-            Ok(info.is_running)
-        } else {
-            Ok(false)
-        }
+        Ok(self
+            .driver
+            .inspect(&self.config.container_name)
+            .await?
+            .is_some_and(|info| info.is_running))
     }
 
     /// Get current container status
+    ///
+    /// # Errors
+    /// Returns an error if querying container status fails.
     pub async fn status(&self) -> Result<Option<ContainerStatus>> {
-        if let Some(info) = self.driver.inspect(&self.config.container_name).await? {
-            Ok(Some(info.status))
-        } else {
-            Ok(None)
-        }
+        Ok(self
+            .driver
+            .inspect(&self.config.container_name)
+            .await?
+            .map(|info| info.status))
     }
 
     /// Start or create the PostgreSQL container if not already running
+    ///
+    /// # Errors
+    /// Returns an error if creating directories, inspecting container, or spawning the container fails.
     pub async fn ensure_running(&self) -> Result<()> {
         // Ensure host storage directories exist
         if !self.config.host_data_dir.exists() {
@@ -148,12 +165,11 @@ impl PostgresContainer {
 
         debug!("Spawning postgres container with cmd: {:?}", cmd);
 
-        let output = cmd.output().map_err(DbError::Io)?;
+        let output = cmd.output().await.map_err(DbError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             return Err(DbError::Internal(format!(
-                "Failed to spawn Postgres container: {}",
-                stderr
+                "Failed to spawn Postgres container: {stderr}"
             )));
         }
 
@@ -163,6 +179,9 @@ impl PostgresContainer {
     }
 
     /// Wait for PostgreSQL inside container to be fully initialized and accepting connections
+    ///
+    /// # Errors
+    /// Returns an error if the health check times out or executing commands fails.
     pub async fn wait_ready(
         &self,
         timeout: Duration,
@@ -202,6 +221,9 @@ impl PostgresContainer {
     }
 
     /// Gracefully stop the database container
+    ///
+    /// # Errors
+    /// Returns an error if the container stop operation fails.
     pub async fn stop(
         &self,
         timeout_secs: u32,
@@ -213,6 +235,9 @@ impl PostgresContainer {
     }
 
     /// Restart the database container
+    ///
+    /// # Errors
+    /// Returns an error if stopping or starting the container fails.
     pub async fn restart(
         &self,
         timeout_secs: u32,
@@ -223,6 +248,9 @@ impl PostgresContainer {
     }
 
     /// Destroy/remove the database container
+    ///
+    /// # Errors
+    /// Returns an error if removing the container fails.
     pub async fn destroy(&self) -> Result<()> {
         self.driver
             .remove(&self.config.container_name, true)
@@ -231,6 +259,9 @@ impl PostgresContainer {
     }
 
     /// Execute command inside the postgres container
+    ///
+    /// # Errors
+    /// Returns an error if executing the command inside the container fails.
     pub async fn exec<I, S>(
         &self,
         cmd: I,
@@ -243,7 +274,10 @@ impl PostgresContainer {
         self.exec_with_options(&opts).await
     }
 
-    /// Execute command inside the postgres container with explicit ExecOptions
+    /// Execute command inside the postgres container with explicit `ExecOptions`
+    ///
+    /// # Errors
+    /// Returns an error if executing the command inside the container fails.
     pub async fn exec_with_options(
         &self,
         opts: &ExecOptions,

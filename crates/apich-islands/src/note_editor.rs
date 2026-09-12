@@ -1,7 +1,8 @@
-//! Real Rust replacement for the unified note editor's hand-written JS (`note_page.rs`'s
-//! `NOTE_EDITOR_SCRIPT`): outline click-to-jump, the task-checkbox toggle (a real POST that
+//! Real Rust replacement for the unified note editor's hand-written JS (`note_page.rs`'s `NOTE_EDITOR_SCRIPT`).
+//!
+//! Outline click-to-jump, the task-checkbox toggle (a real POST that
 //! rewrites the physical note file server-side and refreshes the textarea), the live-preview hot
-//! reload, and KaTeX re-render are all real Leptos/WASM `on:click` handlers here. None of these
+//! reload, and `KaTeX` re-render are all real Leptos/WASM `on:click` handlers here. None of these
 //! need to survive being clicked before this island's WASM has hydrated the way the AI Copilot
 //! drawer's toggle button did (see `ai_drawer.rs`, now a pure CSS checkbox-hack with no JS
 //! involved at all): a user can only reach a rendered note's outline/preview/checkboxes after the
@@ -14,10 +15,14 @@ use leptos::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
 
+/// Note heading parsed for quick-jump sidebar navigation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteHeadingItem {
+    /// Heading level (1 to 6).
     pub level: u8,
+    /// Heading display text.
     pub text: String,
+    /// Line number in source document.
     pub line: u32,
 }
 
@@ -58,7 +63,7 @@ pub fn NoteEditorIsland(
                 debounce_gen,
                 preview_html,
                 headings_sig,
-            )
+            );
         }
     };
     // KaTeX's own auto-render only ever scans the DOM once, on its CDN script's `onload` (see
@@ -83,8 +88,8 @@ pub fn NoteEditorIsland(
             for h in headings {
                 if h.level <= min_level || groups.is_empty() {
                     groups.push((h, Vec::new()));
-                } else {
-                    groups.last_mut().unwrap().1.push(h);
+                } else if let Some(last) = groups.last_mut() {
+                    last.1.push(h);
                 }
             }
             groups
@@ -98,7 +103,7 @@ pub fn NoteEditorIsland(
                         let child_items: Vec<_> = children
                             .into_iter()
                             .map(|c| {
-                                let indent = format!("{}rem", 0.75 * (c.level.saturating_sub(min_level + 1)) as f64);
+                                let indent = format!("{}rem", 0.75 * f64::from(c.level.saturating_sub(min_level.saturating_add(1))));
                                 view! {
                                     <a href="javascript:void(0)" class="outline-heading-item outline-heading-h2" style=format!("margin-left:{indent};") data-line=c.line.to_string()>{c.text}</a>
                                 }
@@ -133,7 +138,6 @@ pub fn NoteEditorIsland(
     // isn't `Copy` and a plain `let` binding could only be moved into one of them.
     let toolbar_click = StoredValue::new({
         let project_id = project_id.clone();
-        let file_path = file_path.clone();
         move |action: ToolbarAction| {
             apply_toolbar_action(code_ref, action);
             debounced_preview(
@@ -280,7 +284,7 @@ fn apply_toolbar_action(
     call_refresh_highlight("note-body-editor");
 }
 #[cfg(not(feature = "hydrate"))]
-fn apply_toolbar_action(
+const fn apply_toolbar_action(
     _code_ref: NodeRef<leptos::html::Textarea>,
     _action: ToolbarAction,
 ) {
@@ -569,4 +573,4 @@ fn rerun_katex_on_preview() {
     let _ = func.call2(&wasm_bindgen::JsValue::NULL, &el, &options);
 }
 #[cfg(not(feature = "hydrate"))]
-fn rerun_katex_on_preview() {}
+const fn rerun_katex_on_preview() {}

@@ -1,7 +1,9 @@
+//! First-class non-blocking conflict models.
+
 use serde::Deserialize;
 use serde::Serialize;
 
-/// First-class non-blocking conflict metadata
+/// First-class non-blocking conflict metadata.
 ///
 /// Conflicts do not halt or lock the repository. They are recorded directly
 /// as state entries allowing normal editing to proceed.
@@ -20,6 +22,7 @@ pub struct Conflict {
 }
 
 impl Conflict {
+    /// Creates a new `Conflict` instance for a path with the given version hashes.
     pub fn new(
         path: impl Into<String>,
         ours_hash: Option<String>,
@@ -36,15 +39,13 @@ impl Conflict {
     }
 
     /// Render standard inline conflict markers into a single text buffer
+    #[must_use]
     pub fn format_text_conflict(
         ours: &str,
         theirs: &str,
         ours_label: &str,
         theirs_label: &str,
     ) -> String {
-        format!(
-            "<<<<<<< {}\n{}\n=======\n{}\n>>>>>>> {}\n",
-            ours_label, ours, theirs, theirs_label
-        )
+        format!("<<<<<<< {ours_label}\n{ours}\n=======\n{theirs}\n>>>>>>> {theirs_label}\n")
     }
 }

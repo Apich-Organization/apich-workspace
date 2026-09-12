@@ -1,5 +1,5 @@
-//! Pure text-manipulation logic behind the note editor's formatting toolbar
-//! (`note_editor.rs`) -- the "somehow more WYSIWYG a bit" half of the note/wiki feedback.
+//! Pure text-manipulation logic behind the note editor's formatting toolbar (`note_editor.rs`).
+//!
 //! Before this, turning a selection into **bold** or a heading meant knowing and hand-typing the
 //! literal markdown syntax; these functions do the same thing a rich-text editor's toolbar
 //! buttons do, just by inserting/toggling real markdown around the selection instead of setting
@@ -16,11 +16,13 @@
 //! works correctly for notes containing CJK text or emoji without ever touching JS string
 //! semantics itself.
 
-/// Wraps the selected text in `prefix`/`suffix` (bold: `**`/`**`, code: `` ` ``/`` ` ``, a link:
-/// `[`/`](url)`, etc). If nothing is selected, inserts `placeholder` between the markers instead
+/// Wraps the selected text in `prefix`/`suffix` (bold: `**`/`**`, code: `` ` ``/`` ` ``, a link: `[`/`](url)`, etc).
+///
+/// If nothing is selected, inserts `placeholder` between the markers instead
 /// and returns a selection covering just the placeholder, so the user can type straight over it --
 /// the same "insert with the fill-in part pre-selected" behavior every markdown-toolbar editor
-/// uses. Returns (new_full_text, new_selection_start, new_selection_end).
+/// uses. Returns (`new_full_text`, `new_selection_start`, `new_selection_end`).
+#[must_use]
 pub fn wrap_selection(
     text: &str,
     start: usize,
@@ -38,15 +40,20 @@ pub fn wrap_selection(
         selected
     };
 
-    let mut out = String::with_capacity(text.len() + prefix.len() + suffix.len() + inner.len());
+    let mut out = String::with_capacity(
+        text.len()
+            .saturating_add(prefix.len())
+            .saturating_add(suffix.len())
+            .saturating_add(inner.len()),
+    );
     out.push_str(&text[..start]);
     out.push_str(prefix);
     out.push_str(inner);
     out.push_str(suffix);
     out.push_str(&text[end..]);
 
-    let new_start = start + prefix.len();
-    let new_end = new_start + inner.len();
+    let new_start = start.saturating_add(prefix.len());
+    let new_end = new_start.saturating_add(inner.len());
     (out, new_start, new_end)
 }
 
@@ -60,20 +67,21 @@ fn expand_to_full_lines(
 ) -> (usize, usize) {
     let (start, end) = (start.min(text.len()), end.min(text.len()));
     let (start, end) = (start.min(end), start.max(end));
-    let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_start = text[..start].rfind('\n').map_or(0, |i| i.saturating_add(1));
     let line_end = text[end..]
         .find('\n')
-        .map(|i| end + i)
-        .unwrap_or(text.len());
+        .map_or(text.len(), |i| end.saturating_add(i));
     (line_start, line_end)
 }
 
-/// Prepends `prefix` to every line touched by the selection (or just the current line, if the
-/// selection is a single caret) -- used for headings (`# `), quotes (`> `), bullet lists (`- `),
+/// Prepends `prefix` to every line touched by the selection (or just the current line, if the selection is a single caret).
+///
+/// Used for headings (`# `), quotes (`> `), bullet lists (`- `),
 /// and task items (`- [ ] `). Toggles off instead if every touched line already starts with
 /// exactly this prefix, so clicking the same button twice undoes it, the same as a rich-text
-/// toolbar's "active" toggle state. Returns (new_full_text, new_selection_start, new_selection_end)
+/// toolbar's "active" toggle state. Returns (`new_full_text`, `new_selection_start`, `new_selection_end`)
 /// covering the whole affected block.
+#[must_use]
 pub fn toggle_line_prefix(
     text: &str,
     start: usize,
@@ -101,19 +109,21 @@ pub fn toggle_line_prefix(
         .collect();
     let new_block = new_lines.join("\n");
 
-    let mut out = String::with_capacity(text.len() + new_block.len());
+    let mut out = String::with_capacity(text.len().saturating_add(new_block.len()));
     out.push_str(&text[..line_start]);
     out.push_str(&new_block);
     out.push_str(&text[line_end..]);
 
-    (out, line_start, line_start + new_block.len())
+    (out, line_start, line_start.saturating_add(new_block.len()))
 }
 
-/// Same idea as `toggle_line_prefix`, but each line gets an incrementing `1. `, `2. `, ... marker
-/// instead of a constant one -- a numbered list only makes sense with per-line numbers, so it
+/// Same idea as `toggle_line_prefix`, but each line gets an incrementing `1. `, `2. `, ... marker instead of a constant one.
+///
+/// A numbered list only makes sense with per-line numbers, so it
 /// can't reuse the constant-prefix toggle above. Always numbers from 1 (this note's own list
 /// context, e.g. "continue numbering from an existing list above", isn't tracked -- scoped out
 /// deliberately to keep this predictable rather than guessing at intent).
+#[must_use]
 pub fn numbered_list(
     text: &str,
     start: usize,
@@ -140,29 +150,37 @@ pub fn numbered_list(
         lines
             .iter()
             .map(|l| {
-                let dot = l.find(". ").unwrap();
-                l[dot + 2..].to_string()
+                l.find(". ").map_or_else(
+                    || l.to_string(),
+                    |dot| {
+                        l.get(dot.saturating_add(2)..)
+                            .unwrap_or_default()
+                            .to_string()
+                    },
+                )
             })
             .collect()
     } else {
         lines
             .iter()
             .enumerate()
-            .map(|(i, l)| format!("{}. {}", i + 1, l))
+            .map(|(i, l)| format!("{}. {}", i.saturating_add(1), l))
             .collect()
     };
     let new_block = new_lines.join("\n");
 
-    let mut out = String::with_capacity(text.len() + new_block.len());
+    let mut out = String::with_capacity(text.len().saturating_add(new_block.len()));
     out.push_str(&text[..line_start]);
     out.push_str(&new_block);
     out.push_str(&text[line_end..]);
 
-    (out, line_start, line_start + new_block.len())
+    (out, line_start, line_start.saturating_add(new_block.len()))
 }
 
-/// Replaces the current selection (or inserts at the caret) with a fixed multi-line snippet --
-/// used for the table-skeleton button. Cursor lands at the end of the inserted snippet.
+/// Replaces the current selection (or inserts at the caret) with a fixed multi-line snippet.
+///
+/// Used for the table-skeleton button. Cursor lands at the end of the inserted snippet.
+#[must_use]
 pub fn insert_block(
     text: &str,
     start: usize,
@@ -171,14 +189,15 @@ pub fn insert_block(
 ) -> (String, usize, usize) {
     let (start, end) = (start.min(text.len()), end.min(text.len()));
     let (start, end) = (start.min(end), start.max(end));
-    let mut out = String::with_capacity(text.len() + snippet.len());
+    let mut out = String::with_capacity(text.len().saturating_add(snippet.len()));
     out.push_str(&text[..start]);
     out.push_str(snippet);
     out.push_str(&text[end..]);
-    let new_pos = start + snippet.len();
+    let new_pos = start.saturating_add(snippet.len());
     (out, new_pos, new_pos)
 }
 
+/// Default Markdown table template snippet.
 pub const TABLE_SNIPPET: &str = "| Column A | Column B |\n| --- | --- |\n| value | value |\n";
 
 #[cfg(test)]

@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentLoginStatus {
     Running,
     Succeeded,
@@ -80,7 +80,7 @@ impl AgentLoginRegistry {
         tokio::spawn(async move {
             loop {
                 match stream.next_chunk().await {
-                    | Some(OutputChunk::Stdout(bytes)) | Some(OutputChunk::Stderr(bytes)) => {
+                    | Some(OutputChunk::Stdout(bytes) | OutputChunk::Stderr(bytes)) => {
                         session.output.lock().await.extend_from_slice(&bytes);
                     },
                     | Some(OutputChunk::Exit(code)) => {
@@ -101,7 +101,7 @@ impl AgentLoginRegistry {
             // Keep the finished record around briefly so a client mid-poll still sees the final
             // status, then drop it -- login sessions are low-volume but must not accumulate
             // forever in a long-running server.
-            tokio::time::sleep(std::time::Duration::from_secs(5 * 60)).await;
+            tokio::time::sleep(std::time::Duration::from_mins(5)).await;
             registry.sessions.lock().await.remove(&id);
         });
 

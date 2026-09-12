@@ -1,3 +1,5 @@
+//! Low-level Podman CLI and container driver implementation.
+
 use crate::config::SandboxConfig;
 use crate::error::Result;
 use crate::error::SandboxError;
@@ -11,7 +13,9 @@ use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 use std::time::Instant;
+use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -19,83 +23,111 @@ use tracing::debug;
 use tracing::error;
 use tracing::info;
 
+/// Lifecycle execution status of a container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerStatus {
+    /// Container is actively running.
     Running,
+    /// Container process is paused.
     Paused,
+    /// Container process has exited.
     Exited,
+    /// Container has been created but not started.
     Created,
+    /// Container is stopped.
     Stopped,
+    /// Status could not be determined.
     Unknown,
 }
 
 impl From<&str> for ContainerStatus {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            | "running" => ContainerStatus::Running,
-            | "paused" => ContainerStatus::Paused,
-            | "exited" => ContainerStatus::Exited,
-            | "created" => ContainerStatus::Created,
-            | "stopped" => ContainerStatus::Stopped,
-            | _ => ContainerStatus::Unknown,
+            | "running" => Self::Running,
+            | "paused" => Self::Paused,
+            | "exited" => Self::Exited,
+            | "created" => Self::Created,
+            | "stopped" => Self::Stopped,
+            | _ => Self::Unknown,
         }
     }
 }
 
+/// Raw state information returned by `podman inspect`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerStateInfo {
+    /// Textual status label.
     #[serde(rename = "Status")]
     pub status: String,
+    /// Whether container is in running state.
     #[serde(rename = "Running")]
     pub running: bool,
+    /// Whether container is paused.
     #[serde(rename = "Paused", default)]
     pub paused: bool,
+    /// Host PID of the main container process.
     #[serde(rename = "Pid", default)]
     pub pid: Option<u32>,
+    /// Exit code if container has terminated.
     #[serde(rename = "ExitCode", default)]
     pub exit_code: Option<i32>,
+    /// ISO-8601 timestamp when container started.
     #[serde(rename = "StartedAt", default)]
     pub started_at: Option<String>,
+    /// ISO-8601 timestamp when container finished.
     #[serde(rename = "FinishedAt", default)]
     pub finished_at: Option<String>,
 }
 
+/// Deserialized raw output from `podman inspect`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawInspectOutput {
+    /// Container ID.
     #[serde(rename = "Id")]
     pub id: String,
+    /// Container name.
     #[serde(rename = "Name")]
     pub name: String,
+    /// Container state metadata.
     #[serde(rename = "State")]
     pub state: ContainerStateInfo,
+    /// Timestamp when container was created.
     #[serde(rename = "Created", default)]
     pub created: Option<String>,
-    // Resolved image ID the container was actually created from -- distinct from `ImageName`
-    // (the tag, e.g. "localhost/apich-sandbox:latest"), which stays the same string even after
-    // the tag is repointed at a freshly rebuilt image. Comparing this against the *current*
-    // image's own ID (see `PodmanDriver::image_id`) is how `ensure_running_with_config` detects
-    // a container stuck on a stale image (e.g. one built before `pandas`/`numpy`/`matplotlib`
-    // were added to `docker/Containerfile.sandbox`) instead of silently reusing it forever.
+    /// Resolved image ID the container was created from.
     #[serde(rename = "Image", default)]
     pub image: String,
 }
 
+/// Normalized container inspection details.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerInspectInfo {
+    /// Container unique ID.
     pub id: String,
+    /// Container name.
     pub name: String,
+    /// High-level status enum.
     pub status: ContainerStatus,
+    /// True if currently running.
     pub is_running: bool,
+    /// True if currently paused.
     pub is_paused: bool,
+    /// Main process ID on host.
     pub pid: Option<u32>,
+    /// Termination exit code.
     pub exit_code: Option<i32>,
+    /// Start timestamp string.
     pub started_at: Option<String>,
+    /// Completion timestamp string.
     pub finished_at: Option<String>,
+    /// Creation timestamp string.
     pub created_at: Option<String>,
+    /// Image ID the container is running.
     pub image_id: String,
 }
 
+/// Low-level Podman process execution driver.
 #[derive(Debug, Clone)]
 pub struct PodmanDriver {
     bin_path: PathBuf,
@@ -110,6 +142,8 @@ impl Default for PodmanDriver {
 }
 
 impl PodmanDriver {
+    /// Creates a new `PodmanDriver`, optionally specifying a custom binary path.
+    #[must_use]
     pub fn new(bin_path: Option<PathBuf>) -> Self {
         Self {
             bin_path: bin_path.unwrap_or_else(|| PathBuf::from("podman")),
@@ -117,6 +151,9 @@ impl PodmanDriver {
     }
 
     /// Check if Podman is installed and available
+    ///
+    /// # Errors
+    /// Returns an error if Podman is not found or fails to execute.
     pub async fn check_available(&self) -> Result<String> {
         let output = Command::new(&self.bin_path)
             .arg("version")
@@ -132,6 +169,9 @@ impl PodmanDriver {
     }
 
     /// Create and run a detached container
+    ///
+    /// # Errors
+    /// Returns an error if the container fails to run or Podman exits with failure.
     pub async fn run_detached(
         &self,
         config: &SandboxConfig,
@@ -166,11 +206,11 @@ impl PodmanDriver {
         }
 
         for (k, v) in &config.labels {
-            cmd.arg("-l").arg(format!("{}={}", k, v));
+            cmd.arg("-l").arg(format!("{k}={v}"));
         }
 
         for (k, v) in &config.env {
-            cmd.arg("-e").arg(format!("{}={}", k, v));
+            cmd.arg("-e").arg(format!("{k}={v}"));
         }
 
         // Workspace volume mount
@@ -242,6 +282,9 @@ impl PodmanDriver {
     }
 
     /// Inspect a container
+    ///
+    /// # Errors
+    /// Returns an error if the inspect command fails or deserialization fails.
     pub async fn inspect(
         &self,
         container_name: &str,
@@ -299,6 +342,9 @@ impl PodmanDriver {
     /// rebuilding the image via `podman build` just produced. Returns `Ok(None)` rather than an
     /// error if the image simply hasn't been pulled/built yet -- that's not this call's problem
     /// to report, `run_detached`'s own error on a missing image is the right place for that.
+    ///
+    /// # Errors
+    /// Returns an error if executing the inspect image command fails.
     pub async fn image_id(
         &self,
         image: &str,
@@ -326,6 +372,9 @@ impl PodmanDriver {
     }
 
     /// Start a stopped container
+    ///
+    /// # Errors
+    /// Returns an error if starting the container fails.
     pub async fn start(
         &self,
         container_name: &str,
@@ -349,6 +398,9 @@ impl PodmanDriver {
     }
 
     /// Stop a running container gracefully
+    ///
+    /// # Errors
+    /// Returns an error if stopping the container fails.
     pub async fn stop(
         &self,
         container_name: &str,
@@ -381,6 +433,9 @@ impl PodmanDriver {
     }
 
     /// Kill a container immediately
+    ///
+    /// # Errors
+    /// Returns an error if killing the container fails.
     pub async fn kill(
         &self,
         container_name: &str,
@@ -410,6 +465,9 @@ impl PodmanDriver {
     }
 
     /// Pause a running container
+    ///
+    /// # Errors
+    /// Returns an error if pausing the container fails.
     pub async fn pause(
         &self,
         container_name: &str,
@@ -433,6 +491,9 @@ impl PodmanDriver {
     }
 
     /// Unpause a paused container
+    ///
+    /// # Errors
+    /// Returns an error if unpausing the container fails.
     pub async fn unpause(
         &self,
         container_name: &str,
@@ -456,6 +517,9 @@ impl PodmanDriver {
     }
 
     /// Remove a container
+    ///
+    /// # Errors
+    /// Returns an error if removing the container fails.
     pub async fn remove(
         &self,
         container_name: &str,
@@ -488,6 +552,9 @@ impl PodmanDriver {
     }
 
     /// Copy a file or directory from host into container
+    ///
+    /// # Errors
+    /// Returns an error if copying into the container fails.
     pub async fn copy_to(
         &self,
         container_name: &str,
@@ -515,6 +582,9 @@ impl PodmanDriver {
     }
 
     /// Copy a file or directory from container to host
+    ///
+    /// # Errors
+    /// Returns an error if copying from the container fails.
     pub async fn copy_from(
         &self,
         container_name: &str,
@@ -542,6 +612,9 @@ impl PodmanDriver {
     }
 
     /// Execute a command in a running container and collect all output
+    ///
+    /// # Errors
+    /// Returns an error if command execution fails or the process cannot be spawned.
     pub async fn exec(
         &self,
         container_name: &str,
@@ -564,7 +637,7 @@ impl PodmanDriver {
         }
 
         for (k, v) in &opts.env {
-            cmd.arg("-e").arg(format!("{}={}", k, v));
+            cmd.arg("-e").arg(format!("{k}={v}"));
         }
 
         cmd.arg(container_name);
@@ -628,6 +701,9 @@ impl PodmanDriver {
     }
 
     /// Execute a command in a running container and stream stdout/stderr chunks in real-time
+    ///
+    /// # Errors
+    /// Returns an error if spawning the exec command fails.
     pub async fn exec_stream(
         &self,
         container_name: &str,
@@ -649,7 +725,7 @@ impl PodmanDriver {
         }
 
         for (k, v) in &opts.env {
-            cmd.arg("-e").arg(format!("{}={}", k, v));
+            cmd.arg("-e").arg(format!("{k}={v}"));
         }
 
         cmd.arg(container_name);
@@ -667,84 +743,17 @@ impl PodmanDriver {
 
         let (tx, rx) = mpsc::channel(128);
 
-        // Spawn stdout reader
-        let tx_out = tx.clone();
-        if let Some(mut out) = stdout {
-            tokio::spawn(async move {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match out.read(&mut buf).await {
-                        | Ok(0) => break,
-                        | Ok(n) => {
-                            if tx_out
-                                .send(OutputChunk::Stdout(buf[..n].to_vec()))
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                        },
-                        | Err(e) => {
-                            error!("Error reading stdout: {}", e);
-                            break;
-                        },
-                    }
-                }
-            });
+        if let Some(out) = stdout {
+            spawn_chunk_reader(out, tx.clone(), true);
         }
 
-        // Spawn stderr reader
-        let tx_err = tx.clone();
-        if let Some(mut err) = stderr {
-            tokio::spawn(async move {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match err.read(&mut buf).await {
-                        | Ok(0) => break,
-                        | Ok(n) => {
-                            if tx_err
-                                .send(OutputChunk::Stderr(buf[..n].to_vec()))
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                        },
-                        | Err(e) => {
-                            error!("Error reading stderr: {}", e);
-                            break;
-                        },
-                    }
-                }
-            });
+        if let Some(err) = stderr {
+            spawn_chunk_reader(err, tx.clone(), false);
         }
 
-        // Spawn child exit monitor
-        let timeout = opts.timeout;
-        tokio::spawn(async move {
-            let wait_fut = child.wait();
-            let exit_code = if let Some(dur) = timeout {
-                match tokio::time::timeout(dur, wait_fut).await {
-                    | Ok(res) => {
-                        match res {
-                            | Ok(status) => status.code().unwrap_or(-1),
-                            | Err(_) => -1,
-                        }
-                    },
-                    | Err(_) => {
-                        let _ = child.kill().await;
-                        -124 // timeout code
-                    },
-                }
-            } else {
-                match wait_fut.await {
-                    | Ok(status) => status.code().unwrap_or(-1),
-                    | Err(_) => -1,
-                }
-            };
+        spawn_exit_monitor(child, opts.timeout, tx);
 
-            let _ = tx.send(OutputChunk::Exit(exit_code)).await;
-        });
+        tokio::task::yield_now().await;
 
         Ok(ExecStream::new(rx))
     }
@@ -755,6 +764,9 @@ impl PodmanDriver {
     /// `-i` to `podman exec` so stdin is actually forwarded into the container; plain
     /// `exec`/`exec_stream` don't, and input written to a non-`-i` exec session is silently
     /// discarded by podman.
+    ///
+    /// # Errors
+    /// Returns an error if spawning the interactive process or taking standard I/O handles fails.
     pub async fn exec_interactive(
         &self,
         container_name: &str,
@@ -776,7 +788,7 @@ impl PodmanDriver {
         }
 
         for (k, v) in &opts.env {
-            cmd.arg("-e").arg(format!("{}={}", k, v));
+            cmd.arg("-e").arg(format!("{k}={v}"));
         }
 
         cmd.arg(container_name);
@@ -806,85 +818,20 @@ impl PodmanDriver {
                     }
                     let _ = stdin.flush().await;
                 }
-                // Dropping `stdin` here (receiver closed / loop ended) closes the pipe, signaling
-                // EOF to the process -- matches what a real closed terminal stdin would do.
             });
         }
 
-        let tx_out = out_tx.clone();
-        if let Some(mut out) = stdout {
-            tokio::spawn(async move {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match out.read(&mut buf).await {
-                        | Ok(0) => break,
-                        | Ok(n) => {
-                            if tx_out
-                                .send(OutputChunk::Stdout(buf[..n].to_vec()))
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                        },
-                        | Err(e) => {
-                            error!("Error reading stdout: {}", e);
-                            break;
-                        },
-                    }
-                }
-            });
+        if let Some(out) = stdout {
+            spawn_chunk_reader(out, out_tx.clone(), true);
         }
 
-        let tx_err = out_tx.clone();
-        if let Some(mut err) = stderr {
-            tokio::spawn(async move {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match err.read(&mut buf).await {
-                        | Ok(0) => break,
-                        | Ok(n) => {
-                            if tx_err
-                                .send(OutputChunk::Stderr(buf[..n].to_vec()))
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                        },
-                        | Err(e) => {
-                            error!("Error reading stderr: {}", e);
-                            break;
-                        },
-                    }
-                }
-            });
+        if let Some(err) = stderr {
+            spawn_chunk_reader(err, out_tx.clone(), false);
         }
 
-        let timeout = opts.timeout;
-        tokio::spawn(async move {
-            let wait_fut = child.wait();
-            let exit_code = if let Some(dur) = timeout {
-                match tokio::time::timeout(dur, wait_fut).await {
-                    | Ok(res) => {
-                        match res {
-                            | Ok(status) => status.code().unwrap_or(-1),
-                            | Err(_) => -1,
-                        }
-                    },
-                    | Err(_) => {
-                        let _ = child.kill().await;
-                        -124
-                    },
-                }
-            } else {
-                match wait_fut.await {
-                    | Ok(status) => status.code().unwrap_or(-1),
-                    | Err(_) => -1,
-                }
-            };
-            let _ = out_tx.send(OutputChunk::Exit(exit_code)).await;
-        });
+        spawn_exit_monitor(child, opts.timeout, out_tx);
+
+        tokio::task::yield_now().await;
 
         Ok(InteractiveExec {
             stream: ExecStream::new(out_rx),
@@ -893,6 +840,9 @@ impl PodmanDriver {
     }
 
     /// List container names matching a label filter
+    ///
+    /// # Errors
+    /// Returns an error if querying container names fails.
     pub async fn list_containers(
         &self,
         label_filter: Option<&str>,
@@ -901,7 +851,7 @@ impl PodmanDriver {
         cmd.arg("ps").arg("-a").arg("--format").arg("{{.Names}}");
 
         if let Some(filter) = label_filter {
-            cmd.arg("--filter").arg(format!("label={}", filter));
+            cmd.arg("--filter").arg(format!("label={filter}"));
         }
 
         let output = cmd.output().await.map_err(SandboxError::Io)?;
@@ -922,6 +872,69 @@ impl PodmanDriver {
             .collect();
         Ok(names)
     }
+}
+
+fn spawn_chunk_reader<R>(
+    mut reader: R,
+    tx: mpsc::Sender<OutputChunk>,
+    is_stdout: bool,
+) where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf).await {
+                | Ok(0) => break,
+                | Ok(n) => {
+                    let chunk = buf.get(..n).unwrap_or_default().to_vec();
+                    let output = if is_stdout {
+                        OutputChunk::Stdout(chunk)
+                    } else {
+                        OutputChunk::Stderr(chunk)
+                    };
+                    if tx.send(output).await.is_err() {
+                        break;
+                    }
+                },
+                | Err(e) => {
+                    error!("Error reading output stream: {e}");
+                    break;
+                },
+            }
+        }
+    });
+}
+
+fn spawn_exit_monitor(
+    mut child: tokio::process::Child,
+    timeout: Option<Duration>,
+    tx: mpsc::Sender<OutputChunk>,
+) {
+    tokio::spawn(async move {
+        let wait_fut = child.wait();
+        let exit_code = if let Some(dur) = timeout {
+            match tokio::time::timeout(dur, wait_fut).await {
+                | Ok(res) => {
+                    match res {
+                        | Ok(status) => status.code().unwrap_or(-1),
+                        | Err(_) => -1,
+                    }
+                },
+                | Err(_) => {
+                    let _ = child.kill().await;
+                    -124
+                },
+            }
+        } else {
+            match wait_fut.await {
+                | Ok(status) => status.code().unwrap_or(-1),
+                | Err(_) => -1,
+            }
+        };
+
+        let _ = tx.send(OutputChunk::Exit(exit_code)).await;
+    });
 }
 
 #[cfg(test)]

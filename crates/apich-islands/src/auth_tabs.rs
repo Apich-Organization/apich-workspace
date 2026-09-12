@@ -1,6 +1,8 @@
-//! Real Rust replacement for the login page's password/passkey tab switcher
-//! (`login.rs`'s `AUTH_TAB_SCRIPT`). Wraps the real `PasskeyLoginIsland` as a nested island --
-//! islands can nest freely, each hydrates independently.
+//! Authentication tabs switcher island for password and passkey login.
+//!
+//! Replaces the login page's password/passkey tab switcher (`login.rs`'s `AUTH_TAB_SCRIPT`).
+//! Wraps the real `PasskeyLoginIsland` as a nested island -- islands can nest freely, each
+//! hydrates independently.
 
 use crate::webauthn::PasskeyLoginIsland;
 use leptos::prelude::*;

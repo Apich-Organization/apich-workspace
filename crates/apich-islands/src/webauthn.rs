@@ -1,8 +1,9 @@
-//! Real Rust replacement for the two hand-written WebAuthn (FIDO2/passkey) ceremony scripts
-//! that used to live as `<script>` strings in `login.rs` and `settings.rs`. Both talk to the
-//! same real backend endpoints (`/api/auth/passkey/...`) with the exact same payload shapes the
-//! original JS used -- only how the ceremony is driven in the browser changed, not the wire
-//! protocol.
+//! Real Rust replacement for client-side `WebAuthn` (FIDO2/passkey) ceremony scripts.
+//!
+//! Replaces hand-written scripts that used to live as `<script>` strings in `login.rs` and
+//! `settings.rs`. Both talk to the same real backend endpoints (`/api/auth/passkey/...`) with
+//! the exact same payload shapes the original JS used -- only how the ceremony is driven in
+//! the browser changed, not the wire protocol.
 
 use leptos::prelude::*;
 use serde::Deserialize;
@@ -169,7 +170,7 @@ fn run_passkey_enroll(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn run_passkey_enroll(
+const fn run_passkey_enroll(
     _status: RwSignal<String>,
     _is_error: RwSignal<bool>,
     _busy: RwSignal<bool>,

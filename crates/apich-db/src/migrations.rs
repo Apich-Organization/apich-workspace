@@ -18,8 +18,11 @@ pub struct Migration {
 /// Execution result for an applied migration
 #[derive(Debug, Clone)]
 pub struct MigrationResult {
+    /// Schema version number.
     pub version: i32,
+    /// Human-readable migration name or description.
     pub name: String,
+    /// Timestamp when the migration was applied.
     pub applied_at: DateTime<Utc>,
 }
 
@@ -40,6 +43,7 @@ impl Default for MigrationManager {
 
 impl MigrationManager {
     /// Create a migration manager with default APICH core migrations
+    #[must_use]
     pub fn new() -> Self {
         let mut manager = Self::empty();
         manager.register(Migration {
@@ -81,7 +85,8 @@ impl MigrationManager {
     }
 
     /// Create an empty migration manager without default migrations
-    pub fn empty() -> Self {
+    #[must_use]
+    pub const fn empty() -> Self {
         Self {
             migrations: Vec::new(),
         }
@@ -111,11 +116,15 @@ impl MigrationManager {
     }
 
     /// List all currently registered migrations
+    #[must_use]
     pub fn migrations(&self) -> &[Migration] {
         &self.migrations
     }
 
     /// Run all pending migrations against the PostgreSQL pool within atomic transactions
+    ///
+    /// # Errors
+    /// Returns an error if querying or executing database migration statements fails.
     pub async fn migrate(
         &self,
         pool: &PgPool,
@@ -124,13 +133,13 @@ impl MigrationManager {
 
         // 1. Ensure migrations tracking table exists
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS _schema_migrations (
                 version INT PRIMARY KEY,
                 name VARCHAR(128) NOT NULL,
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
-            "#,
+            ",
         )
         .execute(pool)
         .await?;
@@ -160,11 +169,11 @@ impl MigrationManager {
             sqlx::raw_sql(migration.sql).execute(&mut *tx).await?;
 
             let applied_at: DateTime<Utc> = sqlx::query_scalar(
-                r#"
+                r"
                 INSERT INTO _schema_migrations (version, name, applied_at)
                 VALUES ($1, $2, CURRENT_TIMESTAMP)
                 RETURNING applied_at;
-                "#,
+                ",
             )
             .bind(migration.version)
             .bind(migration.name)
@@ -191,17 +200,20 @@ impl MigrationManager {
 }
 
 /// Convenience function to run all default migrations
+///
+/// # Errors
+/// Returns an error if executing pending migrations fails.
 pub async fn run_migrations(pool: &PgPool) -> Result<()> {
     MigrationManager::new().migrate(pool).await?;
     Ok(())
 }
 
 /// Migration 001: Core Schema with PostgreSQL 18 native features:
-/// - UUIDv7 default generation
+/// - `UUIDv7` default generation
 /// - Generated tsvector with GIN index for Full-Text Search
-/// - GIN jsonb_path_ops indexes for JSONB metadata
-/// - Core tables: users, workspaces, workspace_members, documents, knowledge nodes/edges, audit logs
-pub const CORE_SCHEMA_PG18_SQL: &str = r#"
+/// - GIN `jsonb_path_ops` indexes for JSONB metadata
+/// - Core tables: users, workspaces, `workspace_members`, documents, knowledge nodes/edges, audit logs
+pub const CORE_SCHEMA_PG18_SQL: &str = r"
 -- 1. Custom Types
 DO $$ BEGIN
     CREATE TYPE user_role AS ENUM ('admin', 'member', 'guest');
@@ -355,10 +367,10 @@ CREATE TRIGGER trg_documents_updated_at BEFORE UPDATE ON documents FOR EACH ROW 
 
 DROP TRIGGER IF EXISTS trg_knowledge_nodes_updated_at ON knowledge_nodes;
 CREATE TRIGGER trg_knowledge_nodes_updated_at BEFORE UPDATE ON knowledge_nodes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-"#;
+";
 
 /// Migration 002: Row-Level Security (RLS) for multi-tenant workspace isolation.
-pub const ROW_LEVEL_SECURITY_SQL: &str = r#"
+pub const ROW_LEVEL_SECURITY_SQL: &str = r"
 -- Helper function with SECURITY DEFINER to evaluate workspace access
 -- without triggering recursive RLS execution
 CREATE OR REPLACE FUNCTION can_access_workspace(ws_id UUID, u_id UUID)
@@ -502,10 +514,10 @@ CREATE POLICY audit_logs_policy ON audit_logs
         OR user_id = NULLIF(current_setting('app.current_user_id', true), '')::UUID
         OR can_access_workspace(workspace_id, NULLIF(current_setting('app.current_user_id', true), '')::UUID)
     );
-"#;
+";
 
 /// Migration 003: Identity Tree, Hierarchical Permissions, Projects, FIDO2/Passkeys, Sessions, SSO, and Settings
-pub const IDENTITY_PROJECTS_SSO_SQL: &str = r#"
+pub const IDENTITY_PROJECTS_SSO_SQL: &str = r"
 -- 1. Ensure users table has is_platform_admin
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN NOT NULL DEFAULT false;
 
@@ -703,9 +715,10 @@ CREATE INDEX IF NOT EXISTS idx_project_members_proj ON project_members(project_i
 
 DROP TRIGGER IF EXISTS trg_project_members_updated_at ON project_members;
 CREATE TRIGGER trg_project_members_updated_at BEFORE UPDATE ON project_members FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-"#;
+";
 
-pub const HUB_INTEGRATIONS_AND_TABLES_SQL: &str = r#"
+/// SQL schema migration 004: External hub integrations and team override rules.
+pub const HUB_INTEGRATIONS_AND_TABLES_SQL: &str = r"
 -- 004: External Hub Integrations and Team Override Rules
 ALTER TABLE organizations
     ADD COLUMN IF NOT EXISTS chat_url TEXT,
@@ -719,17 +732,19 @@ ALTER TABLE teams
     ADD COLUMN IF NOT EXISTS meeting_url TEXT,
     ADD COLUMN IF NOT EXISTS drive_url TEXT,
     ADD COLUMN IF NOT EXISTS ai_agent_url TEXT;
-"#;
+";
 
-pub const SANDBOX_IDLE_TRACKING_SQL: &str = r#"
+/// SQL schema migration 005: Sandbox idle tracking for automatic container shutdown.
+pub const SANDBOX_IDLE_TRACKING_SQL: &str = r"
 -- 005: Sandbox idle-tracking, for automatic stop after a period of inactivity. plan.md is
 -- explicit that container lifecycle should be invisible to the user: start on first use (already
 -- true -- see ProjectManagerService::exec_in_sandbox), stop automatically after they've stepped
 -- away, rather than a manual Start/Stop toggle or an indefinitely-running container.
 ALTER TABLE project_sandboxes
     ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ;
-"#;
+";
 
+/// SQL schema migration 006: Personal access tokens, SSH public keys, GPG public keys, and vigilant mode.
 pub const PAT_SSH_GPG_KEYS_SQL: &str = r#"
 -- 006: Personal Access Tokens (auth for the self-hosted git/apich-vcs remote servers and the
 -- `apich` CLI's own network operations), SSH public key storage (compatibility/identity only --
@@ -776,6 +791,7 @@ ALTER TABLE projects
     ADD COLUMN IF NOT EXISTS vigilant_mode BOOLEAN NOT NULL DEFAULT false;
 "#;
 
+/// SQL schema migration 007: Template library tables for versioned documents and templates.
 pub const TEMPLATE_LIBRARY_SQL: &str = r#"
 -- 007: Template Library -- publishable, versioned templates (LaTeX/Typst/slides/Kanban/note) a
 -- user can browse and apply. Visibility is per-template: 'private' (owner only), 'shared' (only

@@ -1,3 +1,5 @@
+//! Debounced autosave engine implementation.
+
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -8,7 +10,9 @@ use tokio::sync::Mutex;
 /// Autosave configuration
 #[derive(Debug, Clone)]
 pub struct AutosaveConfig {
+    /// Whether continuous autosave is enabled.
     pub enabled: bool,
+    /// Duration to wait after the last change before triggering an autosave snapshot.
     pub debounce_duration: Duration,
 }
 
@@ -30,6 +34,8 @@ pub struct AutosaveEngine {
 }
 
 impl AutosaveEngine {
+    /// Creates a new `AutosaveEngine` with the given configuration.
+    #[must_use]
     pub fn new(config: AutosaveConfig) -> Self {
         Self {
             config,
@@ -43,8 +49,10 @@ impl AutosaveEngine {
         if !self.config.enabled {
             return;
         }
-        let mut last = self.last_change.lock().await;
-        *last = Some(Instant::now());
+        {
+            let mut last = self.last_change.lock().await;
+            *last = Some(Instant::now());
+        }
         self.has_pending.store(true, Ordering::SeqCst);
     }
 
@@ -54,9 +62,12 @@ impl AutosaveEngine {
             return false;
         }
 
-        let last = self.last_change.lock().await;
-        if let Some(instant) = *last {
-            if instant.elapsed() >= self.config.debounce_duration {
+        let elapsed = {
+            let last = self.last_change.lock().await;
+            last.map(|instant| instant.elapsed())
+        };
+        if let Some(elapsed) = elapsed {
+            if elapsed >= self.config.debounce_duration {
                 return true;
             }
         }

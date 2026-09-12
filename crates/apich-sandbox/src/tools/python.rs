@@ -1,17 +1,25 @@
+//! Python execution and environment toolchain.
+
 use crate::container::UserContainer;
 use crate::error::Result;
 use crate::exec::ExecResult;
 
+/// Helper for executing Python scripts and managing Python packages.
 pub struct PythonToolchain<'a> {
     container: &'a UserContainer,
 }
 
 impl<'a> PythonToolchain<'a> {
-    pub fn new(container: &'a UserContainer) -> Self {
+    /// Creates a new `PythonToolchain` instance.
+    #[must_use]
+    pub const fn new(container: &'a UserContainer) -> Self {
         Self { container }
     }
 
     /// Check python version
+    ///
+    /// # Errors
+    /// Returns an error if executing python3 version fails.
     pub async fn python_version(&self) -> Result<String> {
         let res = self.container.exec(&["python3", "--version"]).await?;
         res.ensure_success(self.container.container_name())?;
@@ -19,6 +27,9 @@ impl<'a> PythonToolchain<'a> {
     }
 
     /// Execute inline Python code string
+    ///
+    /// # Errors
+    /// Returns an error if executing Python code fails.
     pub async fn run_code(
         &self,
         code: &str,
@@ -27,6 +38,9 @@ impl<'a> PythonToolchain<'a> {
     }
 
     /// Run a python script file with arguments
+    ///
+    /// # Errors
+    /// Returns an error if executing Python script fails.
     pub async fn run_file(
         &self,
         script_path: &str,
@@ -38,6 +52,9 @@ impl<'a> PythonToolchain<'a> {
     }
 
     /// Install packages using pip
+    ///
+    /// # Errors
+    /// Returns an error if pip install fails.
     pub async fn pip_install(
         &self,
         packages: &[&str],
@@ -48,6 +65,9 @@ impl<'a> PythonToolchain<'a> {
     }
 
     /// List installed pip packages
+    ///
+    /// # Errors
+    /// Returns an error if pip list fails.
     pub async fn pip_list(&self) -> Result<ExecResult> {
         self.container.exec(&["pip", "list"]).await
     }

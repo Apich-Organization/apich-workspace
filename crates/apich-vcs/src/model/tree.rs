@@ -1,3 +1,5 @@
+//! VCS Tree model representing files and directories at a point in time.
+
 use super::chunk::ChunkRef;
 use chrono::DateTime;
 use chrono::Utc;
@@ -34,7 +36,9 @@ pub struct VcsTree {
 }
 
 impl VcsTree {
-    pub fn new() -> Self {
+    /// Creates a new empty `VcsTree`.
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             entries: BTreeMap::new(),
             tree_hash: String::new(),
@@ -63,6 +67,7 @@ impl VcsTree {
     }
 
     /// Get file entry by relative path
+    #[must_use]
     pub fn get(
         &self,
         path: &str,
@@ -83,9 +88,10 @@ impl VcsTree {
     }
 
     /// Compute structural diff between this tree and another base tree
+    #[must_use]
     pub fn diff<'a>(
         &'a self,
-        other: &'a VcsTree,
+        other: &'a Self,
     ) -> TreeDiff<'a> {
         let mut added = Vec::new();
         let mut modified = Vec::new();
@@ -119,13 +125,18 @@ impl VcsTree {
 /// Structural differences between two trees
 #[derive(Debug, Clone)]
 pub struct TreeDiff<'a> {
+    /// Files present in the new tree but absent in the base tree.
     pub added: Vec<&'a FileEntry>,
+    /// Files present in both trees with altered content hashes (new, old).
     pub modified: Vec<(&'a FileEntry, &'a FileEntry)>,
+    /// Files present in the base tree but missing in the new tree.
     pub removed: Vec<&'a FileEntry>,
 }
 
-impl<'a> TreeDiff<'a> {
-    pub fn is_empty(&self) -> bool {
+impl TreeDiff<'_> {
+    /// Returns true if there are no added, modified, or removed files.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.added.is_empty() && self.modified.is_empty() && self.removed.is_empty()
     }
 }

@@ -13,7 +13,7 @@ use crate::ui::i18n::I18n;
 use apich_db::Project;
 use leptos::prelude::*;
 
-pub(crate) fn render_kanban(
+pub fn render_kanban(
     project: &Project,
     kanban: &KanbanBoard,
     own_kanban_templates: &[apich_db::Template],
@@ -57,8 +57,8 @@ pub(crate) fn render_kanban(
                             _ => 0,
                         };
                         let next_col = real_columns.get(next_idx);
-                        let next_status = next_col.map(|c| c.id.clone()).unwrap_or_else(|| "todo".to_string());
-                        let next_is_done = next_col.map(|c| c.is_done).unwrap_or(false);
+                        let next_status = next_col.map_or_else(|| "todo".to_string(), |c| c.id.clone());
+                        let next_is_done = next_col.is_some_and(|c| c.is_done);
                         let check_char = if t.completed { "☑" } else { "☐" };
                         let title_style = if t.completed { "text-decoration:line-through; color:var(--text-sub);" } else { "" };
                         let tags: Vec<_> = t.tags.iter().map(|tag| view! { <span class="tag-badge">"#" {tag.clone()}</span> }).collect();
@@ -131,7 +131,7 @@ fn render_kanban_column_settings(
     columns: &[&crate::services::knowledge_sync::KanbanColumn],
     i18n: I18n,
 ) -> impl IntoView {
-    let base = format!("/projects/{}/knowledge/kanban/columns", project_id);
+    let base = format!("/projects/{project_id}/knowledge/kanban/columns");
     let rows: Vec<_> = columns
         .iter()
         .enumerate()
@@ -261,7 +261,7 @@ fn render_kanban_template_panel(
     }
 }
 
-pub(crate) fn render_wiki(
+pub fn render_wiki(
     project_id: uuid::Uuid,
     graph: &KnowledgeGraph,
 ) -> impl IntoView {
@@ -272,7 +272,7 @@ pub(crate) fn render_wiki(
             let status_tag = if n.exists {
                 view! { <span style="font-size:0.7rem; color:var(--text-sub);">{n.backlink_count} " backlinks • " {n.task_count} " tasks"</span> }.into_any()
             } else {
-                let create_action = format!("/projects/{}/note/create-page", project_id);
+                let create_action = format!("/projects/{project_id}/note/create-page");
                 view! {
                     <div style="display:flex; align-items:center; gap:0.5rem;">
                         <span style="font-size:0.7rem; color:#d97706; background:#fffbeb; padding:1px 5px; border-radius:3px;">"Placeholder / Uncreated"</span>
@@ -322,7 +322,7 @@ pub(crate) fn render_wiki(
     };
 
     let new_page_form = {
-        let action = format!("/projects/{}/note/create-page", project_id);
+        let action = format!("/projects/{project_id}/note/create-page");
         view! {
             <form method="post" action=action class="form-row" style="align-items:flex-end; margin-bottom:1rem;">
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
@@ -350,7 +350,7 @@ pub(crate) fn render_wiki(
     }
 }
 
-pub(crate) fn render_calendar(events: &[CalendarEvent]) -> impl IntoView {
+pub fn render_calendar(events: &[CalendarEvent]) -> impl IntoView {
     if events.is_empty() {
         return view! {
             <div class="empty-state"><p>"No scheduled tasks or dated files found. Add @YYYY-MM-DD to any task in your Markdown notes to see it on the calendar."</p></div>

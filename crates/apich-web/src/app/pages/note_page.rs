@@ -35,11 +35,11 @@ enum NoteView {
 impl NoteView {
     fn from_str(s: &str) -> Self {
         match s {
-            | "whiteboard" => NoteView::Whiteboard,
-            | "wiki" => NoteView::Wiki,
-            | "calendar" => NoteView::Calendar,
-            | "kanban" => NoteView::Kanban,
-            | _ => NoteView::Editor,
+            | "whiteboard" => Self::Whiteboard,
+            | "wiki" => Self::Wiki,
+            | "calendar" => Self::Calendar,
+            | "kanban" => Self::Kanban,
+            | _ => Self::Editor,
         }
     }
 }
@@ -95,20 +95,17 @@ pub fn NotePage(
     };
     let share_mode = file_share
         .as_ref()
-        .map(|s| s.mode.clone())
-        .unwrap_or_else(|| "private".to_string());
+        .map_or_else(|| "private".to_string(), |s| s.mode.clone());
     let share_role = file_share
         .as_ref()
-        .map(|s| s.role.clone())
-        .unwrap_or_else(|| "read".to_string());
+        .map_or_else(|| "read".to_string(), |s| s.role.clone());
     let share_users = file_share
         .as_ref()
         .map(|s| s.allowed_users.join(","))
         .unwrap_or_default();
     let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
     let share_onclick = format!(
-        "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))",
-        share_detail
+        "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))"
     );
 
     let file_path_enc = urlencoding::encode(&file_path).to_string();
@@ -129,7 +126,7 @@ pub fn NotePage(
             <a href=format!("/projects/{}/note?file={}&view=kanban", project_id, file_path_enc) class="btn btn-sm" class=("btn-primary", view == NoteView::Kanban) class=("btn-secondary", view != NoteView::Kanban)>
                 "📋 Kanban"
             </a>
-            <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {}", share_label)}</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
             <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
             <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"📁 Back to Files"</a>
         </div>
@@ -171,7 +168,7 @@ pub fn NotePage(
 
     view! {
         <AppShell
-            user=user.clone()
+            user=user
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::Projects
             current_path=current_path
@@ -235,15 +232,9 @@ fn render_editor_view(
         .collect();
     let task_progress_label = (task_count > 0).then(|| {
         if is_zh {
-            format!(
-                "任务进度：{}/{}（{}%）",
-                completed_task_count, task_count, progress_pct
-            )
+            format!("任务进度：{completed_task_count}/{task_count}（{progress_pct}%）")
         } else {
-            format!(
-                "Task Progress: {}/{} ({}%)",
-                completed_task_count, task_count, progress_pct
-            )
+            format!("Task Progress: {completed_task_count}/{task_count} ({progress_pct}%)")
         }
     });
 
@@ -375,8 +366,7 @@ fn render_whiteboard_view(
 ) -> impl IntoView {
     let initial_strokes = meta
         .whiteboard
-        .as_ref()
-        .cloned()
+        .clone()
         .unwrap_or_else(|| serde_json::json!({ "strokes": [] }));
     let strokes_json =
         serde_json::to_string(&initial_strokes).unwrap_or_else(|_| "{\"strokes\":[]}".to_string());

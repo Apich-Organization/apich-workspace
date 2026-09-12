@@ -108,7 +108,7 @@ pub fn TemplateGalleryPage(
         .then(|| view! { <div class="empty-state"><p>{i18n.template_no_templates()}</p></div> });
 
     view! {
-        <AppShell user=user.clone() is_org_or_team_admin=is_org_or_team_admin active_nav=ActiveNav::Templates current_path=current_path page_title=i18n.template_gallery_title().to_string() i18n=i18n>
+        <AppShell user=user is_org_or_team_admin=is_org_or_team_admin active_nav=ActiveNav::Templates current_path=current_path page_title=i18n.template_gallery_title().to_string() i18n=i18n>
             <div class="page-header">
                 <h1 class="page-title">{i18n.template_gallery_title()}</h1>
             </div>
@@ -206,7 +206,7 @@ pub fn TemplateDetailPage(
                         label=i18n.template_delete().to_string()
                         message="Delete this template and all its versions? This can't be undone.".to_string()
                         button_class="btn btn-danger btn-sm".to_string()
-                        button_style="".to_string()
+                        button_style=String::new()
                     />
                 </form>
             </div>
@@ -237,7 +237,7 @@ pub fn TemplateDetailPage(
         .collect();
 
     view! {
-        <AppShell user=user.clone() is_org_or_team_admin=is_org_or_team_admin active_nav=ActiveNav::Templates current_path=current_path page_title=template.name.clone() i18n=i18n>
+        <AppShell user=user is_org_or_team_admin=is_org_or_team_admin active_nav=ActiveNav::Templates current_path=current_path page_title=template.name.clone() i18n=i18n>
             <div class="page-header">
                 <div>
                     <div class="title-with-badge">

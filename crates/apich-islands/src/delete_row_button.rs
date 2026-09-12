@@ -1,3 +1,5 @@
+//! Spreadsheet ribbon row deletion button island.
+//!
 //! Real Rust replacement for the spreadsheet ribbon's "Delete Row" confirm+submit one-liner.
 //! Reads the row id `SpreadsheetIsland` already writes into `#del-row-id-val` (a real, already-
 //! established cross-boundary DOM handoff between two independent islands), confirms with the
@@ -48,4 +50,4 @@ fn confirm_and_delete() {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn confirm_and_delete() {}
+const fn confirm_and_delete() {}

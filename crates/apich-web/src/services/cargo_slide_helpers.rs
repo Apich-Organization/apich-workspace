@@ -25,7 +25,7 @@
 //! never establishing a 16:9 page size at all for documents that don't explicitly invoke
 //! `#show: slide-theme.with(...)`, which the app's own starter template never did either).
 
-pub const THEME_TYP: &str = r###"// Base theme and styling for cargo-slide presentations
+pub const THEME_TYP: &str = r##"// Base theme and styling for cargo-slide presentations
 #import "slide.typ": *
 
 #let slide-theme(
@@ -143,9 +143,9 @@ pub const THEME_TYP: &str = r###"// Base theme and styling for cargo-slide prese
 
   body
 }
-"###;
+"##;
 
-pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide (re-skinned with APICH's own color palette;
+pub const SLIDE_TYP: &str = r##"// Slide macros and components for cargo-slide (re-skinned with APICH's own color palette;
 // upstream reference: crates/slide-theme/typst/slide.typ)
 //
 // Two real, previously-undiscovered bugs this reference theme fixes over an earlier from-scratch
@@ -867,7 +867,7 @@ pub const SLIDE_TYP: &str = r###"// Slide macros and components for cargo-slide 
     ]
   )
 }
-"###;
+"##;
 
 /// Writes `theme.typ`/`slide.typ` into `project_dir` if either is missing -- called before
 /// creating or applying anything that imports them, so a slide deck compiles on the very first

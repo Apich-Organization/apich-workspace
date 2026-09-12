@@ -1,3 +1,5 @@
+//! Exponential decay retention policy implementation.
+
 use crate::model::Snapshot;
 use chrono::DateTime;
 use chrono::Datelike;
@@ -37,7 +39,8 @@ impl Default for RetentionPolicy {
 
 impl RetentionPolicy {
     /// Strict academic policy preserving all snapshots indefinitely
-    pub fn keep_all() -> Self {
+    #[must_use]
+    pub const fn keep_all() -> Self {
         Self {
             keep_all_duration: Duration::weeks(5200), // ~100 years
             hourly_duration: Duration::weeks(5200),
@@ -48,6 +51,7 @@ impl RetentionPolicy {
     }
 
     /// Determine which snapshot IDs should be pruned given the current list and reference time
+    #[must_use]
     pub fn select_snapshots_to_prune(
         &self,
         snapshots: &[Snapshot],

@@ -1,9 +1,9 @@
-//! Cross-compilation target picker + real build-progress bar for the document editor's
-//! "Build & Download Binary" action on a cargo-slide presentation file. Replaces a plain
-//! synchronous download link (which blocked the whole request for as long as the build took,
-//! with no feedback) with an async job: start the build, then poll its real percentage --
-//! sourced from actual `cargo build` compiler-artifact events, not a simulated animation -- until
-//! it's done, then offer the finished binary as a download.
+//! Cross-compilation target picker and build-progress bar for cargo-slide presentations.
+//!
+//! Replaces a plain synchronous download link (which blocked the whole request for as long as
+//! the build took, with no feedback) with an async job: start the build, then poll its real
+//! percentage -- sourced from actual `cargo build` compiler-artifact events, not a simulated
+//! animation -- until it's done, then offer the finished binary as a download.
 
 use leptos::prelude::*;
 use serde::Deserialize;
@@ -41,8 +41,8 @@ pub fn SlideBuildIsland(
         status_text.set("Starting build...".to_string());
         job_id.set(None);
         start_build_request(
-            project_id.with_value(|s| s.clone()),
-            file_path.with_value(|s| s.clone()),
+            project_id.with_value(Clone::clone),
+            file_path.with_value(Clone::clone),
             target.get_untracked(),
             job_id,
             status_text,
@@ -65,7 +65,7 @@ pub fn SlideBuildIsland(
         job_id.get().map(|jid| {
             format!(
                 "/projects/{}/editor/slide-binary/download?job={}",
-                project_id.with_value(|s| s.clone()),
+                project_id.with_value(Clone::clone),
                 jid
             )
         })

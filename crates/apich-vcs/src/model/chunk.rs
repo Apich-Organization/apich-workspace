@@ -1,3 +1,5 @@
+//! Content-defined chunk reference models.
+
 use serde::Deserialize;
 use serde::Serialize;
 

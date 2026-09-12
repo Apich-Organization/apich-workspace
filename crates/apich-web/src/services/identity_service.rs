@@ -25,7 +25,7 @@ pub struct IdentityService {
 }
 
 impl IdentityService {
-    pub fn new(db: Arc<Database>) -> Self {
+    pub const fn new(db: Arc<Database>) -> Self {
         Self { db }
     }
 
@@ -190,7 +190,6 @@ impl IdentityService {
     }
 
     // --- Team Operations ---
-
 
     pub async fn create_team(
         &self,
@@ -416,7 +415,6 @@ impl IdentityService {
             ));
         }
 
-
         let new_hash = hash_password(new_password)?;
         repo.update_user_password(user_id, &new_hash).await?;
         Ok(())
@@ -428,13 +426,13 @@ impl IdentityService {
         user_id: Uuid,
     ) -> WebResult<bool> {
         let result: (bool,) = sqlx::query_as(
-            r#"
+            r"
             SELECT EXISTS (
                 SELECT 1 FROM org_members WHERE user_id = $1 AND role IN ('owner', 'admin')
                 UNION ALL
                 SELECT 1 FROM team_members WHERE user_id = $1 AND role = 'admin'
             )
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_one(self.db.pool())

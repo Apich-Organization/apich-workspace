@@ -29,7 +29,9 @@ pub fn RegisterPage(
     };
 
     let invite_required = registration_mode == "invite_only";
-    let invite_field = if registration_mode != "admin_only" {
+    let invite_field = if registration_mode == "admin_only" {
+        None
+    } else {
         Some(view! {
             <div class="form-group">
                 <label for="invite_token">
@@ -46,8 +48,6 @@ pub fn RegisterPage(
                 />
             </div>
         })
-    } else {
-        None
     };
 
     let registration_closed = registration_mode == "admin_only";

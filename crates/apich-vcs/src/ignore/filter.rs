@@ -1,3 +1,5 @@
+//! File ignore filter and pattern matching engine.
+
 use super::profile::IgnoreProfile;
 use crate::error::Result;
 use globset::Glob;
@@ -18,6 +20,9 @@ pub struct IgnoreFilter {
 
 impl IgnoreFilter {
     /// Create a new filter with academic, data science, and development defaults
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn new_with_defaults(project_root: impl AsRef<Path>) -> Result<Self> {
         let mut filter = Self::empty();
         for profile in IgnoreProfile::all() {
@@ -39,6 +44,7 @@ impl IgnoreFilter {
     }
 
     /// Create an empty ignore filter
+    #[must_use]
     pub fn empty() -> Self {
         Self {
             glob_set: GlobSet::empty(),
@@ -48,11 +54,14 @@ impl IgnoreFilter {
         }
     }
 
+    /// Creates a new `IgnoreFilterBuilder` initialized with empty rules.
+    #[must_use]
     pub fn builder() -> IgnoreFilterBuilder {
         IgnoreFilterBuilder::new()
     }
 
     /// Test if a relative path matches any ignore rule (taking into account whitelist exceptions)
+    #[must_use]
     pub fn is_ignored(
         &self,
         rel_path: &str,
@@ -72,6 +81,8 @@ impl IgnoreFilter {
         self.glob_set.is_match(clean_path)
     }
 
+    /// Returns true if the specified `IgnoreProfile` is currently active.
+    #[must_use]
     pub fn is_profile_enabled(
         &self,
         profile: IgnoreProfile,
@@ -79,15 +90,22 @@ impl IgnoreFilter {
         self.enabled_profiles.contains(&profile)
     }
 
-    pub fn enabled_profiles(&self) -> &HashSet<IgnoreProfile> {
+    /// Returns a reference to the set of currently enabled ignore profiles.
+    #[must_use]
+    pub const fn enabled_profiles(&self) -> &HashSet<IgnoreProfile> {
         &self.enabled_profiles
     }
 
+    /// Returns a slice of custom user-defined glob rules.
+    #[must_use]
     pub fn custom_rules(&self) -> &[String] {
         &self.custom_rules
     }
 
     /// Dynamically enable a profile and recompile
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn enable_profile(
         &mut self,
         profile: IgnoreProfile,
@@ -97,6 +115,9 @@ impl IgnoreFilter {
     }
 
     /// Dynamically disable a profile and recompile
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn disable_profile(
         &mut self,
         profile: IgnoreProfile,
@@ -106,6 +127,9 @@ impl IgnoreFilter {
     }
 
     /// Add a custom ignore or whitelist rule (e.g. "*.tmp" or "!data/sample.csv")
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn add_rule(
         &mut self,
         rule: impl Into<String>,
@@ -120,6 +144,9 @@ impl IgnoreFilter {
     }
 
     /// Remove a custom rule
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn remove_rule(
         &mut self,
         rule: &str,
@@ -129,6 +156,9 @@ impl IgnoreFilter {
     }
 
     /// Load lines from an ignore file into custom rules
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn load_file(
         &mut self,
         path: impl AsRef<Path>,
@@ -145,7 +175,10 @@ impl IgnoreFilter {
         Ok(())
     }
 
-    /// Recompile all profile patterns and custom rules into GlobSets
+    /// Recompile all profile patterns and custom rules into `GlobSets`
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn recompile(&mut self) -> Result<()> {
         let mut ignore_builder = GlobSetBuilder::new();
         let mut whitelist_builder = GlobSetBuilder::new();
@@ -167,11 +200,11 @@ impl IgnoreFilter {
         }
 
         self.glob_set = ignore_builder.build().map_err(|e| {
-            crate::error::VcsError::Internal(format!("Failed to compile ignore globs: {}", e))
+            crate::error::VcsError::Internal(format!("Failed to compile ignore globs: {e}"))
         })?;
 
         self.whitelist_set = whitelist_builder.build().map_err(|e| {
-            crate::error::VcsError::Internal(format!("Failed to compile whitelist globs: {}", e))
+            crate::error::VcsError::Internal(format!("Failed to compile whitelist globs: {e}"))
         })?;
 
         Ok(())
@@ -186,30 +219,31 @@ impl IgnoreFilter {
             builder.add(glob);
         }
         if trimmed.ends_with('/') {
-            if let Ok(glob) = Glob::new(&format!("{}**", trimmed)) {
+            if let Ok(glob) = Glob::new(&format!("{trimmed}**")) {
                 builder.add(glob);
             }
-            if let Ok(glob) = Glob::new(&format!("**/{}**", trimmed)) {
+            if let Ok(glob) = Glob::new(&format!("**/{trimmed}**")) {
                 builder.add(glob);
             }
         } else if !trimmed.contains('/') && !trimmed.contains('*') {
-            if let Ok(glob) = Glob::new(&format!("{}/**", trimmed)) {
+            if let Ok(glob) = Glob::new(&format!("{trimmed}/**")) {
                 builder.add(glob);
             }
-            if let Ok(glob) = Glob::new(&format!("**/{}/**", trimmed)) {
+            if let Ok(glob) = Glob::new(&format!("**/{trimmed}/**")) {
                 builder.add(glob);
             }
-            if let Ok(glob) = Glob::new(&format!("**/{}", trimmed)) {
+            if let Ok(glob) = Glob::new(&format!("**/{trimmed}")) {
                 builder.add(glob);
             }
         } else if !trimmed.starts_with("**/") && !trimmed.starts_with('*') {
-            if let Ok(glob) = Glob::new(&format!("**/{}", trimmed)) {
+            if let Ok(glob) = Glob::new(&format!("**/{trimmed}")) {
                 builder.add(glob);
             }
         }
     }
 }
 
+/// Fluent builder for constructing an `IgnoreFilter`.
 pub struct IgnoreFilterBuilder {
     filter: IgnoreFilter,
 }
@@ -221,12 +255,16 @@ impl Default for IgnoreFilterBuilder {
 }
 
 impl IgnoreFilterBuilder {
+    /// Creates a new builder instance.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             filter: IgnoreFilter::empty(),
         }
     }
 
+    /// Enables an `IgnoreProfile` on the filter being built.
+    #[must_use]
     pub fn add_profile(
         mut self,
         profile: IgnoreProfile,
@@ -235,6 +273,8 @@ impl IgnoreFilterBuilder {
         self
     }
 
+    /// Adds a custom glob pattern rule to the filter.
+    #[must_use]
     pub fn add_rule(
         mut self,
         rule: impl Into<String>,
@@ -247,6 +287,10 @@ impl IgnoreFilterBuilder {
         self
     }
 
+    /// Loads ignore rules from a file path.
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn load_file(
         mut self,
         path: impl AsRef<Path>,
@@ -255,6 +299,10 @@ impl IgnoreFilterBuilder {
         Ok(self)
     }
 
+    /// Compiles patterns and returns the configured `IgnoreFilter`.
+    ///
+    /// # Errors
+    /// Returns an error if loading, reading, or compiling ignore rules fails.
     pub fn build(mut self) -> Result<IgnoreFilter> {
         self.filter.recompile()?;
         Ok(self.filter)

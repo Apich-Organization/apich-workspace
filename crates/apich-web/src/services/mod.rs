@@ -1,37 +1,31 @@
-pub mod agent_login;
-pub mod ai_service;
-pub mod cargo_slide_helpers;
-pub mod default_templates;
-pub mod demo_project;
-pub mod document_renderer;
-pub mod git_server;
-pub mod gpg_keys;
-pub mod identity_service;
-pub mod knowledge_sync;
-pub mod project_manager;
-pub mod slide_build;
-pub mod sqlite_table;
-pub mod sso_service;
-pub mod template_library;
+//! # Services Module
+//!
+//! Business logic, background services, and application workflows.
 
-pub use agent_login::AgentLoginRegistry;
-pub use agent_login::AgentLoginStatus;
-pub use ai_service::AiAssistantService;
-pub use ai_service::AiChatRequest;
-pub use ai_service::AiChatResponse;
-pub use demo_project::DemoProjectService;
-pub use document_renderer::DocumentRenderer;
-pub use document_renderer::MarkdownRenderResult;
-pub use document_renderer::ScriptRunResult;
-pub use document_renderer::TypstRenderResult;
-pub use gpg_keys::gpg_key_fingerprint;
-pub use identity_service::IdentityService;
-pub use knowledge_sync::KnowledgeSyncService;
-pub use project_manager::FileShareInfo;
-pub use project_manager::ProjectManager;
-pub use slide_build::SlideBuildRegistry;
-pub use slide_build::SlideBuildStatus;
-pub use sqlite_table::SqliteTableService;
-pub use sso_service::JwksResponse;
-pub use sso_service::SsoService;
-pub use sso_service::TokenResponse;
+pub(crate) mod agent_login;
+pub(crate) mod ai_service;
+pub(crate) mod cargo_slide_helpers;
+/// Default template seeding service.
+pub mod default_templates;
+pub(crate) mod demo_project;
+pub(crate) mod document_renderer;
+pub(crate) mod git_server;
+pub(crate) mod gpg_keys;
+pub(crate) mod identity_service;
+pub(crate) mod knowledge_sync;
+pub(crate) mod project_manager;
+pub(crate) mod slide_build;
+pub(crate) mod sqlite_table;
+pub(crate) mod sso_service;
+pub(crate) mod template_library;
+
+pub(crate) use agent_login::AgentLoginStatus;
+pub(crate) use gpg_keys::gpg_key_fingerprint;
+pub(crate) use identity_service::IdentityService;
+pub(crate) use knowledge_sync::KnowledgeSyncService;
+pub(crate) use project_manager::FileShareInfo;
+pub(crate) use project_manager::ProjectManager;
+pub(crate) use slide_build::SlideBuildStatus;
+pub(crate) use sqlite_table::SqliteTableService;
+pub(crate) use sso_service::SsoService;
+pub(crate) use sso_service::TokenResponse;

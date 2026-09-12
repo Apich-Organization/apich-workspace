@@ -1,3 +1,5 @@
+//! File sharing modal island for project documents and notes.
+//!
 //! Real Rust replacement for the file-share modal's hand-written JS (`components/mod.rs`'s
 //! `FileShareModal`). Per-file "Share" buttons live on several different pages (files list,
 //! note editor, document editor) outside this island, so they open it by dispatching a `window`
@@ -8,9 +10,12 @@ use leptos::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
 
+/// Candidate user record that can be granted access in the file share dialog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareableUser {
+    /// Account username.
     pub username: String,
+    /// Human-readable display name.
     pub display_name: String,
 }
 
@@ -161,7 +166,7 @@ fn wire_open_listener(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn wire_open_listener(
+const fn wire_open_listener(
     _visible: RwSignal<bool>,
     _file_path: RwSignal<String>,
     _mode: RwSignal<String>,

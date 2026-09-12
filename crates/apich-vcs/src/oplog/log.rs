@@ -1,3 +1,5 @@
+//! Append-only operation log implementation.
+
 use super::op::OpAction;
 use super::op::VcsOperation;
 use crate::error::Result;
@@ -18,6 +20,10 @@ pub struct OpLog {
 }
 
 impl OpLog {
+    /// Creates or opens an operation log within the specified project root directory.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, or appending to the operation log fails.
     pub fn new(project_root: impl AsRef<Path>) -> Result<Self> {
         let path = project_root.as_ref().join(".apich").join("oplog.jsonl");
         if let Some(parent) = path.parent() {
@@ -27,6 +33,9 @@ impl OpLog {
     }
 
     /// Append a new operation to the log
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, or appending to the operation log fails.
     pub fn append(
         &self,
         op: &VcsOperation,
@@ -37,11 +46,14 @@ impl OpLog {
             .open(&self.log_file)?;
 
         let line = serde_json::to_string(op)?;
-        writeln!(file, "{}", line)?;
+        writeln!(file, "{line}")?;
         Ok(())
     }
 
     /// List all operations in chronological order
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, or appending to the operation log fails.
     pub fn list(&self) -> Result<Vec<VcsOperation>> {
         if !self.log_file.exists() {
             return Ok(Vec::new());
@@ -62,8 +74,13 @@ impl OpLog {
         Ok(ops)
     }
 
-    /// Undo the last mutating operation: find the target snapshot before the operation,
-    /// and record an Undo entry. Returns target snapshot ID to revert to.
+    /// Undo the last mutating operation in the operation log.
+    ///
+    /// Finds the target snapshot before the operation and records an Undo entry.
+    /// Returns target snapshot ID to revert to.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, or appending to the operation log fails.
     pub fn undo(
         &self,
         current_snapshot: Option<Uuid>,
@@ -77,11 +94,11 @@ impl OpLog {
                     net_undo_depth = net_undo_depth.saturating_sub(1);
                 },
                 | OpAction::Undo => {
-                    net_undo_depth += 1;
+                    net_undo_depth = net_undo_depth.saturating_add(1);
                 },
                 | _ => {
                     if net_undo_depth > 0 {
-                        net_undo_depth -= 1;
+                        net_undo_depth = net_undo_depth.saturating_sub(1);
                     } else {
                         // Found the mutating operation to undo!
                         if let Some(target_id) = op.snapshot_before {
@@ -93,10 +110,9 @@ impl OpLog {
                             );
                             self.append(&undo_op)?;
                             return Ok(Some(target_id));
-                        } else {
-                            // If snapshot_before was None (initial snapshot), there is no prior snapshot
-                            return Ok(None);
                         }
+                        // If snapshot_before was None (initial snapshot), there is no prior snapshot
+                        return Ok(None);
                     }
                 },
             }
@@ -104,8 +120,13 @@ impl OpLog {
         Ok(None)
     }
 
-    /// Redo the last undone operation: find the matching Undo operation to reverse,
-    /// and record a Redo entry. Returns target snapshot ID to restore.
+    /// Redo the last undone operation in the operation log.
+    ///
+    /// Finds the matching Undo operation to reverse and records a Redo entry.
+    /// Returns target snapshot ID to restore.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, or appending to the operation log fails.
     pub fn redo(
         &self,
         current_snapshot: Option<Uuid>,
@@ -116,17 +137,17 @@ impl OpLog {
         for op in ops.iter().rev() {
             match op.action {
                 | OpAction::Redo => {
-                    net_redo_depth += 1;
+                    net_redo_depth = net_redo_depth.saturating_add(1);
                 },
                 | OpAction::Undo => {
                     if net_redo_depth > 0 {
-                        net_redo_depth -= 1;
+                        net_redo_depth = net_redo_depth.saturating_sub(1);
                     } else if let Some(target_id) = op.snapshot_before {
                         let redo_op = VcsOperation::new(
                             OpAction::Redo,
                             current_snapshot,
                             Some(target_id),
-                            format!("Redo operation: restored state to {}", target_id),
+                            format!("Redo operation: restored state to {target_id}"),
                         );
                         self.append(&redo_op)?;
                         return Ok(Some(target_id));

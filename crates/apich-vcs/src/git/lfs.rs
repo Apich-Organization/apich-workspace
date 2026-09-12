@@ -1,3 +1,5 @@
+//! Git Large File Storage (LFS) policies and pointer generators.
+
 use globset::Glob;
 use globset::GlobSet;
 use globset::GlobSetBuilder;
@@ -32,7 +34,8 @@ impl Default for LfsPolicy {
 }
 
 impl LfsPolicy {
-    /// Create a new LfsPolicy with a size threshold and glob patterns
+    /// Create a new `LfsPolicy` with a size threshold and glob patterns
+    #[must_use]
     pub fn new(
         size_threshold: u64,
         patterns: Vec<String>,
@@ -52,7 +55,7 @@ impl LfsPolicy {
                 builder.add(glob);
             }
             if !pat.starts_with("**/") && !pat.starts_with('*') {
-                if let Ok(glob) = Glob::new(&format!("**/{}", pat)) {
+                if let Ok(glob) = Glob::new(&format!("**/{pat}")) {
                     builder.add(glob);
                 }
             }
@@ -74,15 +77,19 @@ impl LfsPolicy {
     }
 
     /// Configure the size threshold in bytes for automatic LFS pointer generation
-    pub fn set_size_threshold(
+    pub const fn set_size_threshold(
         &mut self,
         size_threshold: u64,
     ) {
         self.size_threshold = size_threshold;
     }
 
-    /// Load LFS rules from a `.gitattributes` file
-    /// Parses lines containing `filter=lfs`
+    /// Load LFS rules from a `.gitattributes` file.
+    ///
+    /// Parses lines containing `filter=lfs`.
+    ///
+    /// # Errors
+    /// Returns an error if reading or parsing the attributes file fails.
     pub fn load_gitattributes(
         &mut self,
         path: impl AsRef<Path>,
@@ -105,6 +112,7 @@ impl LfsPolicy {
     }
 
     /// Check if a file should be stored via Git LFS pointers when exporting to Git
+    #[must_use]
     pub fn is_lfs_file(
         &self,
         path: &str,
@@ -119,6 +127,7 @@ impl LfsPolicy {
     }
 
     /// Compute SHA-256 and generate the standard Git LFS pointer text
+    #[must_use]
     pub fn create_lfs_pointer(data: &[u8]) -> (String, String) {
         let mut hasher = sha2::Sha256::new();
         hasher.update(data);
@@ -134,16 +143,17 @@ impl LfsPolicy {
     }
 
     /// Parse an LFS pointer if file content matches spec
+    #[must_use]
     pub fn parse_lfs_pointer(content: &str) -> Option<(String, u64)> {
         let lines: Vec<&str> = content.lines().collect();
-        if lines.len() < 3 || lines[0] != "version https://git-lfs.github.com/spec/v1" {
+        if lines.len() < 3 || lines.first() != Some(&"version https://git-lfs.github.com/spec/v1") {
             return None;
         }
 
         let mut oid = None;
         let mut size = None;
 
-        for line in &lines[1..] {
+        for line in lines.get(1..).unwrap_or_default() {
             if let Some(rest) = line.strip_prefix("oid sha256:") {
                 oid = Some(rest.trim().to_string());
             } else if let Some(rest) = line.strip_prefix("size ") {
@@ -159,11 +169,16 @@ impl LfsPolicy {
 }
 
 mod hex {
+    use std::fmt::Write;
+
     pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
+        let b = bytes.as_ref();
+        b.iter().fold(
+            String::with_capacity(b.len().saturating_mul(2)),
+            |mut acc, byte| {
+                let _ = write!(acc, "{byte:02x}");
+                acc
+            },
+        )
     }
 }

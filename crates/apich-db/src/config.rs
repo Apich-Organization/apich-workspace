@@ -6,14 +6,23 @@ use std::path::PathBuf;
 /// Performance and resource tuning configuration for PostgreSQL
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PostgresTuningConfig {
+    /// Maximum number of concurrent connections.
     pub max_connections: u32,
+    /// Dedicated memory for PostgreSQL shared buffers (e.g. "128MB").
     pub shared_buffers: String,
+    /// Planner's estimate of effective cache memory (e.g. "512MB").
     pub effective_cache_size: String,
+    /// Memory used for maintenance operations (e.g. "64MB").
     pub maintenance_work_mem: String,
+    /// Amount of memory to be used by internal sort operations and hash tables (e.g. "4MB").
     pub work_mem: String,
+    /// Memory used for Write-Ahead Logging buffer (e.g. "16MB").
     pub wal_buffers: String,
+    /// Planner's estimate of the cost of a non-sequentially fetched disk page.
     pub random_page_cost: f32,
+    /// Collects timing statistics for database I/O activities.
     pub track_io_timing: bool,
+    /// Target fraction of total time between checkpoints for completing writes.
     pub checkpoint_completion_target: f32,
 }
 
@@ -35,6 +44,7 @@ impl Default for PostgresTuningConfig {
 
 impl PostgresTuningConfig {
     /// Convert configuration into PostgreSQL command line arguments (`-c param=value`)
+    #[must_use]
     pub fn to_postgres_args(&self) -> Vec<String> {
         let args = vec![
             "-c".to_string(),
@@ -71,7 +81,7 @@ impl PostgresTuningConfig {
 }
 
 /// Security & Authentication configuration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PostgresSecurityConfig {
     /// Password encryption algorithm (default: scram-sha-256)
     pub password_encryption: String,
@@ -114,7 +124,7 @@ pub struct PostgresConfig {
     pub host_data_dir: PathBuf,
     /// Host directory for backup files (mounted to /backups)
     pub host_backup_dir: PathBuf,
-    /// SELinux relabeling flag (:Z)
+    /// `SELinux` relabeling flag (:Z)
     pub selinux_relabel: bool,
     /// Performance tuning options
     pub tuning: PostgresTuningConfig,
@@ -123,6 +133,7 @@ pub struct PostgresConfig {
 }
 
 impl PostgresConfig {
+    /// Creates a new configuration builder with the specified host data and backup directories.
     pub fn builder(
         host_data_dir: impl AsRef<Path>,
         host_backup_dir: impl AsRef<Path>,
@@ -131,6 +142,7 @@ impl PostgresConfig {
     }
 
     /// Admin connection string (used for administrative tasks, user creation, migrations)
+    #[must_use]
     pub fn admin_connection_url(
         &self,
         host: &str,
@@ -147,6 +159,7 @@ impl PostgresConfig {
     }
 
     /// Application connection string (used for normal workspace queries with restricted privileges)
+    #[must_use]
     pub fn app_connection_url(
         &self,
         host: &str,
@@ -163,6 +176,7 @@ impl PostgresConfig {
     }
 }
 
+/// Builder for constructing a `PostgresConfig` instance.
 pub struct PostgresConfigBuilder {
     container_name: String,
     image: String,
@@ -180,6 +194,7 @@ pub struct PostgresConfigBuilder {
 }
 
 impl PostgresConfigBuilder {
+    /// Initializes a builder with required host directories and sensible defaults.
     pub fn new(
         host_data_dir: impl AsRef<Path>,
         host_backup_dir: impl AsRef<Path>,
@@ -201,6 +216,8 @@ impl PostgresConfigBuilder {
         }
     }
 
+    /// Sets the Podman container name.
+    #[must_use]
     pub fn container_name(
         mut self,
         name: impl Into<String>,
@@ -209,6 +226,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets the container image tag to run.
+    #[must_use]
     pub fn image(
         mut self,
         image: impl Into<String>,
@@ -217,7 +236,9 @@ impl PostgresConfigBuilder {
         self
     }
 
-    pub fn host_port(
+    /// Sets the host port to forward to container port 5432.
+    #[must_use]
+    pub const fn host_port(
         mut self,
         port: u16,
     ) -> Self {
@@ -225,6 +246,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets the default database name.
+    #[must_use]
     pub fn database(
         mut self,
         db: impl Into<String>,
@@ -233,6 +256,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets the admin (superuser) username.
+    #[must_use]
     pub fn admin_user(
         mut self,
         user: impl Into<String>,
@@ -241,6 +266,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets the admin superuser password.
+    #[must_use]
     pub fn admin_password(
         mut self,
         password: impl Into<String>,
@@ -249,6 +276,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets the restricted application username.
+    #[must_use]
     pub fn app_user(
         mut self,
         user: impl Into<String>,
@@ -257,6 +286,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets the restricted application user password.
+    #[must_use]
     pub fn app_password(
         mut self,
         password: impl Into<String>,
@@ -265,7 +296,9 @@ impl PostgresConfigBuilder {
         self
     }
 
-    pub fn selinux_relabel(
+    /// Configures whether to append `SELinux` `:Z` flag to container volume mounts.
+    #[must_use]
+    pub const fn selinux_relabel(
         mut self,
         enable: bool,
     ) -> Self {
@@ -273,6 +306,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets custom PostgreSQL performance tuning parameters.
+    #[must_use]
     pub fn tuning(
         mut self,
         tuning: PostgresTuningConfig,
@@ -281,6 +316,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Sets custom PostgreSQL security settings.
+    #[must_use]
     pub fn security(
         mut self,
         security: PostgresSecurityConfig,
@@ -289,6 +326,8 @@ impl PostgresConfigBuilder {
         self
     }
 
+    /// Finalizes the builder and returns a validated `PostgresConfig`.
+    #[must_use]
     pub fn build(self) -> PostgresConfig {
         let admin_password = self
             .admin_password

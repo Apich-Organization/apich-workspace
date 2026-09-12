@@ -12,7 +12,7 @@ impl DemoProjectService {
 
         // 1. cargo-slide presentation: slides.typ
         // Follows the cargo-slide DSL defined in ~/dev/cargo-slide
-        let slides_typ = r###"#import "theme.typ": *
+        let slides_typ = r#"#import "theme.typ": *
 #import "slide.typ": *
 
 #show: slide-theme.with(
@@ -144,7 +144,7 @@ impl DemoProjectService {
   - Exported CSV replica: `assets/data.csv`
   - Snapshot recorded per cooldown cycle
 ]
-"###;
+"#;
 
         // 2 & 3. cargo-slide theme + component macros: theme.typ / slide.typ -- shared with
         // everything else that provisions a slide deck, see `cargo_slide_helpers`'s own doc
@@ -156,7 +156,7 @@ impl DemoProjectService {
         let data_csv = "qubit,frequency_ghz,t1_us,t2_us,readout_fidelity\nQ0,4.852,94.2,76.8,0.988\nQ1,5.014,88.5,64.2,0.982\nQ2,5.180,102.3,85.1,0.991\nQ3,4.920,79.8,58.4,0.979\nQ4,5.250,91.4,71.0,0.985\nQ5,5.105,86.2,63.9,0.983\n";
 
         // 5. Typst academic paper: paper.typ
-        let paper_typ = r###"#set page(paper: "a4", margin: (x: 2cm, y: 2.5cm))
+        let paper_typ = r#"#set page(paper: "a4", margin: (x: 2cm, y: 2.5cm))
 #set text(font: "Liberation Serif", size: 11pt)
 #set par(justify: true)
 
@@ -186,10 +186,10 @@ $ S_{21}(f) = 1 - frac(Q_L / |Q_c| e^(i phi_0), 1 + 2 i Q_L (f - f_r)/f_r) $
 
 = 3. Conclusion
 The structured workflow integrating Typst documents, cargo-slide presentations, and embedded SQLite tables enables fully reproducible scientific computation.
-"###;
+"#;
 
         // 6. LaTeX sample: report.tex
-        let report_tex = r###"\documentclass[11pt,a4paper]{article}
+        let report_tex = r"\documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath,amssymb}
 \usepackage{geometry}
@@ -216,11 +216,11 @@ The total reflection coefficient $\Gamma$ and insertion loss $S_{21}$ are determ
 Attenuation at 10 mK base temperature remains below 1.2 dB/meter across the target readout band. Dispersive phase shift is matched within 2.5 degrees between adjacent channels.
 
 \end{document}
-"###;
+";
 
         // 7. Unified Note: lab_notebook.anote
         // Unified Note format: YAML Frontmatter (metadata, tags, author, whiteboard nodes/edges) + Markdown Body (tasks with @date #tag, [[wiki links]])
-        let lab_notebook_anote = r###"---
+        let lab_notebook_anote = r##"---
 title: "Transmon Qubit Coherence Protocol & Lab Notebook"
 created_at: 2026-09-08T09:00:00Z
 updated_at: 2026-09-08T14:30:00Z
@@ -268,10 +268,10 @@ Related wiki modules: [[cryostat_cooldown|Cryostat Cool-Down Log]], [[microwave_
 
 ## Cooldown Observation Notes
 Base temperature reached 11.8 mK at 04:30 AM. Residual magnetic shield pressure nominal. All 6 transmon channels exhibit sharp transmission dips around 7.2 GHz.
-"###;
+"##;
 
         // 8. Python data analysis script: analysis.py
-        let analysis_py = r###"# Quantum measurement telemetry analysis script
+        let analysis_py = r#"# Quantum measurement telemetry analysis script
 import csv
 import math
 
@@ -288,10 +288,10 @@ def calculate_average_t1(csv_path):
 if __name__ == '__main__':
     avg = calculate_average_t1('assets/data.csv')
     print(f"Average T1 relaxation time: {avg:.2f} us")
-"###;
+"#;
 
         // 9. README.md
-        let readme_md = r###"# APICH Demonstration Workspace
+        let readme_md = r#"# APICH Demonstration Workspace
 
 This project contains sample files demonstrating the application modalities supported in APICH:
 
@@ -316,10 +316,10 @@ Five tabs share one file format and one sub-navigation: Editor, Whiteboard, Wiki
 
 ### 5. VCS & Sharing
 Open the "VCS" tab to see a real snapshot history including a feature branch (`readout-experiment`) merged back with APICH's weave-free reconciler. The "Share" panel on this project demonstrates a public read-and-review link plus a couple of per-file sharing rules.
-"###;
+"#;
 
         // 10. R data analysis script: analysis.R
-        let analysis_r = r###"# Quantum measurement telemetry analysis (R)
+        let analysis_r = r#"# Quantum measurement telemetry analysis (R)
 telemetry <- read.csv("assets/data.csv")
 
 cat(sprintf("Mean T1: %.2f us (sd %.2f)\n", mean(telemetry$t1_us), sd(telemetry$t1_us)))
@@ -329,10 +329,10 @@ cat(sprintf("Mean readout fidelity: %.4f\n", mean(telemetry$readout_fidelity)))
 fit <- lm(t1_us ~ frequency_ghz, data = telemetry)
 cat("Linear fit T1 ~ frequency_ghz:\n")
 print(summary(fit)$coefficients)
-"###;
+"#;
 
         // 11. Rust script: simulate.rs (plain-code-file editor demo + Rust sandbox support)
-        let simulate_rs = r###"// Transmon anharmonic-oscillator eigenvalue estimate.
+        let simulate_rs = r#"// Transmon anharmonic-oscillator eigenvalue estimate.
 // Run inside the project sandbox: `rustc simulate.rs -o /tmp/simulate && /tmp/simulate`
 
 fn compute_eigenvalues(ec_ghz: f64, ej_ghz: f64) -> (f64, f64) {
@@ -353,11 +353,11 @@ fn main() {
         println!("{label}: omega_0 = {omega_0:.4} GHz, anharmonicity = {alpha:.4} GHz");
     }
 }
-"###;
+"#;
 
         // 12-14. Linked wiki pages: form a real bidirectional graph with lab_notebook.anote,
         // and contribute their own dated/tagged tasks to the shared Kanban board and Calendar.
-        let cryostat_cooldown_anote = r###"---
+        let cryostat_cooldown_anote = r#"---
 title: "Cryostat Cool-Down Log"
 created_at: 2026-09-05T07:00:00Z
 updated_at: 2026-09-08T09:00:00Z
@@ -377,9 +377,9 @@ Parent notebook: [[lab_notebook|Transmon Qubit Coherence Protocol & Lab Notebook
 
 ## Notes
 Standard cool-down to 11.8 mK base takes approximately 36 hours from room temperature. Magnetic shielding installed before the final descent below 4K.
-"###;
+"#;
 
-        let microwave_calibration_anote = r###"---
+        let microwave_calibration_anote = r#"---
 title: "Microwave Pulse Calibration"
 created_at: 2026-09-06T10:00:00Z
 updated_at: 2026-09-08T11:00:00Z
@@ -399,9 +399,9 @@ Parent notebook: [[lab_notebook|Transmon Qubit Coherence Protocol & Lab Notebook
 
 ## Notes
 DRAG correction reduced leakage error by roughly 40% on Q2, the qubit with the tightest anharmonicity margin.
-"###;
+"#;
 
-        let surface_code_readout_anote = r###"---
+        let surface_code_readout_anote = r#"---
 title: "Surface Code Readout"
 created_at: 2026-09-07T13:00:00Z
 updated_at: 2026-09-08T14:00:00Z
@@ -421,7 +421,7 @@ Parent notebook: [[lab_notebook|Transmon Qubit Coherence Protocol & Lab Notebook
 
 ## Notes
 Target readout fidelity for the distance-3 surface code prototype is 99.5%; current single-qubit average sits at 98.5% (see `quantum_measurements.table`).
-"###;
+"#;
 
         // Write all text files
         tokio::fs::write(root.join("slides.typ"), slides_typ)
@@ -490,7 +490,7 @@ Target readout fidelity for the distance-3 surface code prototype is 99.5%; curr
         let db_path = root.join("quantum_measurements.table");
         if let Ok(conn) = rusqlite::Connection::open(&db_path) {
             let _ = conn.execute_batch(
-                r#"
+                r"
                 CREATE TABLE IF NOT EXISTS qubit_characterization (
                     id INTEGER PRIMARY KEY,
                     qubit_label TEXT NOT NULL,
@@ -523,7 +523,7 @@ Target readout fidelity for the distance-3 surface code prototype is 99.5%; curr
                     (1, '2026-09-08 04:30', 11.8, 60.0, 'Alice'),
                     (2, '2026-09-08 08:15', 12.1, 60.0, 'Bob'),
                     (3, '2026-09-08 12:00', 11.9, 60.0, 'Alice');
-            "#,
+            ",
             );
         }
 
@@ -540,8 +540,7 @@ Target readout fidelity for the distance-3 surface code prototype is 99.5%; curr
                 tokio::fs::write(
                     root.join("README.md"),
                     format!(
-                        "{}\n### Reproducibility\nAll telemetry in `assets/data.csv` and `quantum_measurements.table` is regenerated per cooldown cycle; see `analysis.py`/`analysis.R` for the summary statistics used in `paper.typ`.\n",
-                        readme_md
+                        "{readme_md}\n### Reproducibility\nAll telemetry in `assets/data.csv` and `quantum_measurements.table` is regenerated per cooldown cycle; see `analysis.py`/`analysis.R` for the summary statistics used in `paper.typ`.\n"
                     ),
                 )
                 .await

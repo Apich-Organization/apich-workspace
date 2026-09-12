@@ -551,8 +551,7 @@ async fn update_knowledge_task(
     let is_done_column = columns
         .iter()
         .find(|c| c.id == payload.status)
-        .map(|c| c.is_done)
-        .unwrap_or(payload.status == "done");
+        .map_or(payload.status == "done", |c| c.is_done);
     KnowledgeSyncService::update_task_status(
         &proj.storage_path,
         &payload.file,

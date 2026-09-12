@@ -1,8 +1,9 @@
-//! Real Rust replacement for the whiteboard canvas that used to be a hand-written JS `<script>`
-//! string in `apich-web`'s note page. Drawing, the toolbar (brushes, shapes, fill, pan/zoom,
-//! undo/redo, image/video import), PNG export, and the save-to-note round trip (`POST
-//! /projects/:id/note/whiteboard`) are all implemented here as compiled Rust running in the
-//! browser via wasm -- no eval, no untyped DOM string-building.
+//! Real Rust replacement for the whiteboard canvas component.
+//!
+//! Drawing, the toolbar (brushes, shapes, fill, pan/zoom, undo/redo, image/video import),
+//! PNG export, and the save-to-note round trip (`POST /projects/:id/note/whiteboard`) are all
+//! implemented here as compiled Rust running in the browser via wasm -- no eval, no untyped
+//! DOM string-building.
 //!
 //! Per direct user feedback ("whiteboard need far more paint brushes, colors, shapes, zooms,
 //! fill, image import, video imports, redo, undo, pan and so on"), everything drawn here is one
@@ -21,11 +22,17 @@
 //! be dropped in as a visual reference. Said plainly in the toolbar's own title text rather than
 //! silently pretending it's full playback.
 
+#![allow(
+    clippy::must_use_candidate,
+    clippy::too_many_lines,
+    clippy::needless_pass_by_value
+)]
+
 use leptos::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
 
-fn default_alpha() -> f64 {
+const fn default_alpha() -> f64 {
     1.0
 }
 
@@ -151,6 +158,12 @@ fn brush_preset(name: &str) -> (f64, f64) {
 }
 
 #[island]
+#[must_use]
+#[allow(
+    clippy::too_many_lines,
+    clippy::needless_pass_by_value,
+    clippy::must_use_candidate
+)]
 pub fn WhiteboardIsland(
     #[prop(into)] project_id: String,
     #[prop(into)] file_path: String,
@@ -174,6 +187,7 @@ pub fn WhiteboardIsland(
     let view_y = RwSignal::new(0.0f64);
     let save_status = RwSignal::new(String::new());
     let elements = StoredValue::new(load_elements(&initial_strokes_json));
+    drop(initial_strokes_json);
     let undo_stack = StoredValue::new(Vec::<Vec<Element>>::new());
     let redo_stack = StoredValue::new(Vec::<Vec<Element>>::new());
     let can_undo = RwSignal::new(false);
@@ -190,7 +204,7 @@ pub fn WhiteboardIsland(
                 stack.remove(0);
             }
         });
-        redo_stack.update_value(|s| s.clear());
+        redo_stack.update_value(Vec::clear);
         can_undo.set(true);
         can_redo.set(false);
     };
@@ -213,7 +227,7 @@ pub fn WhiteboardIsland(
 
     let on_undo = {
         move |_| {
-            let Some(prev) = undo_stack.try_update_value(|s| s.pop()).flatten() else {
+            let Some(prev) = undo_stack.try_update_value(Vec::pop).flatten() else {
                 return;
             };
             redo_stack.update_value(|s| {
@@ -227,7 +241,7 @@ pub fn WhiteboardIsland(
     };
     let on_redo = {
         move |_| {
-            let Some(next) = redo_stack.try_update_value(|s| s.pop()).flatten() else {
+            let Some(next) = redo_stack.try_update_value(Vec::pop).flatten() else {
                 return;
             };
             undo_stack.update_value(|s| {
@@ -252,7 +266,7 @@ pub fn WhiteboardIsland(
         redo_stack,
     );
     let on_export = export_handler(canvas_ref, file_path.clone());
-    let on_save = save_handler(elements, save_status, project_id.clone(), file_path.clone());
+    let on_save = save_handler(elements, save_status, project_id, file_path);
 
     let on_zoom_in = move |_| zoom.update(|z| *z = (*z * 1.2).min(4.0));
     let on_zoom_out = move |_| zoom.update(|z| *z = (*z / 1.2).max(0.25));
@@ -482,8 +496,8 @@ pub fn WhiteboardIsland(
                     let bold_v = bold.get();
                     let italic_v = italic.get();
                     let z = zoom.get();
-                    let sx = wx * z + view_x.get();
-                    let sy = wy * z + view_y.get();
+                    let sx = wx.mul_add(z, view_x.get());
+                    let sy = wy.mul_add(z, view_y.get());
                     view! {
                         <input
                             style=format!(
@@ -1081,7 +1095,7 @@ fn redraw_all(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn redraw_all(
+const fn redraw_all(
     _canvas_ref: NodeRef<leptos::html::Canvas>,
     _elements: StoredValue<Vec<Element>>,
     _zoom: RwSignal<f64>,
@@ -1508,7 +1522,7 @@ mod tests {
         let json = r##"{"elements":[{"kind":"Text","x":1.0,"y":2.0,"text":"hi","color":"#000","bg_color":null,"bold":false,"italic":false,"font_size":18.0}]}"##;
         let els = load_elements(json);
         assert_eq!(els.len(), 1);
-        assert!(matches!(els[0], Element::Text { .. }));
+        assert!(matches!(els.first(), Some(Element::Text { .. })));
     }
 
     #[test]
@@ -1516,8 +1530,10 @@ mod tests {
         let json = r##"{"strokes":[{"color":"#111","width":3.0,"points":[[0.0,0.0],[1.0,1.0]]}],"texts":[{"x":5.0,"y":5.0,"text":"note","color":"#222","bg_color":null,"bold":true,"italic":false,"font_size":18.0}]}"##;
         let els = load_elements(json);
         assert_eq!(els.len(), 2);
-        assert!(matches!(&els[0], Element::Stroke { color, .. } if color == "#111"));
-        assert!(matches!(&els[1], Element::Text { text, bold: true, .. } if text == "note"));
+        assert!(matches!(els.first(), Some(Element::Stroke { color, .. }) if color == "#111"));
+        assert!(
+            matches!(els.get(1), Some(Element::Text { text, bold: true, .. }) if text == "note")
+        );
     }
 
     #[test]

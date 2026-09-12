@@ -1,3 +1,5 @@
+//! Git compatibility bridge implementation.
+
 use super::lfs::LfsPolicy;
 use crate::error::Result;
 use crate::error::VcsError;
@@ -12,14 +14,17 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Git Compatibility Bridge allowing bidirectional translation between
-/// apich-vcs snapshots/CAS and standard Git commit graphs.
+/// Git Compatibility Bridge for commit and tree translation.
+///
+/// Allows bidirectional translation between apich-vcs snapshots/CAS
+/// and standard Git commit graphs.
 pub struct GitBridge {
     project_root: PathBuf,
     lfs_policy: LfsPolicy,
 }
 
 impl GitBridge {
+    /// Creates a new `GitBridge` for the repository located at `project_root`.
     pub fn new(project_root: impl AsRef<Path>) -> Self {
         Self {
             project_root: project_root.as_ref().to_path_buf(),
@@ -27,6 +32,8 @@ impl GitBridge {
         }
     }
 
+    /// Sets the LFS policy using a builder pattern.
+    #[must_use]
     pub fn with_lfs_policy(
         mut self,
         policy: LfsPolicy,
@@ -35,6 +42,7 @@ impl GitBridge {
         self
     }
 
+    /// Updates the active LFS policy.
     pub fn set_lfs_policy(
         &mut self,
         policy: LfsPolicy,
@@ -42,15 +50,21 @@ impl GitBridge {
         self.lfs_policy = policy;
     }
 
-    pub fn lfs_policy(&self) -> &LfsPolicy {
+    /// Returns a reference to the active LFS policy.
+    #[must_use]
+    pub const fn lfs_policy(&self) -> &LfsPolicy {
         &self.lfs_policy
     }
 
-    pub fn lfs_policy_mut(&mut self) -> &mut LfsPolicy {
+    /// Returns a mutable reference to the active LFS policy.
+    pub const fn lfs_policy_mut(&mut self) -> &mut LfsPolicy {
         &mut self.lfs_policy
     }
 
     /// Open existing Git repository or initialize a new one in the project directory
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn open_or_init(&self) -> Result<Repository> {
         match Repository::open(&self.project_root) {
             | Ok(repo) => Ok(repo),
@@ -62,6 +76,9 @@ impl GitBridge {
     }
 
     /// Export an apich-vcs snapshot and tree into a standard Git commit
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn export_snapshot(
         &self,
         snapshot: &Snapshot,
@@ -86,7 +103,7 @@ impl GitBridge {
         );
 
         // Check if branch exists to set parent
-        let branch_ref_name = format!("refs/heads/{}", branch_name);
+        let branch_ref_name = format!("refs/heads/{branch_name}");
         let parent_commit = match repo.find_reference(&branch_ref_name) {
             | Ok(r) => r.peel_to_commit().ok(),
             | Err(_) => None,
@@ -135,12 +152,12 @@ impl GitBridge {
 
                 let (blob_bytes, file_mode) = if self.lfs_policy.is_lfs_file(path, entry.size) {
                     let (pointer, _) = LfsPolicy::create_lfs_pointer(&file_bytes);
-                    (pointer.into_bytes(), 0o100644)
+                    (pointer.into_bytes(), 0o100_644)
                 } else {
                     let mode = if entry.is_executable {
-                        0o100755
+                        0o100_755
                     } else {
-                        0o100644
+                        0o100_644
                     };
                     (file_bytes, mode)
                 };
@@ -153,7 +170,7 @@ impl GitBridge {
         // Build subdirectories recursively
         for (subdir_name, sub_tree) in subdirs {
             let sub_oid = self.build_git_tree(repo, &sub_tree, cas)?;
-            builder.insert(&subdir_name, sub_oid, 0o040000)?;
+            builder.insert(&subdir_name, sub_oid, 0o040_000)?;
         }
 
         let tree_oid = builder.write()?;
@@ -162,6 +179,10 @@ impl GitBridge {
 
     // --- Branch Operations ---
 
+    /// Creates a Git branch with the given name pointing to the current HEAD commit.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn branch_create(
         &self,
         name: &str,
@@ -173,16 +194,24 @@ impl GitBridge {
         Ok(())
     }
 
+    /// Switches the repository HEAD to point to the named Git branch.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn branch_switch(
         &self,
         name: &str,
     ) -> Result<()> {
         let repo = self.open_or_init()?;
-        let ref_name = format!("refs/heads/{}", name);
+        let ref_name = format!("refs/heads/{name}");
         let _ = repo.set_head(&ref_name);
         Ok(())
     }
 
+    /// Lists all local Git branches.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn branch_list(&self) -> Result<Vec<String>> {
         let repo = self.open_or_init()?;
         let mut list = Vec::new();
@@ -197,6 +226,10 @@ impl GitBridge {
 
     // --- Remote Operations ---
 
+    /// Adds a named remote repository URL.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn remote_add(
         &self,
         name: &str,
@@ -207,6 +240,10 @@ impl GitBridge {
         Ok(())
     }
 
+    /// Lists all configured remotes as pairs of name and remote URL.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn remote_list(&self) -> Result<Vec<(String, String)>> {
         let repo = self.open_or_init()?;
         let mut list = Vec::new();
@@ -228,6 +265,9 @@ impl GitBridge {
     // auth flows here.
 
     /// Clone a remote Git repository directly into `dest` (which must not already exist).
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn clone_repo(
         url: &str,
         dest: &Path,
@@ -246,11 +286,15 @@ impl GitBridge {
             .map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git clone failed: {}", stderr)));
+            return Err(VcsError::Internal(format!("git clone failed: {stderr}")));
         }
         Ok(())
     }
 
+    /// Fetches changes from the specified remote repository.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn fetch(
         &self,
         remote: &str,
@@ -264,11 +308,15 @@ impl GitBridge {
             .map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git fetch failed: {}", stderr)));
+            return Err(VcsError::Internal(format!("git fetch failed: {stderr}")));
         }
         Ok(())
     }
 
+    /// Rebases current branch commits onto the specified upstream branch.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn rebase(
         &self,
         upstream: &str,
@@ -282,11 +330,15 @@ impl GitBridge {
             .map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git rebase failed: {}", stderr)));
+            return Err(VcsError::Internal(format!("git rebase failed: {stderr}")));
         }
         Ok(())
     }
 
+    /// Pushes local commits on the specified branch to the remote repository.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn push(
         &self,
         remote: &str,
@@ -302,11 +354,15 @@ impl GitBridge {
         let output = cmd.output().map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git push failed: {}", stderr)));
+            return Err(VcsError::Internal(format!("git push failed: {stderr}")));
         }
         Ok(())
     }
 
+    /// Pulls changes from the remote repository branch into the current working copy.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
     pub fn pull(
         &self,
         remote: &str,
@@ -322,7 +378,7 @@ impl GitBridge {
         let output = cmd.output().map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git pull failed: {}", stderr)));
+            return Err(VcsError::Internal(format!("git pull failed: {stderr}")));
         }
         Ok(())
     }

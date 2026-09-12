@@ -1,3 +1,5 @@
+//! Advisory repository locking implementation.
+
 use crate::error::Result;
 use crate::error::VcsError;
 use rustix::fs::flock;
@@ -22,6 +24,7 @@ fn get_registry() -> &'static Mutex<HashMap<PathBuf, LockEntry>> {
 }
 
 /// Cross-boundary advisory lock on `.apich/lock`.
+///
 /// Guarantees that in-container CLI processes and host gateway processes
 /// never corrupt repository metadata during concurrent write operations.
 /// Supports process-local re-entrancy so nested operations within the same process do not deadlock.
@@ -31,6 +34,9 @@ pub struct RepositoryLock {
 
 impl RepositoryLock {
     /// Acquire an exclusive lock on `.apich/lock`
+    ///
+    /// # Errors
+    /// Returns an error if acquiring or creating the repository lock fails.
     pub fn acquire(project_root: &Path) -> Result<Self> {
         let apich_dir = project_root.join(".apich");
         std::fs::create_dir_all(&apich_dir)?;
@@ -55,10 +61,10 @@ impl RepositoryLock {
         let registry = get_registry();
         let mut map = registry
             .lock()
-            .map_err(|e| VcsError::Internal(format!("Failed to lock lock registry: {}", e)))?;
+            .map_err(|e| VcsError::Internal(format!("Failed to lock lock registry: {e}")))?;
 
         if let Some(entry) = map.get_mut(&lock_path) {
-            entry.count += 1;
+            entry.count = entry.count.saturating_add(1);
             return Ok(Self { lock_path });
         }
 
@@ -70,9 +76,10 @@ impl RepositoryLock {
             .open(&lock_path)?;
 
         flock(&file, FlockOperation::LockExclusive)
-            .map_err(|e| VcsError::Internal(format!("Failed to acquire repository lock: {}", e)))?;
+            .map_err(|e| VcsError::Internal(format!("Failed to acquire repository lock: {e}")))?;
 
         map.insert(lock_path.clone(), LockEntry { file, count: 1 });
+        drop(map);
 
         Ok(Self { lock_path })
     }

@@ -203,7 +203,7 @@ tags: ["experiment"]
             description: "A complete \\documentclass{article} skeleton: abstract, sections, and a manual bibliography.",
             content: single_file(
                 "paper.tex",
-                r#"\documentclass[11pt]{article}
+                r"\documentclass[11pt]{article}
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath}
 \usepackage{graphicx}
@@ -241,7 +241,7 @@ A. Author, ``An Example Reference,'' \textit{Journal of Examples}, 2026.
 \end{thebibliography}
 
 \end{document}
-"#,
+",
             ),
         },
         SeedTemplate {
@@ -251,7 +251,7 @@ A. Author, ``An Example Reference,'' \textit{Journal of Examples}, 2026.
             description: "A \\documentclass{report} skeleton with a table of contents and chapters.",
             content: single_file(
                 "report.tex",
-                r#"\documentclass[11pt]{report}
+                r"\documentclass[11pt]{report}
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath}
 \usepackage{graphicx}
@@ -277,7 +277,7 @@ Your main content.
 Summary and recommendations.
 
 \end{document}
-"#,
+",
             ),
         },
         // --- Typst ---

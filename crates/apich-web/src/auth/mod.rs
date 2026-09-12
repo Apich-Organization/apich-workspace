@@ -1,5 +1,8 @@
+/// `WebAuthn` / FIDO2 passkey registration and authentication.
 pub mod passkey;
+/// Password hashing and verification via Argon2id.
 pub mod password;
+/// HTTP session cookies and authentication extractors.
 pub mod session;
 
 pub use passkey::PasskeyManager;

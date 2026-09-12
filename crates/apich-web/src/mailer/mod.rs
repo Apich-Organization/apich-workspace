@@ -13,13 +13,18 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::info;
 
+/// Record of a dispatched email message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentEmail {
+    /// Recipient email address.
     pub to: String,
+    /// Subject line.
     pub subject: String,
+    /// Message body content.
     pub body: String,
 }
 
+/// Service for preparing and dispatching notification and invitation emails.
 #[derive(Clone)]
 pub struct MailerService {
     sent_emails: Arc<Mutex<Vec<SentEmail>>>,
@@ -32,6 +37,7 @@ impl Default for MailerService {
 }
 
 impl MailerService {
+    /// Creates a new mailer service instance.
     pub fn new() -> Self {
         Self {
             sent_emails: Arc::new(Mutex::new(Vec::new())),
@@ -58,16 +64,15 @@ impl MailerService {
         node_name: Option<&str>,
         base_url: &str,
     ) -> WebResult<()> {
-        let registration_url = format!("{}/register?token={}", base_url, invite_token);
-        let subject = format!("Invitation to join APICH Workspace from {}", inviter_name);
+        let registration_url = format!("{base_url}/register?token={invite_token}");
+        let subject = format!("Invitation to join APICH Workspace from {inviter_name}");
         let target = node_name.unwrap_or("the platform");
         let body = format!(
-            "Hello,\n\n{} has invited you to join {} on APICH Technical & Academic Workspace.\n\n\
+            "Hello,\n\n{inviter_name} has invited you to join {target} on APICH Technical & Academic Workspace.\n\n\
             Click the link below or copy it to your browser to complete your registration:\n\
-            {}\n\n\
+            {registration_url}\n\n\
             This invitation link is valid for 7 days.\n\n\
-            Welcome to the APICH research environment!",
-            inviter_name, target, registration_url
+            Welcome to the APICH research environment!"
         );
 
         self.send_mail(settings, to_email, &subject, &body).await
@@ -106,21 +111,21 @@ impl MailerService {
                 .as_deref()
                 .unwrap_or("APICH Platform");
 
-            let from_header = format!("\"{}\" <{}>", from_name, from_addr);
+            let from_header = format!("\"{from_name}\" <{from_addr}>");
 
             let email = Message::builder()
                 .from(
                     from_header
                         .parse()
-                        .map_err(|e| WebError::Internal(format!("Invalid from address: {}", e)))?,
+                        .map_err(|e| WebError::Internal(format!("Invalid from address: {e}")))?,
                 )
                 .to(to
                     .parse()
-                    .map_err(|e| WebError::BadRequest(format!("Invalid recipient email: {}", e)))?)
+                    .map_err(|e| WebError::BadRequest(format!("Invalid recipient email: {e}")))?)
                 .subject(subject)
                 .header(ContentType::TEXT_PLAIN)
                 .body(body.to_string())
-                .map_err(|e| WebError::Internal(format!("Failed to build email message: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("Failed to build email message: {e}")))?;
 
             let mut builder =
                 AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
@@ -135,7 +140,7 @@ impl MailerService {
             mailer
                 .send(email)
                 .await
-                .map_err(|e| WebError::Internal(format!("SMTP transport failure: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("SMTP transport failure: {e}")))?;
         }
 
         Ok(())
@@ -182,21 +187,21 @@ impl MailerService {
                 .as_deref()
                 .unwrap_or("APICH Platform");
 
-            let from_header = format!("\"{}\" <{}>", from_name, from_addr);
+            let from_header = format!("\"{from_name}\" <{from_addr}>");
 
             let email = Message::builder()
                 .from(
                     from_header
                         .parse()
-                        .map_err(|e| WebError::Internal(format!("Invalid from address: {}", e)))?,
+                        .map_err(|e| WebError::Internal(format!("Invalid from address: {e}")))?,
                 )
                 .to(recipient
                     .parse()
-                    .map_err(|e| WebError::BadRequest(format!("Invalid recipient email: {}", e)))?)
+                    .map_err(|e| WebError::BadRequest(format!("Invalid recipient email: {e}")))?)
                 .subject(subject)
                 .header(ContentType::TEXT_PLAIN)
                 .body(body.clone())
-                .map_err(|e| WebError::Internal(format!("Failed to build email message: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("Failed to build email message: {e}")))?;
 
             let mut builder =
                 AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
@@ -213,7 +218,7 @@ impl MailerService {
             mailer
                 .send(email)
                 .await
-                .map_err(|e| WebError::Internal(format!("SMTP transport failure: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("SMTP transport failure: {e}")))?;
         }
 
         // Always record in sent log for test assertions & auditing

@@ -1,3 +1,5 @@
+//! Immutable workspace snapshot domain models.
+
 use chrono::DateTime;
 use chrono::Utc;
 use serde::Deserialize;
@@ -7,7 +9,7 @@ use uuid::Uuid;
 /// Immutable point-in-time state of a project
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
-    /// Unique snapshot identifier (UUIDv7 for natural time ordering)
+    /// Unique snapshot identifier (`UUIDv7` for natural time ordering)
     pub id: Uuid,
     /// Stable change identity (preserved across re-snapshots)
     pub change_id: Uuid,
@@ -17,7 +19,7 @@ pub struct Snapshot {
     pub created_at: DateTime<Utc>,
     /// Human-readable description or auto-save note
     pub message: String,
-    /// Root canonical hash of the project directory tree (VcsTree)
+    /// Root canonical hash of the project directory tree (`VcsTree`)
     pub tree_hash: String,
     /// Author / user display name or identifier
     pub author: String,
@@ -41,6 +43,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Creates a new `Snapshot` from the specified Merkle tree hash, message, parent, and author.
     pub fn new(
         tree_hash: String,
         message: impl Into<String>,
@@ -64,9 +67,11 @@ impl Snapshot {
         }
     }
 
-    /// Canonical byte payload that gets GPG-signed / verified -- deliberately independent of
-    /// field order or serde formatting so a signature stays valid even if the struct's JSON
-    /// representation changes later.
+    /// Canonical byte payload that gets GPG-signed and verified.
+    ///
+    /// Deliberately independent of field order or serde formatting so a signature
+    /// stays valid even if the struct's JSON representation changes later.
+    #[must_use]
     pub fn signing_payload(&self) -> Vec<u8> {
         format!(
             "apich-vcs-snapshot-v1\nid:{}\nchange_id:{}\nparent:{}\ntree_hash:{}\nauthor:{}\ncreated_at:{}\nmessage:{}\n",
@@ -81,6 +86,7 @@ impl Snapshot {
         .into_bytes()
     }
 
+    /// Creates an autosave snapshot labeled with automatic state markers.
     pub fn auto_save(
         tree_hash: String,
         parent_snapshot_id: Option<Uuid>,
@@ -96,6 +102,7 @@ impl Snapshot {
         s
     }
 
+    /// Marks this snapshot as an immutable named milestone.
     pub fn mark_milestone(
         &mut self,
         name: impl Into<String>,

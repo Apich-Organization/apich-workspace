@@ -250,7 +250,7 @@ async fn passkey_register_finish(
     let public_key_bytes = BASE64_STANDARD
         .decode(&payload.public_key_base64)
         .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.public_key_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid public key base64: {}", e)))?;
+        .map_err(|e| WebError::PasskeyError(format!("Invalid public key base64: {e}")))?;
 
     let device_name = payload
         .device_name
@@ -318,17 +318,17 @@ async fn passkey_auth_finish(
     let client_data_json = BASE64_STANDARD
         .decode(&payload.client_data_json_base64)
         .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.client_data_json_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid clientDataJSON: {}", e)))?;
+        .map_err(|e| WebError::PasskeyError(format!("Invalid clientDataJSON: {e}")))?;
 
     let auth_data = BASE64_STANDARD
         .decode(&payload.auth_data_base64)
         .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.auth_data_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid authData: {}", e)))?;
+        .map_err(|e| WebError::PasskeyError(format!("Invalid authData: {e}")))?;
 
     let signature = BASE64_STANDARD
         .decode(&payload.signature_base64)
         .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.signature_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid signature: {}", e)))?;
+        .map_err(|e| WebError::PasskeyError(format!("Invalid signature: {e}")))?;
 
     // 4. Verify signature cryptographically
     state.passkey_manager.verify_assertion(

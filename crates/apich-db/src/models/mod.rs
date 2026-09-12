@@ -1,14 +1,26 @@
+/// Audit logging models and DTOs.
 pub mod audit;
+/// Authentication, credentials, sessions, and system settings models.
 pub mod auth;
+/// Document storage and full-text search models.
 pub mod document;
+/// Knowledge graph nodes and edges models.
 pub mod knowledge;
+/// Dynamic and extensible metadata traits and helpers.
 pub mod metadata;
+/// Organizations, members, and tier configurations.
 pub mod organization;
+/// Projects, sandboxes, and project memberships.
 pub mod project;
+/// Single sign-on, `OAuth2` clients, and OIDC claims.
 pub mod sso;
+/// Teams, hierarchical team structures, and team memberships.
 pub mod team;
+/// Reusable project templates, versions, and shares.
 pub mod template;
+/// User accounts, profiles, and roles.
 pub mod user;
+/// Workspaces, members, and workspace-level settings.
 pub mod workspace;
 
 pub use audit::AuditLog;

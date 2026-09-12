@@ -7,7 +7,9 @@ use crate::services::FileShareInfo;
 use crate::ui::i18n::I18n;
 use apich_db::Project;
 use apich_db::User;
+use apich_islands::DocEditorFlags;
 use apich_islands::DocumentEditorIsland;
+use apich_islands::DocumentPreviewKind;
 use apich_islands::HeadingItem;
 use leptos::prelude::*;
 
@@ -63,20 +65,17 @@ pub fn DocumentEditorPage(
     };
     let share_mode = file_share
         .as_ref()
-        .map(|s| s.mode.clone())
-        .unwrap_or_else(|| "private".to_string());
+        .map_or_else(|| "private".to_string(), |s| s.mode.clone());
     let share_role = file_share
         .as_ref()
-        .map(|s| s.role.clone())
-        .unwrap_or_else(|| "read".to_string());
+        .map_or_else(|| "read".to_string(), |s| s.role.clone());
     let share_users = file_share
         .as_ref()
         .map(|s| s.allowed_users.join(","))
         .unwrap_or_default();
     let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
     let share_onclick = format!(
-        "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))",
-        share_detail
+        "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))"
     );
 
     let slide_present_btn = is_slide.then(|| view! {
@@ -87,6 +86,15 @@ pub fn DocumentEditorPage(
     let is_latex_preview = !is_script
         && !is_typst_preview
         && (file_path.ends_with(".tex") || file_path.ends_with(".latex"));
+    let preview_kind = if is_slide {
+        DocumentPreviewKind::Slide
+    } else if is_typst_preview {
+        DocumentPreviewKind::Typst
+    } else if is_latex_preview {
+        DocumentPreviewKind::Latex
+    } else {
+        DocumentPreviewKind::None
+    };
 
     // LaTeX has its own "Download PDF" link inside `DocumentEditorIsland`'s preview toolbar (it
     // needs to stay in sync with the reactive engine selector there); only Typst gets one here.
@@ -137,7 +145,7 @@ pub fn DocumentEditorPage(
 
     view! {
         <AppShell
-            user=user.clone()
+            user=user
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::Projects
             current_path=current_path
@@ -151,7 +159,7 @@ pub fn DocumentEditorPage(
                     <span class="file-type-pill pill-doc" style="font-size:0.7rem;">{kind_label}</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {}", share_label)}</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
                     {download_pdf_btn}
                     {download_slide_bin_btn}
@@ -167,13 +175,10 @@ pub fn DocumentEditorPage(
                 file_path=file_path.clone()
                 content=content
                 headings=editor_headings
-                is_slide=is_slide
-                is_script=is_script
-                is_typst_preview=is_typst_preview
+                flags=DocEditorFlags::new(preview_kind, is_script)
                 typst_pages=typst_pages
                 compile_error=compile_error
                 rendered_markdown_html=rendered_markdown_html
-                is_latex_preview=is_latex_preview
             />
 
             {template_panel}

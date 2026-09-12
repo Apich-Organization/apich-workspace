@@ -1,5 +1,6 @@
-//! Generic confirm-before-submit button for any destructive form action (delete project, delete
-//! file, etc.) -- a real `window.confirm()` gate in front of the form's native submit, reusable
+//! Generic confirm-before-submit button for destructive form actions.
+//!
+//! Provides a real `window.confirm()` gate in front of the form's native submit, reusable
 //! anywhere instead of a one-off hand-written `onclick="return confirm(...)"` string.
 
 use leptos::prelude::*;

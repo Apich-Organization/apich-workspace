@@ -1,9 +1,11 @@
-//! Real Rust replacement for the spreadsheet grid's hand-written JS (`table_page.rs`'s
-//! `build_grid_script`): cell selection, inline cell editing, the formula bar, row/column
-//! highlighting, and live per-column summaries (sum/avg/count/min/max) are all implemented
-//! here as compiled Rust. The surrounding ribbon toolbar (Add Row / Import / Export / Delete
-//! Row forms, the CSV modal, pagination) stays plain server-rendered HTML in `table_page.rs` --
-//! only the interactive grid itself needs a browser-side brain.
+//! Real Rust replacement for the spreadsheet grid interactive component.
+//!
+//! Replaces the spreadsheet grid's hand-written JS (`table_page.rs`'s `build_grid_script`):
+//! cell selection, inline cell editing, the formula bar, row/column highlighting, and live
+//! per-column summaries (sum/avg/count/min/max) are all implemented here as compiled Rust.
+//! The surrounding ribbon toolbar (Add Row / Import / Export / Delete Row forms, the CSV
+//! modal, pagination) stays plain server-rendered HTML in `table_page.rs` -- only the
+//! interactive grid itself needs a browser-side brain.
 
 use leptos::prelude::*;
 use serde::Deserialize;
@@ -18,24 +20,35 @@ enum Highlight {
     All,
 }
 
-/// Mirrors `apich_web::services::sqlite_table::CellStyle` -- can't share the type directly
-/// across the crate boundary (this crate can't depend on apich-web, and apich-web can't compile
-/// for wasm32), so the shape is duplicated here the same way every other island prop already is.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Mirrors `apich_web::services::sqlite_table::CellStyle`.
+///
+/// Can't share the type directly across the crate boundary (this crate can't depend on
+/// apich-web, and apich-web can't compile for wasm32), so the shape is duplicated here the same
+/// way every other island prop already is.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CellStyle {
+    /// True if bold formatting is enabled.
     pub bold: bool,
+    /// True if italic formatting is enabled.
     pub italic: bool,
+    /// Custom text color string.
     pub color: Option<String>,
+    /// Custom background color string.
     pub bg_color: Option<String>,
 }
 
-/// One entry of the sparse style map passed in from the server (only non-default cells are
-/// included) -- a flat `(row_id, column, style)` tuple rather than a nested map, since island
-/// props serialize to JSON and a `HashMap` keyed by a non-string tuple doesn't round-trip well.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// One entry of the sparse style map passed in from the server.
+///
+/// Only non-default cells are included -- a flat `(row_id, column, style)` tuple rather than
+/// a nested map, since island props serialize to JSON and a `HashMap` keyed by a non-string
+/// tuple doesn't round-trip well.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CellStyleEntry {
+    /// Row identifier.
     pub row_id: i64,
+    /// Column name.
     pub col: String,
+    /// Visual style applied to this cell.
     pub style: CellStyle,
 }
 
@@ -88,7 +101,9 @@ pub fn SpreadsheetIsland(
     let file_path = StoredValue::new(file_path);
     let table_name = StoredValue::new(table_name);
 
-    let col_letter = |idx: usize| ((b'A' + (idx % 26) as u8) as char).to_string();
+    let col_letter = |idx: usize| {
+        ((b'A'.saturating_add(u8::try_from(idx % 26).unwrap_or(0))) as char).to_string()
+    };
 
     let select_cell = move |r: usize, c: usize| {
         active.set(Some((r, c)));
@@ -124,7 +139,7 @@ pub fn SpreadsheetIsland(
         cells.update(|rows| {
             if let Some(row) = rows.get_mut(r) {
                 if let Some(cell) = row.get_mut(c) {
-                    *cell = new_val.clone();
+                    cell.clone_from(&new_val);
                 }
             }
         });
@@ -132,9 +147,9 @@ pub fn SpreadsheetIsland(
         let col_name = col_names.with_value(|cols| cols.get(c).cloned().unwrap_or_default());
         let rowid = row_ids.with_value(|ids| ids.get(r).copied()).unwrap_or(0);
         save_cell(
-            project_id.with_value(|s| s.clone()),
-            file_path.with_value(|s| s.clone()),
-            table_name.with_value(|s| s.clone()),
+            project_id.with_value(Clone::clone),
+            file_path.with_value(Clone::clone),
+            table_name.with_value(Clone::clone),
             col_name,
             rowid,
             new_val,
@@ -157,9 +172,9 @@ pub fn SpreadsheetIsland(
         let col_name = col_names.with_value(|cols| cols.get(c).cloned().unwrap_or_default());
         let rowid = row_ids.with_value(|ids| ids.get(r).copied()).unwrap_or(0);
         save_style(
-            project_id.with_value(|s| s.clone()),
-            file_path.with_value(|s| s.clone()),
-            table_name.with_value(|s| s.clone()),
+            project_id.with_value(Clone::clone),
+            file_path.with_value(Clone::clone),
+            table_name.with_value(Clone::clone),
             col_name,
             rowid,
             new_style,
@@ -214,7 +229,7 @@ pub fn SpreadsheetIsland(
         })
         .collect();
 
-    let n_rows = cells.with_untracked(|r| r.len());
+    let n_rows = cells.with_untracked(Vec::len);
     let body_rows: Vec<_> = (0..n_rows)
         .map(|r| {
             let row_cells: Vec<_> = (0..n_cols)
@@ -259,7 +274,7 @@ pub fn SpreadsheetIsland(
                                                 if ev.key() == "Enter" && !ev.shift_key() {
                                                     ev.prevent_default();
                                                     commit_edit(r, c);
-                                                    select_cell((r + 1).min(n_rows.saturating_sub(1)), c);
+                                                    select_cell((r.saturating_add(1)).min(n_rows.saturating_sub(1)), c);
                                                 }
                                             }
                                         ></textarea>
@@ -284,7 +299,7 @@ pub fn SpreadsheetIsland(
                 .collect();
             view! {
                 <tr>
-                    <td class="row-index-cell" on:click=move |_| {{ highlight.set(Highlight::Row(r)); select_cell(r, 0); }}>{r + 1}</td>
+                    <td class="row-index-cell" on:click=move |_| {{ highlight.set(Highlight::Row(r)); select_cell(r, 0); }}>{r.saturating_add(1)}</td>
                     {row_cells}
                 </tr>
             }
@@ -307,14 +322,14 @@ pub fn SpreadsheetIsland(
                         .filter_map(|v| crate::formula::display_value(v, rows).parse::<f64>().ok())
                         .collect()
                 });
-                let count = cells.with(|rows| rows.len());
+                let count = cells.with(Vec::len);
                 match op.as_str() {
                     "count" => count.to_string(),
                     _ if nums.is_empty() => "0".to_string(),
                     "sum" => format!("{:.2}", nums.iter().sum::<f64>()),
-                    "avg" => format!("{:.2}", nums.iter().sum::<f64>() / nums.len() as f64),
-                    "min" => format!("{:.2}", nums.iter().cloned().fold(f64::INFINITY, f64::min)),
-                    "max" => format!("{:.2}", nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max)),
+                    "avg" => format!("{:.2}", nums.iter().sum::<f64>() / f64::from(u32::try_from(nums.len()).unwrap_or(1))),
+                    "min" => format!("{:.2}", nums.iter().copied().fold(f64::INFINITY, f64::min)),
+                    "max" => format!("{:.2}", nums.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
                     _ => "-".to_string(),
                 }
             };
@@ -341,10 +356,10 @@ pub fn SpreadsheetIsland(
         .collect();
 
     let fx_ref_label = move || {
-        active
-            .get()
-            .map(|(r, c)| format!("{}{}", col_letter(c), r + 1))
-            .unwrap_or_else(|| "-".to_string())
+        active.get().map_or_else(
+            || "-".to_string(),
+            |(r, c)| format!("{}{}", col_letter(c), r.saturating_add(1)),
+        )
     };
 
     let do_commit_fx = move || {
@@ -355,16 +370,16 @@ pub fn SpreadsheetIsland(
         cells.update(|rows| {
             if let Some(row) = rows.get_mut(r) {
                 if let Some(cell) = row.get_mut(c) {
-                    *cell = val.clone();
+                    cell.clone_from(&val);
                 }
             }
         });
         let col_name = col_names.with_value(|cols| cols.get(c).cloned().unwrap_or_default());
         let rowid = row_ids.with_value(|ids| ids.get(r).copied()).unwrap_or(0);
         save_cell(
-            project_id.with_value(|s| s.clone()),
-            file_path.with_value(|s| s.clone()),
-            table_name.with_value(|s| s.clone()),
+            project_id.with_value(Clone::clone),
+            file_path.with_value(Clone::clone),
+            table_name.with_value(Clone::clone),
             col_name,
             rowid,
             val,
@@ -481,7 +496,7 @@ fn set_delete_row_target(rowid: Option<i64>) {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn set_delete_row_target(_rowid: Option<i64>) {}
+const fn set_delete_row_target(_rowid: Option<i64>) {}
 
 #[cfg(feature = "hydrate")]
 fn save_cell(

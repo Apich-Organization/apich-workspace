@@ -1,5 +1,6 @@
-//! Real Rust replacement for the AI Copilot drawer's hand-written JS (`components/mod.rs`'s
-//! `AiDrawer`): BYOK chat, real in-container agent runs, and real agent account login are all
+//! Real Rust replacement for the AI Copilot drawer's hand-written JS (`components/mod.rs`'s `AiDrawer`).
+//!
+//! BYOK chat, real in-container agent runs, and real agent account login are all
 //! implemented here. The drawer's open/close/backdrop-dismiss is a plain HTML/CSS "checkbox hack"
 //! (see the hidden `#ai-drawer-toggle-cb` input in the view below and its sibling selectors in
 //! `styles.rs`) -- no JavaScript, no WASM, and so no dependency on this island's hydration having
@@ -100,19 +101,15 @@ pub fn AiDrawerIsland(
         }
     };
 
-    let on_tab_click = {
-        let load_agents = load_agents.clone();
-        move |m: &'static str| {
-            mode.set(m.to_string());
-            if m == "agent" {
-                load_agents();
-            }
+    let on_tab_click = move |m: &'static str| {
+        mode.set(m.to_string());
+        if m == "agent" {
+            load_agents();
         }
     };
 
     let send_chat = {
         let project_id = project_id.clone();
-        let file_path = file_path.clone();
         move || {
             let text = prompt.get_untracked().trim().to_string();
             if text.is_empty() || chat_busy.get_untracked() {
@@ -124,7 +121,7 @@ pub fn AiDrawerIsland(
                     text: text.clone(),
                     provider_label: None,
                     suggested_code: None,
-                })
+                });
             });
             prompt.set(String::new());
             chat_busy.set(true);
@@ -186,20 +183,17 @@ pub fn AiDrawerIsland(
         }
     };
 
-    let submit_code = {
-        let project_id = project_id.clone();
-        move || {
-            let Some(session_id) = login_session.get_untracked() else {
-                return;
-            };
-            let code = login_code.get_untracked().trim().to_string();
-            if code.is_empty() {
-                return;
-            }
-            login_code.set(String::new());
-            login_code_visible.set(false);
-            submit_login_code_request(project_id.clone(), session_id, code, login_output);
+    let submit_code = move || {
+        let Some(session_id) = login_session.get_untracked() else {
+            return;
+        };
+        let code = login_code.get_untracked().trim().to_string();
+        if code.is_empty() {
+            return;
         }
+        login_code.set(String::new());
+        login_code_visible.set(false);
+        submit_login_code_request(project_id.clone(), session_id, code, login_output);
     };
 
     let insert_at_cursor = move |code: String| insert_at_editor_cursor(&code);
@@ -272,7 +266,7 @@ pub fn AiDrawerIsland(
                                 <div style="white-space:pre-wrap;">{m.text}</div>
                                 {code.map(|c| {
                                     let c1 = c.clone();
-                                    let c2 = c.clone();
+                                    let c2 = c;
                                     view! {
                                         <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
                                             <button type="button" class="btn btn-primary btn-sm" style="font-size:0.75rem;" on:click=move |_| insert(c1.clone())>"✍️ Insert at Cursor"</button>
@@ -292,7 +286,7 @@ pub fn AiDrawerIsland(
                 </div>
 
                 <div class="ai-drawer-footer">
-                    <form on:submit={let f = send_chat.clone(); move |ev| { ev.prevent_default(); f(); }} style="display:flex; gap:0.5rem;">
+                    <form on:submit=move |ev| { ev.prevent_default(); send_chat(); } style="display:flex; gap:0.5rem;">
                         <textarea
                             rows="2"
                             class="form-control"
@@ -331,7 +325,7 @@ pub fn AiDrawerIsland(
                             class="btn btn-secondary btn-sm"
                             style:display=move || if selected_login_support() == "none" { "none" } else { "" }
                             style="font-size:0.7rem; white-space:nowrap;"
-                            on:click={let f = start_login.clone(); move |_| f()}
+                            on:click=move |_| start_login()
                         >
                             "🔐 Login"
                         </button>
@@ -374,13 +368,13 @@ pub fn AiDrawerIsland(
                                 prop:value=move || login_code.get()
                                 on:input=move |ev| login_code.set(event_target_value(&ev))
                             />
-                            <button type="button" class="btn btn-primary btn-sm" style="font-size:0.7rem;" on:click={let f = submit_code.clone(); move |_| f()}>"Submit"</button>
+                            <button type="button" class="btn btn-primary btn-sm" style="font-size:0.7rem;" on:click=move |_| submit_code()>"Submit"</button>
                         </div>
                     </div>
                 </div>
                 <pre class="agent-output" style="flex:1; margin:0; padding:0.75rem 1.25rem; overflow-y:auto; font-size:0.8rem; white-space:pre-wrap; background:var(--bg-surface); color:var(--text-main);">{move || agent_output.get()}</pre>
                 <div class="ai-drawer-footer">
-                    <form on:submit={let f = run_agent.clone(); move |ev| { ev.prevent_default(); f(); }} style="display:flex; gap:0.5rem;">
+                    <form on:submit=move |ev| { ev.prevent_default(); run_agent(); } style="display:flex; gap:0.5rem;">
                         <textarea
                             rows="2"
                             class="form-control"
@@ -406,7 +400,7 @@ fn wire_load_saved_key(api_key: RwSignal<String>) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn wire_load_saved_key(_api_key: RwSignal<String>) {}
+const fn wire_load_saved_key(_api_key: RwSignal<String>) {}
 
 #[cfg(feature = "hydrate")]
 fn save_key_to_storage(val: &str) {
@@ -415,7 +409,7 @@ fn save_key_to_storage(val: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn save_key_to_storage(_val: &str) {}
+const fn save_key_to_storage(_val: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn insert_at_editor_cursor(text: &str) {
@@ -444,7 +438,7 @@ fn insert_at_editor_cursor(text: &str) {
     let _ = ta.set_selection_range(new_pos, new_pos);
 }
 #[cfg(not(feature = "hydrate"))]
-fn insert_at_editor_cursor(_text: &str) {}
+const fn insert_at_editor_cursor(_text: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn copy_to_clipboard(text: &str) {
@@ -453,7 +447,7 @@ fn copy_to_clipboard(text: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn copy_to_clipboard(_text: &str) {}
+const fn copy_to_clipboard(_text: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn sanitize_term_output(text: &str) -> String {

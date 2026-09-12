@@ -1,3 +1,5 @@
+//! Name and URL slug auto-filling form field island.
+//!
 //! Real Rust replacement for the several near-identical "type a name, auto-fill a URL slug"
 //! form field pairs (`dashboard.rs`'s new-project modal, `org_teams.rs`'s new-org modal both
 //! used to embed the same `oninput="...replace(/[^a-z0-9]+/g, '-')..."` one-liner).

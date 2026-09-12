@@ -334,8 +334,8 @@ impl KnowledgeSyncService {
             for (idx, line) in content.lines().enumerate() {
                 let line_number = idx + 1;
                 if let Some(caps) = task_regex.captures(line) {
-                    let mark = caps.get(1).map(|m| m.as_str()).unwrap_or(" ");
-                    let raw_body = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+                    let mark = caps.get(1).map_or(" ", |m| m.as_str());
+                    let raw_body = caps.get(2).map_or("", |m| m.as_str()).trim();
 
                     let completed = mark == "x" || mark == "X";
                     let checkbox_status = if completed {
@@ -375,7 +375,7 @@ impl KnowledgeSyncService {
                     clean_title = date_regex.replace_all(&clean_title, "").to_string();
                     let title = clean_title.trim().to_string();
 
-                    let id = format!("{}:{}", rel_path, line_number);
+                    let id = format!("{rel_path}:{line_number}");
 
                     tasks.push(MarkdownTask {
                         id,
@@ -401,7 +401,7 @@ impl KnowledgeSyncService {
 
     /// Build Kanban Board representation directly from Markdown tasks, grouped by the project's
     /// own configured column layout (`column_defs` -- see `parse_kanban_columns`) rather than a
-    /// fixed todo/in_progress/done shape. `unsorted_title` names the catch-all column shown for
+    /// fixed `todo/in_progress/done` shape. `unsorted_title` names the catch-all column shown for
     /// any task whose resolved status doesn't match a configured column (e.g. it was tagged for a
     /// column that has since been deleted or renamed).
     pub fn build_kanban_board<P: AsRef<Path>>(
@@ -468,13 +468,16 @@ impl KnowledgeSyncService {
 
         let full_path = project_dir.as_ref().join(clean);
         if !full_path.exists() {
-            return Err(WebError::NotFound(format!("File not found: {}", rel_path)));
+            return Err(WebError::NotFound(format!("File not found: {rel_path}")));
         }
 
         let content = std::fs::read_to_string(&full_path)
-            .map_err(|e| WebError::Internal(format!("Failed to read file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to read file: {e}")))?;
 
-        let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let mut lines: Vec<String> = content
+            .lines()
+            .map(std::string::ToString::to_string)
+            .collect();
         if lines.is_empty() {
             return Err(WebError::BadRequest("File is empty".to_string()));
         }
@@ -532,20 +535,19 @@ impl KnowledgeSyncService {
                         line_number,
                         lines.len()
                     )));
-                } else {
-                    return Err(WebError::BadRequest(format!(
-                        "Line {} is not a recognized markdown task: {}",
-                        line_number,
-                        lines[line_number - 1]
-                    )));
                 }
+                return Err(WebError::BadRequest(format!(
+                    "Line {} is not a recognized markdown task: {}",
+                    line_number,
+                    lines[line_number - 1]
+                )));
             },
         };
 
         let line = &lines[idx];
         if let Some(caps) = task_regex.captures(line) {
-            let prefix = caps.get(1).map(|m| m.as_str()).unwrap_or("- ").to_string();
-            let suffix = caps.get(3).map(|m| m.as_str()).unwrap_or("");
+            let prefix = caps.get(1).map_or("- ", |m| m.as_str()).to_string();
+            let suffix = caps.get(3).map_or("", |m| m.as_str());
 
             let mark = if is_done_column {
                 "x"
@@ -578,7 +580,7 @@ impl KnowledgeSyncService {
                 ""
             };
         std::fs::write(&full_path, new_content.as_bytes())
-            .map_err(|e| WebError::Internal(format!("Failed to write updated file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to write updated file: {e}")))?;
 
         Ok(())
     }
@@ -605,8 +607,7 @@ impl KnowledgeSyncService {
 
             let base_name = file
                 .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| rel_path.clone());
+                .map_or_else(|| rel_path.clone(), |s| s.to_string_lossy().to_string());
 
             let task_count = match std::fs::read_to_string(file) {
                 | Ok(c) => {
@@ -643,7 +644,7 @@ impl KnowledgeSyncService {
             };
 
             for caps in wiki_regex.captures_iter(&content) {
-                let target_raw = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+                let target_raw = caps.get(1).map_or("", |m| m.as_str().trim());
                 let display = caps.get(2).map(|m| m.as_str().trim().to_string());
 
                 if target_raw.is_empty() {
@@ -668,8 +669,7 @@ impl KnowledgeSyncService {
 
                 let target_id = node_set
                     .get(&target_key)
-                    .map(|n| n.id.clone())
-                    .unwrap_or_else(|| target_raw.to_string());
+                    .map_or_else(|| target_raw.to_string(), |n| n.id.clone());
 
                 edges.push(GraphEdge {
                     source: source_base.clone(),
@@ -747,7 +747,7 @@ impl KnowledgeSyncService {
                     .replace('\\', "/");
 
                 events.push(CalendarEvent {
-                    id: format!("file:{}", rel_path),
+                    id: format!("file:{rel_path}"),
                     date,
                     title: topic,
                     source_file: rel_path,
@@ -844,26 +844,26 @@ impl KnowledgeSyncService {
         let tags_str = meta
             .tags
             .iter()
-            .map(|t| format!("\"{}\"", t))
+            .map(|t| format!("\"{t}\""))
             .collect::<Vec<_>>()
             .join(", ");
         let mut out = String::from("---\n");
         out.push_str(&format!("title: \"{}\"\n", meta.title.replace('"', "\\\"")));
         if let Some(ref c) = meta.created_at {
-            out.push_str(&format!("created_at: \"{}\"\n", c));
+            out.push_str(&format!("created_at: \"{c}\"\n"));
         }
         if let Some(ref u) = meta.updated_at {
-            out.push_str(&format!("updated_at: \"{}\"\n", u));
+            out.push_str(&format!("updated_at: \"{u}\"\n"));
         }
         if let Some(ref a) = meta.author {
             out.push_str(&format!("author: \"{}\"\n", a.replace('"', "\\\"")));
         }
-        out.push_str(&format!("tags: [{}]\n", tags_str));
+        out.push_str(&format!("tags: [{tags_str}]\n"));
         if let Some(ref wb) = meta.whiteboard {
             let json = serde_json::to_string(wb).unwrap_or_default();
             let b64 =
                 base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes());
-            out.push_str(&format!("whiteboard: \"{}\"\n", b64));
+            out.push_str(&format!("whiteboard: \"{b64}\"\n"));
         }
         out.push_str("---\n\n");
         out.push_str(body);
@@ -906,7 +906,7 @@ impl KnowledgeSyncService {
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             if let Some(caps) = heading_re.captures(trimmed) {
-                let level = caps.get(1).map(|m| m.as_str().len()).unwrap_or(1).min(4);
+                let level = caps.get(1).map_or(1, |m| m.as_str().len()).min(4);
                 let text = caps
                     .get(2)
                     .map(|m| m.as_str().trim().to_string())
@@ -946,7 +946,7 @@ impl KnowledgeSyncService {
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             if let Some(caps) = re.captures(trimmed) {
-                let kind = caps.get(1).map(|m| m.as_str()).unwrap_or("section");
+                let kind = caps.get(1).map_or("section", |m| m.as_str());
                 let level = match kind {
                     | "part" => 1,
                     | "chapter" => 1,

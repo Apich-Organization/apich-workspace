@@ -5,7 +5,7 @@
 //! characters inside one, in any browser. Real highlighting needs a *second*, purely decorative
 //! element showing colored text, with the real (interactive) textarea placed on top of it with
 //! its own text made invisible (`color: transparent`) but its caret kept visible
-//! (`caret-color: ...`) -- the classic "highlighted textarea" technique (the same one CodeMirror
+//! (`caret-color: ...`) -- the classic "highlighted textarea" technique (the same one `CodeMirror`
 //! 5 and every textarea-based highlighter uses). This keeps every existing textarea-based
 //! behavior in this codebase (Ctrl+S save, `#code-editor-input`-targeted cursor insert, jump-to-
 //! line selection, the script-runner's Ctrl+Enter) working completely unchanged -- `#code-editor-

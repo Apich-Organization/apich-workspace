@@ -1,13 +1,25 @@
+//! # APICH Web
+//!
+//! Web application server, SSR views, API endpoints, and authentication for APICH.
+
 #![recursion_limit = "512"]
 
-pub mod api;
+/// REST and JSON API routes and handlers.
+pub(crate) mod api;
+/// Main web application views, router configuration, and page components.
 pub mod app;
+/// Web authentication, sessions, and credentials handling.
 pub mod auth;
+/// Web layer error types and HTTP response mappings.
 pub mod error;
-pub mod mailer;
+/// Email notification and SMTP dispatch service.
+pub(crate) mod mailer;
+/// Business logic and background application services.
 pub mod services;
+/// Shared application state and dependency injection container.
 pub mod state;
-pub mod ui;
+/// Server-rendered UI views, components, and internationalization.
+pub(crate) mod ui;
 
 pub use error::WebError;
 pub use error::WebResult;
@@ -27,6 +39,7 @@ async fn not_found() -> (axum::http::StatusCode, axum::response::Html<String>) {
 }
 
 /// Creates the top-level Axum router binding API endpoints and UI page routes.
+///
 /// Every page is rendered by a real Leptos component (`app::pages::*`), invoked directly
 /// with live request data from the matching handler in `ui::handlers` -- SSR-only via
 /// `RenderHtml::to_html()`, no client router/hydration/wasm bundle.

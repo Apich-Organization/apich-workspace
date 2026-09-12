@@ -1,4 +1,5 @@
-pub const EMBEDDED_CSS: &str = r###"
+/// Global CSS stylesheet rules embedded directly in server-rendered HTML pages.
+pub const EMBEDDED_CSS: &str = r#"
 :root {
     --bg-base: #f0f6ff;
     --bg-surface: rgba(255, 255, 255, 0.82);
@@ -1901,4 +1902,4 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     .kanban-grid { grid-template-columns: 1fr; }
     .wiki-container { grid-template-columns: 1fr; }
 }
-"###;
+"#;

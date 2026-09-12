@@ -1,3 +1,5 @@
+//! Multi-user sandbox container orchestration and manager implementation.
+
 use crate::config::ResourceLimits;
 use crate::config::SandboxConfig;
 use crate::container::UserContainer;
@@ -23,7 +25,7 @@ pub struct SandboxManager {
 }
 
 impl SandboxManager {
-    /// Create a new SandboxManager with a base storage root and default image
+    /// Create a new `SandboxManager` with a base storage root and default image
     pub fn new(
         base_storage_dir: impl AsRef<Path>,
         default_image: impl Into<String>,
@@ -39,6 +41,8 @@ impl SandboxManager {
         }
     }
 
+    /// Configures a custom `PodmanDriver` instance.
+    #[must_use]
     pub fn with_driver(
         mut self,
         driver: PodmanDriver,
@@ -47,7 +51,9 @@ impl SandboxManager {
         self
     }
 
-    pub fn with_selinux(
+    /// Configures whether `SELinux` relabeling is applied to mounts.
+    #[must_use]
+    pub const fn with_selinux(
         mut self,
         enable: bool,
     ) -> Self {
@@ -55,6 +61,8 @@ impl SandboxManager {
         self
     }
 
+    /// Sets default resource constraints for spawned sandboxes.
+    #[must_use]
     pub fn with_resources(
         mut self,
         limits: ResourceLimits,
@@ -63,6 +71,8 @@ impl SandboxManager {
         self
     }
 
+    /// Sets the default container workspace mount destination directory.
+    #[must_use]
     pub fn with_container_workspace_dir(
         mut self,
         dir: impl AsRef<Path>,
@@ -71,7 +81,9 @@ impl SandboxManager {
         self
     }
 
-    pub fn with_keep_id(
+    /// Sets whether `--userns=keep-id` is used.
+    #[must_use]
+    pub const fn with_keep_id(
         mut self,
         keep_id: bool,
     ) -> Self {
@@ -79,19 +91,28 @@ impl SandboxManager {
         self
     }
 
+    /// Returns the root host storage directory.
+    #[must_use]
     pub fn base_storage_dir(&self) -> &Path {
         &self.base_storage_dir
     }
 
+    /// Returns the default container image.
+    #[must_use]
     pub fn default_image(&self) -> &str {
         &self.default_image
     }
 
-    pub fn driver(&self) -> &Arc<PodmanDriver> {
+    /// Returns a reference to the Podman driver.
+    #[must_use]
+    pub const fn driver(&self) -> &Arc<PodmanDriver> {
         &self.driver
     }
 
     /// Stop an arbitrary named container
+    ///
+    /// # Errors
+    /// Returns an error if stopping the container fails.
     pub async fn stop_container(
         &self,
         container_name: &str,
@@ -101,6 +122,7 @@ impl SandboxManager {
     }
 
     /// Resolve host directory for a specific user
+    #[must_use]
     pub fn user_storage_path(
         &self,
         user_id: &str,
@@ -109,6 +131,7 @@ impl SandboxManager {
     }
 
     /// Generate default config for a user sandbox
+    #[must_use]
     pub fn make_user_config(
         &self,
         user_id: &str,
@@ -137,6 +160,9 @@ impl SandboxManager {
     /// If container does not exist, it will create storage directory, mount it, and start container.
     /// If container is stopped or exited, it will start it.
     /// If container is running, it returns the handle directly.
+    ///
+    /// # Errors
+    /// Returns an error if directory creation or container startup fails.
     pub async fn ensure_running(
         &self,
         user_id: &str,
@@ -146,6 +172,9 @@ impl SandboxManager {
     }
 
     /// Ensure container is running with custom configuration
+    ///
+    /// # Errors
+    /// Returns an error if creating the workspace directory or starting the container fails.
     pub async fn ensure_running_with_config(
         &self,
         config: SandboxConfig,
@@ -214,19 +243,25 @@ impl SandboxManager {
     }
 
     /// Retrieve user container handle if it exists
+    ///
+    /// # Errors
+    /// Returns an error if querying container status fails.
     pub async fn get_user_sandbox(
         &self,
         user_id: &str,
     ) -> Result<Option<UserContainer>> {
         let config = self.make_user_config(user_id);
-        if let Some(_info) = self.driver.inspect(&config.container_name).await? {
-            Ok(Some(UserContainer::new(config, self.driver.clone())))
-        } else {
-            Ok(None)
-        }
+        Ok(self
+            .driver
+            .inspect(&config.container_name)
+            .await?
+            .map(|_info| UserContainer::new(config, self.driver.clone())))
     }
 
     /// Gracefully stop user sandbox
+    ///
+    /// # Errors
+    /// Returns an error if stopping the sandbox container fails.
     pub async fn stop_user_sandbox(
         &self,
         user_id: &str,
@@ -237,6 +272,9 @@ impl SandboxManager {
     }
 
     /// Destroy / remove user sandbox container
+    ///
+    /// # Errors
+    /// Returns an error if removing the sandbox container fails.
     pub async fn destroy_user_sandbox(
         &self,
         user_id: &str,
@@ -254,6 +292,9 @@ impl SandboxManager {
     /// orphan reaper built on it, treat that infra container as an abandoned sandbox and delete
     /// it (confirmed live: it took down the running database mid-session). `apich.user_id`
     /// existence is what actually distinguishes a sandbox from infra.
+    ///
+    /// # Errors
+    /// Returns an error if listing containers via Podman fails.
     pub async fn list_managed_sandboxes(&self) -> Result<Vec<String>> {
         self.driver.list_containers(Some("apich.user_id")).await
     }

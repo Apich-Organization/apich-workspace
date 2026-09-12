@@ -1,17 +1,25 @@
+//! R statistical computing and graphics toolchain.
+
 use crate::container::UserContainer;
 use crate::error::Result;
 use crate::exec::ExecResult;
 
+/// Helper for executing R scripts inside a container.
 pub struct RToolchain<'a> {
     container: &'a UserContainer,
 }
 
 impl<'a> RToolchain<'a> {
-    pub fn new(container: &'a UserContainer) -> Self {
+    /// Creates a new `RToolchain` instance.
+    #[must_use]
+    pub const fn new(container: &'a UserContainer) -> Self {
         Self { container }
     }
 
     /// Check R version
+    ///
+    /// # Errors
+    /// Returns an error if executing R --version fails.
     pub async fn r_version(&self) -> Result<String> {
         let res = self.container.exec(&["R", "--version"]).await?;
         res.ensure_success(self.container.container_name())?;
@@ -21,6 +29,9 @@ impl<'a> RToolchain<'a> {
     }
 
     /// Run R expression using Rscript -e
+    ///
+    /// # Errors
+    /// Returns an error if executing the R expression fails.
     pub async fn run_code(
         &self,
         code: &str,
@@ -29,6 +40,9 @@ impl<'a> RToolchain<'a> {
     }
 
     /// Run R script file with arguments
+    ///
+    /// # Errors
+    /// Returns an error if executing the R script file fails.
     pub async fn run_file(
         &self,
         script_path: &str,

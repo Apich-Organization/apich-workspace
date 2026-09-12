@@ -6,41 +6,55 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use tracing::info;
 
+/// Supported backup file formats for PostgreSQL dumps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BackupFormat {
-    Custom, // pg_dump -Fc (compressed binary, flexible restore)
-    Sql,    // pg_dump -Fp (plain SQL text)
-    Tar,    // pg_dump -Ft (tar archive)
+    /// Compressed binary format (`pg_dump -Fc`), suitable for flexible restores.
+    Custom,
+    /// Plain text SQL script (`pg_dump -Fp`).
+    Sql,
+    /// Uncompressed tar archive format (`pg_dump -Ft`).
+    Tar,
 }
 
 impl BackupFormat {
-    pub fn extension(&self) -> &'static str {
+    /// Returns the standard file extension for the backup format.
+    #[must_use]
+    pub const fn extension(&self) -> &'static str {
         match self {
-            | BackupFormat::Custom => "dump",
-            | BackupFormat::Sql => "sql",
-            | BackupFormat::Tar => "tar",
+            | Self::Custom => "dump",
+            | Self::Sql => "sql",
+            | Self::Tar => "tar",
         }
     }
 
-    pub fn flag(&self) -> &'static str {
+    /// Returns the command line flag used by `pg_dump` for this format.
+    #[must_use]
+    pub const fn flag(&self) -> &'static str {
         match self {
-            | BackupFormat::Custom => "-Fc",
-            | BackupFormat::Sql => "-Fp",
-            | BackupFormat::Tar => "-Ft",
+            | Self::Custom => "-Fc",
+            | Self::Sql => "-Fp",
+            | Self::Tar => "-Ft",
         }
     }
 }
 
+/// Options configuring a database backup execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupOptions {
+    /// Backup format to generate.
     pub format: BackupFormat,
+    /// Target database name (defaults to configured primary database).
     pub target_db: Option<String>,
+    /// Prefix prepended to the backup filename.
     pub file_prefix: Option<String>,
+    /// Compression level from 0 to 9.
     pub compress_level: Option<u32>,
 }
 
@@ -55,25 +69,37 @@ impl Default for BackupOptions {
     }
 }
 
+/// Metadata describing a completed backup file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupInfo {
+    /// Base filename of the backup.
     pub filename: String,
+    /// Path to the backup file on the host filesystem.
     pub host_path: PathBuf,
+    /// Format of the backup file.
     pub format: BackupFormat,
+    /// Size of the backup file in bytes.
     pub size_bytes: u64,
+    /// UTC timestamp when the backup was created.
     pub created_at: DateTime<Utc>,
 }
 
+/// Manager for database backups and restores via containerized PostgreSQL utilities.
 pub struct BackupManager<'a> {
     container: &'a PostgresContainer,
 }
 
 impl<'a> BackupManager<'a> {
-    pub fn new(container: &'a PostgresContainer) -> Self {
+    /// Creates a new backup manager bound to a PostgreSQL container instance.
+    #[must_use]
+    pub const fn new(container: &'a PostgresContainer) -> Self {
         Self { container }
     }
 
     /// Create a database backup using `pg_dump` inside the container
+    ///
+    /// # Errors
+    /// Returns an error if executing `pg_dump` fails or if reading the backup file fails.
     pub async fn create_backup(
         &self,
         opts: BackupOptions,
@@ -87,9 +113,9 @@ impl<'a> BackupManager<'a> {
         let now = Utc::now();
         let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
         let ext = opts.format.extension();
-        let filename = format!("{}_{}_{}.{}", prefix, db, timestamp, ext);
+        let filename = format!("{prefix}_{db}_{timestamp}.{ext}");
 
-        let container_backup_path = format!("/backups/{}", filename);
+        let container_backup_path = format!("/backups/{filename}");
         let host_backup_path = self.container.config().host_backup_dir.join(&filename);
 
         info!(
@@ -115,8 +141,9 @@ impl<'a> BackupManager<'a> {
             cmd.push(level.to_string());
         }
 
-        let exec_opts = apich_sandbox::ExecOptions::new(cmd.iter().map(|s| s.as_str()))
-            .env("PGPASSWORD", &self.container.config().admin_password);
+        let exec_opts =
+            apich_sandbox::ExecOptions::new(cmd.iter().map(std::string::String::as_str))
+                .env("PGPASSWORD", &self.container.config().admin_password);
 
         let res = self.container.exec_with_options(&exec_opts).await?;
         res.ensure_success(&self.container.config().container_name)?;
@@ -148,6 +175,9 @@ impl<'a> BackupManager<'a> {
     }
 
     /// Restore database from an existing backup file
+    ///
+    /// # Errors
+    /// Returns an error if the backup file is not found, executing the restore command fails, or command exits with an error code.
     pub async fn restore_backup(
         &self,
         filename: &str,
@@ -159,7 +189,7 @@ impl<'a> BackupManager<'a> {
         }
 
         let db = target_db.unwrap_or(&self.container.config().database);
-        let container_backup_path = format!("/backups/{}", filename);
+        let container_backup_path = format!("/backups/{filename}");
 
         info!(
             filename = %filename,
@@ -167,7 +197,12 @@ impl<'a> BackupManager<'a> {
             "Restoring PostgreSQL database from backup"
         );
 
-        let cmd: Vec<&str> = if filename.ends_with(".dump") || filename.ends_with(".tar") {
+        let ext = Path::new(filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let cmd: Vec<&str> = if ext.eq_ignore_ascii_case("dump") || ext.eq_ignore_ascii_case("tar")
+        {
             // Restore custom or tar archive using pg_restore
             vec![
                 "pg_restore",
@@ -202,6 +237,9 @@ impl<'a> BackupManager<'a> {
     }
 
     /// List all existing backups stored in the host backup directory
+    ///
+    /// # Errors
+    /// Returns an error if reading the backup directory or file metadata fails.
     pub fn list_backups(&self) -> Result<Vec<BackupInfo>> {
         let backup_dir = &self.container.config().host_backup_dir;
         if !backup_dir.exists() {
@@ -214,11 +252,12 @@ impl<'a> BackupManager<'a> {
             let path = entry.path();
             if path.is_file() {
                 let filename = entry.file_name().to_string_lossy().to_string();
-                let format = if filename.ends_with(".dump") {
+                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                let format = if ext.eq_ignore_ascii_case("dump") {
                     BackupFormat::Custom
-                } else if filename.ends_with(".sql") {
+                } else if ext.eq_ignore_ascii_case("sql") {
                     BackupFormat::Sql
-                } else if filename.ends_with(".tar") {
+                } else if ext.eq_ignore_ascii_case("tar") {
                     BackupFormat::Tar
                 } else {
                     continue;
@@ -243,6 +282,9 @@ impl<'a> BackupManager<'a> {
     }
 
     /// Delete a specific backup file
+    ///
+    /// # Errors
+    /// Returns an error if removing the backup file from disk fails.
     pub fn delete_backup(
         &self,
         filename: &str,
@@ -255,16 +297,19 @@ impl<'a> BackupManager<'a> {
     }
 
     /// Prune old backups, keeping only the latest `keep_latest` backups
+    ///
+    /// # Errors
+    /// Returns an error if listing or deleting backup files fails.
     pub fn cleanup_old_backups(
         &self,
         keep_latest: usize,
     ) -> Result<usize> {
         let backups = self.list_backups()?;
-        let mut deleted = 0;
-        if backups.len() > keep_latest {
-            for b in &backups[keep_latest..] {
+        let mut deleted: usize = 0;
+        if let Some(to_delete) = backups.get(keep_latest..) {
+            for b in to_delete {
                 self.delete_backup(&b.filename)?;
-                deleted += 1;
+                deleted = deleted.saturating_add(1);
             }
         }
         Ok(deleted)

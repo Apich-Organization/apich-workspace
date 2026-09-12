@@ -1,6 +1,12 @@
+//! Bidirectional Git bridge and interoperability subsystem.
+
+/// Git compatibility bridge for commit export and branch operations.
 pub mod bridge;
+/// Git remote authentication and credential models.
 pub mod credentials;
+/// Git Large File Storage (LFS) policies and pointer generators.
 pub mod lfs;
+/// External Git research material manager.
 pub mod material;
 
 pub use bridge::GitBridge;

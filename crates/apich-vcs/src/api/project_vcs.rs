@@ -1,3 +1,5 @@
+//! High-level Unified Version Control facade for workspace projects.
+
 use crate::autosave::AutosaveEngine;
 use crate::chunking::FastCdcConfig;
 use crate::error::Result;
@@ -44,6 +46,9 @@ pub struct ProjectVcs {
 
 impl ProjectVcs {
     /// Open existing project or initialize a new apich-vcs repository, loading project configuration
+    ///
+    /// # Errors
+    /// Returns an error if initializing or opening the repository fails.
     pub fn open_or_init(project_root: impl AsRef<Path>) -> Result<Self> {
         let root = project_root.as_ref().to_path_buf();
         let apich_dir = root.join(".apich");
@@ -81,19 +86,27 @@ impl ProjectVcs {
         Ok(vcs)
     }
 
+    /// Returns the root path of the project workspace.
+    #[must_use]
     pub fn project_root(&self) -> &Path {
         &self.project_root
     }
 
-    pub fn cas(&self) -> &ContentAddressableStorage {
+    /// Returns a reference to the content-addressable storage engine.
+    #[must_use]
+    pub const fn cas(&self) -> &ContentAddressableStorage {
         &self.cas
     }
 
-    pub fn git_bridge(&self) -> &GitBridge {
+    /// Returns a reference to the Git bridge integration.
+    #[must_use]
+    pub const fn git_bridge(&self) -> &GitBridge {
         &self.git_bridge
     }
 
-    pub fn autosave(&self) -> &AutosaveEngine {
+    /// Returns a reference to the continuous autosave engine.
+    #[must_use]
+    pub const fn autosave(&self) -> &AutosaveEngine {
         &self.autosave
     }
 
@@ -103,6 +116,10 @@ impl ProjectVcs {
         self.project_root.join(".apich").join("HEAD")
     }
 
+    /// Gets the name of the currently active branch, if any.
+    ///
+    /// # Errors
+    /// Returns an error if branch operations or reference updates fail.
     pub fn current_branch(&self) -> Result<Option<String>> {
         let file = self.head_file();
         if file.exists() {
@@ -113,6 +130,10 @@ impl ProjectVcs {
         }
     }
 
+    /// Sets the currently active branch name in HEAD.
+    ///
+    /// # Errors
+    /// Returns an error if branch operations or reference updates fail.
     pub fn set_current_branch(
         &self,
         name: &str,
@@ -128,9 +149,13 @@ impl ProjectVcs {
         self.project_root
             .join(".apich")
             .join("branches")
-            .join(format!("{}.json", name))
+            .join(format!("{name}.json"))
     }
 
+    /// Retrieves branch metadata by branch name.
+    ///
+    /// # Errors
+    /// Returns an error if branch operations or reference updates fail.
     pub fn get_branch(
         &self,
         name: &str,
@@ -145,6 +170,10 @@ impl ProjectVcs {
         }
     }
 
+    /// Saves branch metadata to disk.
+    ///
+    /// # Errors
+    /// Returns an error if branch operations or reference updates fail.
     pub fn save_branch(
         &self,
         branch: &Branch,
@@ -156,6 +185,9 @@ impl ProjectVcs {
     }
 
     /// List names of all branches in the repository
+    ///
+    /// # Errors
+    /// Returns an error if branch operations or reference updates fail.
     pub fn list_branches(&self) -> Result<Vec<String>> {
         let branches_dir = self.project_root.join(".apich").join("branches");
         if !branches_dir.exists() {
@@ -173,6 +205,10 @@ impl ProjectVcs {
         Ok(branches)
     }
 
+    /// Returns the current HEAD snapshot, if any.
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn head_snapshot(&self) -> Result<Option<Snapshot>> {
         if let Some(branch_name) = self.current_branch()? {
             if let Some(branch) = self.get_branch(&branch_name)? {
@@ -185,7 +221,10 @@ impl ProjectVcs {
 
     // --- Working Copy Scanning & Snapshotting ---
 
-    /// Scan working directory on disk and construct a new `VcsTree` using FastCDC
+    /// Scan working directory on disk and construct a new `VcsTree` using `FastCDC`
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn scan_working_tree(&self) -> Result<VcsTree> {
         let mut tree = VcsTree::new();
         self.visit_dir_collect(&self.project_root, "", &mut tree)?;
@@ -205,7 +244,7 @@ impl ProjectVcs {
             let rel_path = if rel_prefix.is_empty() {
                 file_name.clone()
             } else {
-                format!("{}/{}", rel_prefix, file_name)
+                format!("{rel_prefix}/{file_name}")
             };
 
             if self.ignore_filter.is_ignored(&rel_path) {
@@ -250,11 +289,17 @@ impl ProjectVcs {
     }
 
     /// Explicitly acquire the cross-boundary advisory lock on `.apich/lock`
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn acquire_lock(&self) -> Result<crate::lock::RepositoryLock> {
         crate::lock::RepositoryLock::acquire(&self.project_root)
     }
 
     /// Commit the current working copy into an immutable Snapshot
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn snapshot(
         &self,
         message: impl Into<String>,
@@ -293,13 +338,18 @@ impl ProjectVcs {
         Ok(snapshot)
     }
 
-    /// Commit the working copy exactly like `snapshot()`, then detach-sign the resulting
-    /// snapshot's canonical payload with the caller's local GPG keyring and store the signature
+    /// Commit the working copy and detach-sign with the caller's local GPG keyring.
+    ///
+    /// Acts exactly like `snapshot()`, then detach-signs the resulting
+    /// snapshot's canonical payload with the caller's local GPG keyring and stores the signature
     /// on the snapshot record. `key_id` selects which local secret key to sign with (fingerprint,
     /// key ID, or email `gpg` can resolve); `None` uses `gpg`'s own configured default key.
     ///
     /// Signing is always local: the private key never leaves the caller's machine or this
     /// process's `gpg` invocation -- only the resulting signature is persisted.
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn snapshot_signed(
         &self,
         message: impl Into<String>,
@@ -308,14 +358,18 @@ impl ProjectVcs {
         let mut snapshot = self.snapshot(message)?;
         let signature = crate::gpg::sign_payload(&snapshot.signing_payload(), key_id)?;
         snapshot.gpg_signature = Some(signature);
-        snapshot.gpg_key_id = key_id.map(|s| s.to_string());
+        snapshot.gpg_key_id = key_id.map(std::string::ToString::to_string);
         self.cas.put_snapshot(&snapshot)?;
         Ok(snapshot)
     }
 
-    /// Verify a snapshot's GPG signature against a specific registered public key. Returns
-    /// `Ok(None)` if the snapshot carries no signature at all (distinct from a present-but-invalid
+    /// Verify a snapshot's GPG signature against a specific registered public key.
+    ///
+    /// Returns `Ok(None)` if the snapshot carries no signature at all (distinct from a present-but-invalid
     /// signature, which is `Ok(Some(SignatureStatus::Invalid(..)))`).
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn verify_snapshot_signature(
         &self,
         snapshot_id: Uuid,
@@ -331,6 +385,9 @@ impl ProjectVcs {
     }
 
     /// Check whether there are uncommitted changes in the working directory compared to HEAD
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn has_changes(&self) -> Result<bool> {
         let tree = self.scan_working_tree()?;
         if let Some(head) = self.head_snapshot()? {
@@ -342,6 +399,9 @@ impl ProjectVcs {
 
     /// Commit a snapshot only if there are actual modifications compared to HEAD.
     /// Returns `Ok(Some(snapshot))` if a new snapshot was committed, or `Ok(None)` if no changes were detected.
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn snapshot_if_changed(
         &self,
         message: impl Into<String>,
@@ -364,6 +424,9 @@ impl ProjectVcs {
 
     /// Check if debounced autosave trigger is pending, and if so, commit an autosave snapshot
     /// ONLY IF there are actual changes in the working directory.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub async fn trigger_autosave_if_needed(&self) -> Result<Option<Snapshot>> {
         if !self.autosave.should_trigger_snapshot().await {
             return Ok(None);
@@ -375,6 +438,9 @@ impl ProjectVcs {
     }
 
     /// Mark an explicit Milestone checkpoint
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn create_milestone(
         &self,
         name: impl Into<String>,
@@ -384,7 +450,7 @@ impl ProjectVcs {
         let desc_str = description.into();
 
         // Ensure current state is snapshot
-        let mut snapshot = self.snapshot(format!("Milestone: {}", name_str))?;
+        let mut snapshot = self.snapshot(format!("Milestone: {name_str}"))?;
         snapshot.mark_milestone(&name_str, &desc_str);
         self.cas.put_snapshot(&snapshot)?;
 
@@ -393,7 +459,7 @@ impl ProjectVcs {
             OpAction::CreateMilestone,
             None,
             Some(snapshot.id),
-            format!("Created milestone '{}'", name_str),
+            format!("Created milestone '{name_str}'"),
         );
         self.oplog.append(&op)?;
 
@@ -401,11 +467,17 @@ impl ProjectVcs {
     }
 
     /// List all snapshots in the project timeline
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn list_snapshots(&self) -> Result<Vec<Snapshot>> {
         self.cas.list_snapshots()
     }
 
     /// Retrieve a snapshot by UUID from CAS
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn get_snapshot(
         &self,
         id: Uuid,
@@ -414,6 +486,9 @@ impl ProjectVcs {
     }
 
     /// Retrieve a directory tree by hash from CAS
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn get_tree(
         &self,
         hash: &str,
@@ -422,12 +497,18 @@ impl ProjectVcs {
     }
 
     /// List all milestones
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn list_milestones(&self) -> Result<Vec<Snapshot>> {
         let all = self.list_snapshots()?;
         Ok(all.into_iter().filter(|s| s.is_milestone).collect())
     }
 
     /// Inspect the working directory status compared to HEAD snapshot
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn status(&self) -> Result<RepoStatus> {
         let branch = self.current_branch()?.unwrap_or_else(|| "main".to_string());
         let head = self.head_snapshot()?;
@@ -462,6 +543,9 @@ impl ProjectVcs {
     // --- Revert, Undo, and Redo ---
 
     /// Materialize a snapshot's tree onto the disk working directory without modifying branch pointers
+    ///
+    /// # Errors
+    /// Returns an error if restoring or checking out the tree fails.
     pub fn checkout_tree(
         &self,
         snapshot_id: Uuid,
@@ -498,6 +582,9 @@ impl ProjectVcs {
     }
 
     /// Revert working copy and branch HEAD to a specific snapshot
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn revert_to(
         &self,
         snapshot_id: Uuid,
@@ -517,14 +604,17 @@ impl ProjectVcs {
             OpAction::Revert,
             before_id,
             Some(snapshot_id),
-            format!("Reverted working copy to snapshot {}", snapshot_id),
+            format!("Reverted working copy to snapshot {snapshot_id}"),
         );
         self.oplog.append(&op)?;
 
         Ok(())
     }
 
-    /// Undo last operation in OpLog
+    /// Undo last operation in `OpLog`
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn undo(&self) -> Result<Option<Uuid>> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let current_id = self.head_snapshot()?.map(|s| s.id);
@@ -538,7 +628,10 @@ impl ProjectVcs {
         Ok(None)
     }
 
-    /// Redo last undone operation in OpLog
+    /// Redo last undone operation in `OpLog`
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn redo(&self) -> Result<Option<Uuid>> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         let current_id = self.head_snapshot()?.map(|s| s.id);
@@ -554,6 +647,10 @@ impl ProjectVcs {
 
     // --- Branch Operations ---
 
+    /// Creates a new branch pointing to the current HEAD snapshot.
+    ///
+    /// # Errors
+    /// Returns an error if branch operations or reference updates fail.
     pub fn branch_create(
         &self,
         name: &str,
@@ -569,6 +666,10 @@ impl ProjectVcs {
         Ok(())
     }
 
+    /// Switches the working copy to the specified branch.
+    ///
+    /// # Errors
+    /// Returns an error if branch operations or reference updates fail.
     pub fn branch_switch(
         &self,
         name: &str,
@@ -587,6 +688,9 @@ impl ProjectVcs {
     // --- Weave-Free Merge ---
 
     /// Reconcile and merge another branch into the current branch without pointer weaving
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn merge(
         &self,
         other_branch_name: &str,
@@ -631,15 +735,9 @@ impl ProjectVcs {
                 .and_then(|s| s.parent_snapshot_id);
         }
 
-        let base_tree = if let Some(anc_id) = common_ancestor_id {
-            if let Ok(anc_snap) = self.cas.get_snapshot(anc_id) {
-                self.cas.get_tree(&anc_snap.tree_hash).ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let base_tree = common_ancestor_id
+            .and_then(|anc_id| self.cas.get_snapshot(anc_id).ok())
+            .and_then(|anc_snap| self.cas.get_tree(&anc_snap.tree_hash).ok());
 
         // Reconcile
         let reconciler = Reconciler::new(&self.cas, self.cdc_config);
@@ -676,7 +774,7 @@ impl ProjectVcs {
             OpAction::Merge,
             Some(current_head.id),
             Some(merge_snapshot.id),
-            format!("Merged branch '{}'", other_branch_name),
+            format!("Merged branch '{other_branch_name}'"),
         );
         self.oplog.append(&op)?;
 
@@ -686,6 +784,9 @@ impl ProjectVcs {
     // --- Garbage Collection & Retention ---
 
     /// Run timeline exponential decay pruning and CAS unreferenced chunk cleanup
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn run_gc(
         &self,
         policy: Option<&RetentionPolicy>,
@@ -722,11 +823,19 @@ impl ProjectVcs {
 
     // --- Git Integration ---
 
+    /// Initializes an underlying Git repository if not already present.
+    ///
+    /// # Errors
+    /// Returns an error if initializing or opening the repository fails.
     pub fn git_init(&self) -> Result<()> {
         self.git_bridge.open_or_init()?;
         Ok(())
     }
 
+    /// Exports an apich snapshot as a standard Git commit on the specified branch.
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn git_export_commit(
         &self,
         branch_name: &str,
@@ -756,6 +865,10 @@ impl ProjectVcs {
         Ok(commit_oid)
     }
 
+    /// Configures a remote Git repository URL.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn git_setup_remote(
         &self,
         name: &str,
@@ -764,6 +877,10 @@ impl ProjectVcs {
         self.git_bridge.remote_add(name, url)
     }
 
+    /// Pushes the specified branch to a Git remote.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn git_push(
         &self,
         remote: &str,
@@ -772,6 +889,10 @@ impl ProjectVcs {
         self.git_bridge.push(remote, branch)
     }
 
+    /// Pulls changes from a Git remote branch into the current branch.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn git_pull(
         &self,
         remote: &str,
@@ -780,10 +901,18 @@ impl ProjectVcs {
         self.git_bridge.pull(remote, branch)
     }
 
+    /// Lists configured Git remotes as name-URL pairs.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn git_remotes(&self) -> Result<Vec<(String, String)>> {
         self.git_bridge.remote_list()
     }
 
+    /// Fetches changes from the specified Git remote.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn git_fetch(
         &self,
         remote: &str,
@@ -791,6 +920,10 @@ impl ProjectVcs {
         self.git_bridge.fetch(remote)
     }
 
+    /// Rebases current branch on top of upstream.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn git_rebase(
         &self,
         upstream: &str,
@@ -801,6 +934,9 @@ impl ProjectVcs {
     /// Clone a remote Git repository into `dest`, then initialize apich-vcs tracking on the
     /// result and take an initial snapshot -- so a cloned project is immediately usable both as a
     /// Git working copy and as an apich-vcs history, not just a bare checkout.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn git_clone(
         url: &str,
         dest: impl AsRef<Path>,
@@ -812,6 +948,10 @@ impl ProjectVcs {
         Ok(vcs)
     }
 
+    /// Clones an external Git repository as read-only reference material.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn clone_material(
         &self,
         url: &str,
@@ -820,11 +960,18 @@ impl ProjectVcs {
         self.material_mgr.clone_material(url, rel_dir)
     }
 
+    /// Lists all cloned reference materials in the repository.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn list_materials(&self) -> Result<Vec<MaterialRecord>> {
         self.material_mgr.list()
     }
 
-    /// Read file content from a specific snapshot, or from the current working copy if snapshot_id is None
+    /// Read file content from a specific snapshot, or from the current working copy if `snapshot_id` is None
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn read_file_content(
         &self,
         snapshot_id: Option<Uuid>,
@@ -834,27 +981,32 @@ impl ProjectVcs {
             let snap = self.cas.get_snapshot(id)?;
             let tree = self.cas.get_tree(&snap.tree_hash)?;
             let entry = tree.entries.get(rel_path).ok_or_else(|| {
-                VcsError::InvalidPath(format!("File '{}' not found in snapshot {}", rel_path, id))
+                VcsError::InvalidPath(format!("File '{rel_path}' not found in snapshot {id}"))
             })?;
             self.cas.read_file_data(&entry.chunks)
         } else {
             let disk_path = self.project_root.join(rel_path);
             if !disk_path.exists() {
                 return Err(VcsError::InvalidPath(format!(
-                    "File '{}' does not exist on disk",
-                    rel_path
+                    "File '{rel_path}' does not exist on disk"
                 )));
             }
             Ok(fs::read(disk_path)?)
         }
     }
 
-    /// List all operations in the OpLog (snapshots, undos, redos, merges, reverts)
+    /// List all operations in the `OpLog` (snapshots, undos, redos, merges, reverts)
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn oplog_list(&self) -> Result<Vec<VcsOperation>> {
         self.oplog.list()
     }
 
     /// Compute file-level differences between two snapshots: (added, modified, removed)
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn diff_snapshots(
         &self,
         from_id: Uuid,
@@ -877,6 +1029,9 @@ impl ProjectVcs {
     }
 
     /// Compute file-level differences between HEAD snapshot and current working copy
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn diff_working(&self) -> Result<(Vec<String>, Vec<String>, Vec<String>)> {
         let status = self.status()?;
         Ok((status.added, status.modified, status.removed))
@@ -885,6 +1040,9 @@ impl ProjectVcs {
     // --- Packaging & Bundle Operations for Gateway / Local Work ---
 
     /// Export the full project repository and state to a compressed stream (e.g. for gateway HTTP download)
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn export_bundle<W: std::io::Write>(
         &self,
         writer: W,
@@ -894,6 +1052,9 @@ impl ProjectVcs {
     }
 
     /// Export the full project repository to a local bundle file
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn export_bundle_to_file(
         &self,
         dest_path: impl AsRef<Path>,
@@ -903,6 +1064,9 @@ impl ProjectVcs {
     }
 
     /// Import a project bundle from a stream into a local directory and checkout the working copy
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn import_bundle<R: std::io::Read>(
         reader: R,
         target_dir: impl AsRef<Path>,
@@ -911,6 +1075,9 @@ impl ProjectVcs {
     }
 
     /// Import a project bundle file from disk into a target directory
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn import_bundle_from_file(
         bundle_path: impl AsRef<Path>,
         target_dir: impl AsRef<Path>,
@@ -921,6 +1088,9 @@ impl ProjectVcs {
     /// Accept a bundle (uploaded as a push, or downloaded as a pull -- the merge is safe either
     /// direction) into this *already-initialized* project. See
     /// `crate::bundle::ProjectBundle::accept_push` for the fast-forward safety rules.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn accept_push_bundle<R: std::io::Read>(
         &self,
         reader: R,
@@ -929,6 +1099,9 @@ impl ProjectVcs {
     }
 
     /// Export a clean archive (e.g. tar.gz) of a specific snapshot without .apich metadata (ideal for arXiv / IEEE / zip download)
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn export_snapshot_archive<W: std::io::Write>(
         &self,
         snapshot_id: Uuid,
@@ -938,6 +1111,9 @@ impl ProjectVcs {
     }
 
     /// Export a clean snapshot archive directly to a file
+    ///
+    /// # Errors
+    /// Returns an error if creating or retrieving the snapshot fails.
     pub fn export_snapshot_archive_to_file(
         &self,
         snapshot_id: Uuid,
@@ -949,16 +1125,21 @@ impl ProjectVcs {
     // --- Configuration & Customization APIs for Upper Layer ---
 
     /// Access the active project configuration
-    pub fn config(&self) -> &VcsConfig {
+    #[must_use]
+    pub const fn config(&self) -> &VcsConfig {
         &self.config
     }
 
     /// Access the live ignore filter
-    pub fn ignore_filter(&self) -> &IgnoreFilter {
+    #[must_use]
+    pub const fn ignore_filter(&self) -> &IgnoreFilter {
         &self.ignore_filter
     }
 
     /// Apply a new configuration to the running VCS instance
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn apply_config(
         &mut self,
         config: VcsConfig,
@@ -973,18 +1154,27 @@ impl ProjectVcs {
     }
 
     /// Save the current configuration to disk (.apich/config.toml or apich.toml)
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn save_config(&self) -> Result<PathBuf> {
         let _lock = crate::lock::RepositoryLock::acquire(&self.project_root)?;
         self.config.save_to_project(&self.project_root)
     }
 
     /// Reload configuration from project files (.apich/config.toml or apich.toml)
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn reload_config(&mut self) -> Result<()> {
         let cfg = VcsConfig::load_from_project(&self.project_root)?;
         self.apply_config(cfg)
     }
 
     /// Add a custom ignore rule programmatically (supports globs and negative '!path' rules)
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn add_ignore_rule(
         &mut self,
         rule: impl Into<String>,
@@ -995,6 +1185,9 @@ impl ProjectVcs {
     }
 
     /// Remove a custom ignore rule programmatically
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn remove_ignore_rule(
         &mut self,
         rule: &str,
@@ -1004,6 +1197,9 @@ impl ProjectVcs {
     }
 
     /// Enable an ignore profile programmatically
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn enable_ignore_profile(
         &mut self,
         profile: crate::ignore::IgnoreProfile,
@@ -1013,6 +1209,9 @@ impl ProjectVcs {
     }
 
     /// Disable an ignore profile programmatically
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
     pub fn disable_ignore_profile(
         &mut self,
         profile: crate::ignore::IgnoreProfile,
@@ -1032,7 +1231,7 @@ impl ProjectVcs {
     }
 
     /// Set file size threshold in bytes to trigger automatic Git LFS pointer generation
-    pub fn set_lfs_size_threshold(
+    pub const fn set_lfs_size_threshold(
         &mut self,
         threshold_bytes: u64,
     ) {
@@ -1043,12 +1242,13 @@ impl ProjectVcs {
     }
 
     /// Access the Git LFS policy
-    pub fn lfs_policy(&self) -> &crate::git::LfsPolicy {
+    #[must_use]
+    pub const fn lfs_policy(&self) -> &crate::git::LfsPolicy {
         self.git_bridge.lfs_policy()
     }
 
     /// Set the retention policy programmatically
-    pub fn set_retention_policy(
+    pub const fn set_retention_policy(
         &mut self,
         policy: RetentionPolicy,
     ) {
@@ -1056,20 +1256,22 @@ impl ProjectVcs {
     }
 
     /// Access the active retention policy
-    pub fn retention_policy(&self) -> &RetentionPolicy {
+    #[must_use]
+    pub const fn retention_policy(&self) -> &RetentionPolicy {
         &self.retention_policy
     }
 
-    /// Set the FastCDC chunking configuration programmatically
-    pub fn set_cdc_config(
+    /// Set the `FastCDC` chunking configuration programmatically
+    pub const fn set_cdc_config(
         &mut self,
         config: FastCdcConfig,
     ) {
         self.cdc_config = config;
     }
 
-    /// Access the active FastCDC chunking configuration
-    pub fn cdc_config(&self) -> FastCdcConfig {
+    /// Access the active `FastCDC` chunking configuration
+    #[must_use]
+    pub const fn cdc_config(&self) -> FastCdcConfig {
         self.cdc_config
     }
 }
@@ -1077,16 +1279,24 @@ impl ProjectVcs {
 /// Status report of a repository working copy relative to HEAD
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RepoStatus {
+    /// Active branch name.
     pub branch: String,
+    /// HEAD snapshot if one exists.
     pub head_snapshot: Option<Snapshot>,
+    /// Relative paths of newly added files.
     pub added: Vec<String>,
+    /// Relative paths of modified files.
     pub modified: Vec<String>,
+    /// Relative paths of deleted files.
     pub removed: Vec<String>,
+    /// Total number of tracked files in the workspace.
     pub total_files: usize,
 }
 
 impl RepoStatus {
-    pub fn is_clean(&self) -> bool {
+    /// Returns true if there are no uncommitted additions, modifications, or deletions.
+    #[must_use]
+    pub const fn is_clean(&self) -> bool {
         self.added.is_empty() && self.modified.is_empty() && self.removed.is_empty()
     }
 }

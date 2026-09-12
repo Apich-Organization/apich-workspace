@@ -43,19 +43,20 @@ implicit_clone = "deny"
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
-single_call_fn = "deny"
 # ------------------------------------------------------------------------
 # LEVEL 2: STYLE WARNINGS (Warn)
 # ------------------------------------------------------------------------
-dbg_macro = "warn"
-todo = "warn"
-unnecessary_safety_comment = "warn"
+dbg_macro = { level = "warn", priority = 1 }
+todo = { level = "warn", priority = 1 }
+unnecessary_safety_comment = { level = "warn", priority = 1 }
 # ------------------------------------------------------------------------
 # LEVEL 3: ALLOW/IGNORABLE (Allow)
 # ------------------------------------------------------------------------
 restriction = { level = "allow", priority = -1 }
-inline_always = "allow"
-cast_possible_truncation = "allow"
-cast_sign_loss = "allow"
-cast_possible_wrap = "allow"
-empty_line_after_doc_comments = "allow"
+inline_always = { level = "allow", priority = 1 }
+cast_possible_truncation = { level = "allow", priority = 1 }
+cast_sign_loss = { level = "allow", priority = 1 }
+cast_possible_wrap = { level = "allow", priority = 1 }
+empty_line_after_doc_comments = { level = "allow", priority = 1 }
+single_call_fn = { level = "allow", priority = 1 }
+too_many_lines = { level = "allow", priority = 1 }

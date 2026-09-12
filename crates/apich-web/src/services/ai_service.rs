@@ -79,8 +79,7 @@ impl AiAssistantService {
     ) -> WebResult<AiChatResponse> {
         let model = req.model.as_deref().unwrap_or("gemini-2.5-flash");
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            model, key
+            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
         );
 
         let system_instruction = "You are APICH Copilot, an elite scientific programming and research assistant. Support LaTeX math, Typst markup, cargo-slide presentation DSL, Python scientific data analysis, and Markdown notes.";
@@ -121,21 +120,20 @@ impl AiAssistantService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| WebError::Internal(format!("Gemini request error: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Gemini request error: {e}")))?;
 
         if !res.status().is_success() {
             let status = res.status();
             let err_text = res.text().await.unwrap_or_default();
             return Err(WebError::Internal(format!(
-                "Gemini API error ({}): {}",
-                status, err_text
+                "Gemini API error ({status}): {err_text}"
             )));
         }
 
         let json: serde_json::Value = res
             .json()
             .await
-            .map_err(|e| WebError::Internal(format!("Failed to parse Gemini response: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to parse Gemini response: {e}")))?;
 
         let reply = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
@@ -147,7 +145,7 @@ impl AiAssistantService {
         Ok(AiChatResponse {
             reply,
             suggested_code,
-            provider: format!("Google Gemini ({})", model),
+            provider: format!("Google Gemini ({model})"),
         })
     }
 
@@ -211,7 +209,7 @@ impl AiAssistantService {
         Ok(AiChatResponse {
             reply,
             suggested_code,
-            provider: format!("OpenAI ({})", model),
+            provider: format!("OpenAI ({model})"),
         })
     }
 
@@ -238,7 +236,7 @@ impl AiAssistantService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| WebError::Internal(format!("Ollama connection failed: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Ollama connection failed: {e}")))?;
 
         let json: serde_json::Value = res
             .json()
@@ -255,7 +253,7 @@ impl AiAssistantService {
         Ok(AiChatResponse {
             reply,
             suggested_code,
-            provider: format!("Ollama ({})", model),
+            provider: format!("Ollama ({model})"),
         })
     }
 
@@ -278,17 +276,16 @@ impl AiAssistantService {
                 Here is the calibrated Hamiltonian formulation in Typst / LaTeX math:\n\n\
                 ```typst\n\
                 // Quantum Transmon Hamiltonian\n\
-                {}\n\
+                {typst_math}\n\
                 $\n\
                   S_(21)(f) = 1 - frac(Q_L / |Q_c| e^(i phi_0), 1 + 2 i Q_L (f - f_r)/f_r)\n\
                 $\n\
                 ```\n\n\
-                Click **Insert at Cursor** below to place this mathematical formulation directly into your working document.",
-                typst_math
+                Click **Insert at Cursor** below to place this mathematical formulation directly into your working document."
             );
             return AiChatResponse {
                 reply,
-                suggested_code: Some(format!("{}\n", typst_math)),
+                suggested_code: Some(format!("{typst_math}\n")),
                 provider: "APICH Built-in Scientific Engine".to_string(),
             };
         }
@@ -320,10 +317,9 @@ print("Successfully rendered coherence plot: assets/ramsey_fringe.png")
                 "### 🐍 Python Scientific Computation & Plotting\n\n\
                 Generated Python telemetry analysis script with matplotlib visualization:\n\n\
                 ```python\n\
-                {}\
+                {code}\
                 ```\n\n\
-                You can run this directly in the APICH Script Runner console to generate live plots!",
-                code
+                You can run this directly in the APICH Script Runner console to generate live plots!"
             );
             return AiChatResponse {
                 reply,
@@ -355,10 +351,9 @@ print("Successfully rendered coherence plot: assets/ramsey_fringe.png")
                 "### 📊 cargo-slide Presentation Component\n\n\
                 Structured slide block conforming to the APICH cargo-slide DSL:\n\n\
                 ```typst\n\
-                {}\
+                {code}\
                 ```\n\n\
-                Use **Insert at Cursor** to append this slide.",
-                code
+                Use **Insert at Cursor** to append this slide."
             );
             return AiChatResponse {
                 reply,
@@ -373,10 +368,9 @@ print("Successfully rendered coherence plot: assets/ramsey_fringe.png")
                 "### 📋 Actionable Markdown Tasks & Schedule Sync\n\n\
                 Synchronized task items bound to Kanban and Calendar:\n\n\
                 ```markdown\n\
-                {}\
+                {code}\
                 ```\n\n\
-                These tasks will automatically sync to your project Kanban and Calendar.",
-                code
+                These tasks will automatically sync to your project Kanban and Calendar."
             );
             return AiChatResponse {
                 reply,

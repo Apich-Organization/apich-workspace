@@ -81,7 +81,7 @@ impl SlideBuildRegistry {
 
             loop {
                 match stream.next_chunk().await {
-                    | Some(OutputChunk::Stdout(bytes)) | Some(OutputChunk::Stderr(bytes)) => {
+                    | Some(OutputChunk::Stdout(bytes) | OutputChunk::Stderr(bytes)) => {
                         buf.extend_from_slice(&bytes);
                         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
                             let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
@@ -124,7 +124,7 @@ impl SlideBuildRegistry {
                 let message = last_error
                     .unwrap_or_else(|| format!("Build process exited with code {exit_code}"));
                 *job.status.lock().await = SlideBuildStatus::Failed { message };
-                tokio::time::sleep(std::time::Duration::from_secs(10 * 60)).await;
+                tokio::time::sleep(std::time::Duration::from_mins(10)).await;
                 registry.jobs.lock().await.remove(&id);
                 return;
             }
@@ -146,7 +146,7 @@ impl SlideBuildRegistry {
             // Keep the finished record around briefly so a client mid-poll (or about to click
             // download) still sees it, then drop it -- these are low-volume but must not
             // accumulate forever in a long-running server.
-            tokio::time::sleep(std::time::Duration::from_secs(10 * 60)).await;
+            tokio::time::sleep(std::time::Duration::from_mins(10)).await;
             registry.jobs.lock().await.remove(&id);
         });
 

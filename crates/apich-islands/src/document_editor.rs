@@ -1,5 +1,6 @@
-//! Real Rust replacement for the document/slide/script editor's hand-written JS
-//! (`document_editor_page.rs`'s `build_editor_script`): outline jump-to-heading, Ctrl+S save,
+//! Real Rust replacement for the document/slide/script editor's hand-written JS (`document_editor_page.rs`'s `build_editor_script`).
+//!
+//! Outline jump-to-heading, Ctrl+S save,
 //! Typst/slide multi-page preview with presentation mode and click-to-jump reverse search, and
 //! the script-runner console, are all implemented here. These stay coupled in one island because
 //! they were coupled in the original design too -- keyboard shortcuts and slide state are
@@ -9,10 +10,68 @@ use leptos::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
 
+/// Heading item parsed from document content for table of contents navigation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeadingItem {
+    /// Heading level (1 for H1, 2 for H2, etc.).
     pub level: u8,
+    /// Text content of the heading.
     pub text: String,
+}
+
+/// Preview mode kind for the document editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DocumentPreviewKind {
+    /// Plain editor without specialized preview.
+    #[default]
+    None,
+    /// Presentation / slide deck mode.
+    Slide,
+    /// Typst live preview mode.
+    Typst,
+    /// LaTeX live preview mode.
+    Latex,
+}
+
+/// Feature flags for document editor modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct DocEditorFlags {
+    /// Whether script runner console is enabled.
+    pub is_script: bool,
+    /// The document preview mode kind.
+    pub preview_kind: DocumentPreviewKind,
+}
+
+impl DocEditorFlags {
+    /// Create document editor flags from preview kind and script status.
+    #[must_use]
+    pub const fn new(
+        preview_kind: DocumentPreviewKind,
+        is_script: bool,
+    ) -> Self {
+        Self {
+            is_script,
+            preview_kind,
+        }
+    }
+
+    /// Whether presentation / slide deck mode is enabled.
+    #[must_use]
+    pub const fn is_slide(&self) -> bool {
+        matches!(self.preview_kind, DocumentPreviewKind::Slide)
+    }
+
+    /// Whether Typst live preview is enabled.
+    #[must_use]
+    pub const fn is_typst_preview(&self) -> bool {
+        matches!(self.preview_kind, DocumentPreviewKind::Typst)
+    }
+
+    /// Whether LaTeX live preview is enabled.
+    #[must_use]
+    pub const fn is_latex_preview(&self) -> bool {
+        matches!(self.preview_kind, DocumentPreviewKind::Latex)
+    }
 }
 
 #[island]
@@ -22,14 +81,15 @@ pub fn DocumentEditorIsland(
     #[prop(into)] file_path: String,
     #[prop(into)] content: String,
     headings: Vec<HeadingItem>,
-    #[prop(into)] is_slide: bool,
-    #[prop(into)] is_script: bool,
-    #[prop(into)] is_typst_preview: bool,
+    flags: DocEditorFlags,
     typst_pages: Vec<String>,
     #[prop(into)] compile_error: Option<String>,
     #[prop(into)] rendered_markdown_html: Option<String>,
-    #[prop(into)] is_latex_preview: bool,
 ) -> impl IntoView {
+    let is_slide = flags.is_slide();
+    let is_script = flags.is_script;
+    let is_typst_preview = flags.is_typst_preview();
+    let is_latex_preview = flags.is_latex_preview();
     let prism_lang = {
         let ext = std::path::Path::new(&file_path)
             .extension()
@@ -103,8 +163,8 @@ pub fn DocumentEditorIsland(
             for h in headings {
                 if h.level <= min_level || groups.is_empty() {
                     groups.push((h, Vec::new()));
-                } else {
-                    groups.last_mut().unwrap().1.push(h);
+                } else if let Some(last) = groups.last_mut() {
+                    last.1.push(h);
                 }
             }
             groups
@@ -120,7 +180,7 @@ pub fn DocumentEditorIsland(
                         let child_items: Vec<_> = children
                             .into_iter()
                             .map(|c| {
-                                let class = if c.level <= min_level + 1 { "outline-heading-item outline-heading-h2" } else { "outline-heading-item outline-heading-h3" };
+                                let class = if c.level <= min_level.saturating_add(1) { "outline-heading-item outline-heading-h2" } else { "outline-heading-item outline-heading-h3" };
                                 let text = c.text.clone();
                                 let jth = jump_to_heading;
                                 view! {
@@ -162,27 +222,27 @@ pub fn DocumentEditorIsland(
         let file_path = file_path.clone();
         move |_| {
             if is_typst_preview {
-                debounced_typst_preview(
+                debounced_typst_preview(TypstPreviewArgs {
                     code_ref,
-                    project_id.clone(),
-                    file_path.clone(),
+                    project_id: project_id.clone(),
+                    file_path: file_path.clone(),
                     debounce_gen,
                     pages,
-                    compile_error_sig,
+                    compile_error: compile_error_sig,
                     current_slide,
-                    headings_sig,
-                );
+                    headings: headings_sig,
+                });
             } else if is_latex_preview {
-                debounced_latex_preview(
+                debounced_latex_preview(LatexPreviewArgs {
                     code_ref,
-                    project_id.clone(),
-                    file_path.clone(),
+                    project_id: project_id.clone(),
+                    file_path: file_path.clone(),
                     debounce_gen,
                     latex_reload_gen,
                     latex_error,
                     latex_engine,
-                    headings_sig,
-                );
+                    headings: headings_sig,
+                });
             } else if !is_script {
                 debounced_markdown_preview(
                     code_ref,
@@ -213,7 +273,6 @@ pub fn DocumentEditorIsland(
         let file_path_for_dl = file_path.clone();
         let project_id_for_engine = project_id.clone();
         let file_path_for_engine = file_path.clone();
-        let project_id_for_sync = project_id.clone();
         let file_path_for_sync = file_path.clone();
         let download_name = std::path::Path::new(&file_path)
             .file_stem()
@@ -235,7 +294,16 @@ pub fn DocumentEditorIsland(
                                 let code_ref = code_ref;
                                 let project_id = project_id_for_engine.clone();
                                 let file_path = file_path_for_engine.clone();
-                                debounced_latex_preview(code_ref, project_id, file_path, debounce_gen, latex_reload_gen, latex_error, latex_engine, headings_sig);
+                                debounced_latex_preview(LatexPreviewArgs {
+                                    code_ref,
+                                    project_id,
+                                    file_path,
+                                    debounce_gen,
+                                    latex_reload_gen,
+                                    latex_error,
+                                    latex_engine,
+                                    headings: headings_sig,
+                                });
                             }
                         >
                             <option value="pdflatex">"pdflatex"</option>
@@ -266,8 +334,8 @@ pub fn DocumentEditorIsland(
                         id="latex-pdf-viewer"
                         class="latex-pdf-viewer"
                         data-pdf-url=move || format!("/projects/{}/editor/latex-pdf?file={}&engine={}&_r={}", project_id_for_url, urlencoding::encode(&file_path_for_url), latex_engine.get(), latex_reload_gen.get())
-                        data-sync-url=format!("/projects/{}/editor/latex-sync", project_id_for_sync)
-                        data-file=file_path_for_sync.clone()
+                        data-sync-url=format!("/projects/{}/editor/latex-sync", project_id)
+                        data-file=file_path_for_sync
                         data-engine=move || latex_engine.get()
                         style="width:100%; height:100%; overflow:auto; background:#525659; display:flex; flex-direction:column; align-items:center; gap:12px; padding:12px 0;"
                     ></div>
@@ -299,9 +367,9 @@ pub fn DocumentEditorIsland(
                     ></div>
                 </div>
                 <div style="display:flex; gap:1rem; align-items:center; margin-top:1.5rem; color:#94a3b8; font-size:0.9rem;">
-                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s -= 1 })>"← Prev"</button>
+                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })>"← Prev"</button>
                     <span>{move || format!("Slide {} of {}", current_slide.get(), pages.with(|p| p.len().max(1)))}</span>
-                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s += 1 }) }>"Next →"</button>
+                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s = s.saturating_add(1); }) }>"Next →"</button>
                 </div>
             </div>
         }
@@ -318,8 +386,8 @@ pub fn DocumentEditorIsland(
 
             <div class="code-panel">
                 <form node_ref=form_ref id="editor-form" method="post" action=format!("/projects/{}/editor/save", project_id) style="display:flex; flex-direction:column; height:100%;">
-                    <input type="hidden" name="file" value=file_path.clone() />
-                    <div class="code-editor-wrap" data-lang=prism_lang.clone()>
+                    <input type="hidden" name="file" value=file_path />
+                    <div class="code-editor-wrap" data-lang=prism_lang>
                         <pre class="code-highlight-overlay" aria-hidden="true"><code></code></pre>
                         <textarea node_ref=code_ref id="code-editor-input" name="content" class="code-textarea" spellcheck="false" wrap="off" on:input=on_code_input>{content}</textarea>
                     </div>
@@ -427,7 +495,7 @@ fn handle_data_line_click(_ev: leptos::ev::MouseEvent) {}
 /// well-established JS library -- reimplementing PDF parsing/rendering in Rust would be its own
 /// multi-month project, not a reasonable ask for one feature), so the actual canvas rendering and
 /// click-position detection for the LaTeX preview lives in this plain JS, loaded from the CDN
-/// allowlist the same way `KatexHead` already loads KaTeX. Once a click is resolved to a real
+/// allowlist the same way `KatexHead` already loads `KaTeX`. Once a click is resolved to a real
 /// source line (via a `synctex edit` round-trip), the click handler hands off to Rust immediately
 /// by dispatching an `apich-jump-to-line` `CustomEvent` -- `jump_to_line.rs`'s
 /// `wire_jump_to_line_listener` receives it and calls the exact same `jump_to_line_in_dom` the
@@ -444,7 +512,7 @@ fn handle_data_line_click(_ev: leptos::ev::MouseEvent) {}
 /// `synctexY = pageHeightPt - pdfY`, not passed through directly. Getting this backwards would
 /// silently jump to the mirror-image line on every click, which would have been very easy to ship
 /// un-noticed without the live round-trip test that caught it.
-const LATEX_PDF_VIEWER_JS: &str = r#"
+const LATEX_PDF_VIEWER_JS: &str = r"
 (function(){
     function ensurePdfJs(){
         if (window.__apichPdfJsReady) { return window.__apichPdfJsReady; }
@@ -556,8 +624,7 @@ const LATEX_PDF_VIEWER_JS: &str = r#"
         init();
     }
 })();
-"#;
-
+";
 
 /// Reactive: re-evaluates whenever `compile_error` or `pages` change, since both now update live
 /// (hot reload) via a debounced recompile as the user types, not just once at page load.
@@ -577,7 +644,7 @@ fn render_typst_preview(
                         </div>
                     }.into_any();
                 }
-                let page_count = pages.with(|p| p.len());
+                let page_count = pages.with(Vec::len);
                 if page_count == 0 {
                     return view! {
                         <div class="empty-state" style="padding:2.5rem; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center;">
@@ -588,10 +655,10 @@ fn render_typst_preview(
 
                 let page_divs: Vec<_> = (0..page_count)
                     .map(|idx| {
-                        let svg = pages.with(|p| p[idx].clone());
+                        let svg = pages.with(|p| p.get(idx).cloned().unwrap_or_default());
                         view! {
                             <div
-                                style:display=move || if current_slide.get() == idx + 1 { "block" } else { "none" }
+                                style:display=move || if current_slide.get() == idx.saturating_add(1) { "block" } else { "none" }
                                 class="svg-page-box"
                                 inner_html=svg
                             ></div>
@@ -603,9 +670,9 @@ fn render_typst_preview(
                     <div class="svg-preview-stage">
                         <div class="svg-nav-toolbar">
                             <div style="display:flex; align-items:center; gap:0.4rem;">
-                                <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s -= 1 })>"← Prev"</button>
+                                <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })>"← Prev"</button>
                                 <span style="font-weight:600; font-size:0.825rem; min-width:90px; text-align:center;">{move || format!("Page {} of {}", current_slide.get(), pages.with(|p| p.len().max(1)))}</span>
-                                <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s += 1 }) }>"Next →"</button>
+                                <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s = s.saturating_add(1); }) }>"Next →"</button>
                             </div>
                             <div style="font-size:0.75rem; color:var(--text-sub);">
                                 <span>"💡 Click any line in preview to jump to code"</span>
@@ -638,16 +705,16 @@ fn render_script_console(
         busy.set(true);
         output.set("Executing...".to_string());
         status.set(None);
-        run_script(
-            project_id.clone(),
-            file_path.clone(),
-            args.get_untracked(),
+        run_script(RunScriptArgs {
+            project_id: project_id.clone(),
+            file_path: file_path.clone(),
+            args: args.get_untracked(),
             output,
             status,
             time_ms,
             plots,
             busy,
-        );
+        });
     };
     let run_click = run.clone();
 
@@ -720,7 +787,7 @@ fn select_substring(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn select_substring(
+const fn select_substring(
     _ta: &leptos::web_sys::HtmlTextAreaElement,
     _needle: &str,
 ) {
@@ -732,7 +799,7 @@ fn request_submit(form: &web_sys::HtmlFormElement) {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn request_submit(_form: &leptos::web_sys::HtmlFormElement) {}
+const fn request_submit(_form: &leptos::web_sys::HtmlFormElement) {}
 
 #[cfg(feature = "hydrate")]
 fn wire_keyboard_shortcuts(
@@ -760,14 +827,14 @@ fn wire_keyboard_shortcuts(
                     let n = pages.with(|p| p.len().max(1));
                     current_slide.update(|s| {
                         if *s < n {
-                            *s += 1
+                            *s = s.saturating_add(1);
                         }
                     });
                 }
             } else if key == "ArrowLeft" && presenting.get_untracked() {
                 current_slide.update(|s| {
                     if *s > 1 {
-                        *s -= 1
+                        *s = s.saturating_sub(1);
                     }
                 });
             } else if (ev.ctrl_key() || ev.meta_key()) && key == "s" {
@@ -791,7 +858,7 @@ fn wire_keyboard_shortcuts(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn wire_keyboard_shortcuts(
+const fn wire_keyboard_shortcuts(
     _form_ref: NodeRef<leptos::html::Form>,
     _current_slide: RwSignal<usize>,
     _presenting: RwSignal<bool>,
@@ -801,8 +868,7 @@ fn wire_keyboard_shortcuts(
 ) {
 }
 
-#[cfg(feature = "hydrate")]
-fn run_script(
+struct RunScriptArgs {
     project_id: String,
     file_path: String,
     args: String,
@@ -811,9 +877,20 @@ fn run_script(
     time_ms: RwSignal<Option<f64>>,
     plots: RwSignal<Vec<(String, String)>>,
     busy: RwSignal<bool>,
-) {
+}
+
+#[cfg(feature = "hydrate")]
+fn run_script(args: RunScriptArgs) {
+    let project_id = args.project_id;
+    let file_path = args.file_path;
+    let script_args = args.args;
+    let output = args.output;
+    let status = args.status;
+    let time_ms = args.time_ms;
+    let plots = args.plots;
+    let busy = args.busy;
     wasm_bindgen_futures::spawn_local(async move {
-        let body = serde_json::json!({ "file": file_path, "args": args });
+        let body = serde_json::json!({ "file": file_path, "args": script_args });
         let result = gloo_net::http::Request::post(&format!("/projects/{}/script/run", project_id))
             .json(&body)
             .expect("valid json body")
@@ -894,17 +971,8 @@ fn run_script(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn run_script(
-    _project_id: String,
-    _file_path: String,
-    _args: String,
-    _output: RwSignal<String>,
-    _status: RwSignal<Option<(bool, i64)>>,
-    _time_ms: RwSignal<Option<f64>>,
-    _plots: RwSignal<Vec<(String, String)>>,
-    busy: RwSignal<bool>,
-) {
-    busy.set(false);
+fn run_script(args: RunScriptArgs) {
+    args.busy.set(false);
 }
 
 /// The outline panel's headings, recomputed by `render_doc_preview_action` on every debounced
@@ -928,12 +996,7 @@ fn parse_headings(data: &serde_json::Value) -> Vec<HeadingItem> {
         .unwrap_or_default()
 }
 
-/// Debounced "hot loading" for Typst/slide documents: 500ms after the last keystroke, if nothing
-/// newer arrived (generation-counter debounce, same pattern as the note editor's live preview),
-/// POST the current unsaved content to the existing `/projects/:id/render/preview` endpoint and
-/// swap in the recompiled pages (or the compile error) -- no full page reload, no explicit Save.
-#[cfg(feature = "hydrate")]
-fn debounced_typst_preview(
+struct TypstPreviewArgs {
     code_ref: NodeRef<leptos::html::Textarea>,
     project_id: String,
     file_path: String,
@@ -942,7 +1005,22 @@ fn debounced_typst_preview(
     compile_error: RwSignal<Option<String>>,
     current_slide: RwSignal<usize>,
     headings: RwSignal<Vec<HeadingItem>>,
-) {
+}
+
+/// Debounced "hot loading" for Typst/slide documents: 500ms after the last keystroke, if nothing
+/// newer arrived (generation-counter debounce, same pattern as the note editor's live preview),
+/// POST the current unsaved content to the existing `/projects/:id/render/preview` endpoint and
+/// swap in the recompiled pages (or the compile error) -- no full page reload, no explicit Save.
+#[cfg(feature = "hydrate")]
+fn debounced_typst_preview(args: TypstPreviewArgs) {
+    let code_ref = args.code_ref;
+    let project_id = args.project_id;
+    let file_path = args.file_path;
+    let debounce_gen = args.debounce_gen;
+    let pages = args.pages;
+    let compile_error = args.compile_error;
+    let current_slide = args.current_slide;
+    let headings = args.headings;
     let my_gen = debounce_gen.get_value().wrapping_add(1);
     debounce_gen.set_value(my_gen);
     wasm_bindgen_futures::spawn_local(async move {
@@ -1000,25 +1078,9 @@ fn debounced_typst_preview(
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn debounced_typst_preview(
-    _code_ref: NodeRef<leptos::html::Textarea>,
-    _project_id: String,
-    _file_path: String,
-    _debounce_gen: StoredValue<u32>,
-    _pages: RwSignal<Vec<String>>,
-    _compile_error: RwSignal<Option<String>>,
-    _current_slide: RwSignal<usize>,
-    _headings: RwSignal<Vec<HeadingItem>>,
-) {
-}
+fn debounced_typst_preview(_args: TypstPreviewArgs) {}
 
-/// Debounced "hot loading" for LaTeX: 500ms after the last keystroke, save + recompile via the
-/// same `/render/preview` endpoint the note/Typst editors use, then -- only on success, so a
-/// failed compile never replaces a working preview with the endpoint's plain-text error page --
-/// bump `latex_reload_gen`, which changes the PDF `<iframe>`'s `src` query string so the browser
-/// actually re-fetches it instead of showing its cached copy of the previous PDF.
-#[cfg(feature = "hydrate")]
-fn debounced_latex_preview(
+struct LatexPreviewArgs {
     code_ref: NodeRef<leptos::html::Textarea>,
     project_id: String,
     file_path: String,
@@ -1027,7 +1089,23 @@ fn debounced_latex_preview(
     latex_error: RwSignal<Option<String>>,
     latex_engine: RwSignal<String>,
     headings: RwSignal<Vec<HeadingItem>>,
-) {
+}
+
+/// Debounced "hot loading" for LaTeX: 500ms after the last keystroke, save + recompile via the
+/// same `/render/preview` endpoint the note/Typst editors use, then -- only on success, so a
+/// failed compile never replaces a working preview with the endpoint's plain-text error page --
+/// bump `latex_reload_gen`, which changes the PDF `<iframe>`'s `src` query string so the browser
+/// actually re-fetches it instead of showing its cached copy of the previous PDF.
+#[cfg(feature = "hydrate")]
+fn debounced_latex_preview(args: LatexPreviewArgs) {
+    let code_ref = args.code_ref;
+    let project_id = args.project_id;
+    let file_path = args.file_path;
+    let debounce_gen = args.debounce_gen;
+    let latex_reload_gen = args.latex_reload_gen;
+    let latex_error = args.latex_error;
+    let latex_engine = args.latex_engine;
+    let headings = args.headings;
     let my_gen = debounce_gen.get_value().wrapping_add(1);
     debounce_gen.set_value(my_gen);
     wasm_bindgen_futures::spawn_local(async move {
@@ -1069,17 +1147,7 @@ fn debounced_latex_preview(
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn debounced_latex_preview(
-    _code_ref: NodeRef<leptos::html::Textarea>,
-    _project_id: String,
-    _file_path: String,
-    _debounce_gen: StoredValue<u32>,
-    _latex_reload_gen: RwSignal<u32>,
-    _latex_error: RwSignal<Option<String>>,
-    _latex_engine: RwSignal<String>,
-    _headings: RwSignal<Vec<HeadingItem>>,
-) {
-}
+fn debounced_latex_preview(_args: LatexPreviewArgs) {}
 
 /// Debounced "hot loading" for plain markdown documents opened through this island (not `.anote`
 /// notes, which go through `NoteEditorIsland`'s own `debounced_preview` instead) -- previously

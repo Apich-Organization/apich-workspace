@@ -22,11 +22,14 @@
 //! that references a column beyond `Z` or a row past the grid's current size is a parse/eval
 //! error (`#REF!`), same as a malformed expression (`#ERROR`).
 
-/// Evaluates a cell's raw stored value: if it starts with `=`, parses and evaluates it as a
+/// Evaluates a cell's raw stored value.
+///
+/// If it starts with `=`, parses and evaluates it as a
 /// formula against the current grid (`cells[row][col]`, 0-indexed, `columns` giving the count
 /// of columns so a bare column-letter range like `A:A` knows how far down to read); anything
 /// else (including an empty string) passes through unchanged, matching every existing cell that
 /// predates this feature.
+#[must_use]
 pub fn display_value(
     raw: &str,
     cells: &[Vec<String>],
@@ -44,15 +47,18 @@ pub fn display_value(
 }
 
 fn format_number(n: f64) -> String {
+    if n == 0.0 {
+        return "0".to_string();
+    }
     if n.fract() == 0.0 && n.abs() < 1e15 {
-        format!("{}", n as i64)
+        format!("{n:.0}")
     } else {
-        let s = format!("{:.6}", n);
+        let s = format!("{n:.6}");
         s.trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 enum FormulaError {
     Parse,
     Ref,
@@ -65,9 +71,9 @@ impl std::fmt::Display for FormulaError {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match self {
-            | FormulaError::Parse => write!(f, "#ERROR"),
-            | FormulaError::Ref => write!(f, "#REF!"),
-            | FormulaError::DivZero => write!(f, "#DIV/0!"),
+            | Self::Parse => write!(f, "#ERROR"),
+            | Self::Ref => write!(f, "#REF!"),
+            | Self::DivZero => write!(f, "#DIV/0!"),
         }
     }
 }
@@ -84,7 +90,7 @@ fn col_index(letter: &str) -> Option<usize> {
     }
     let c = letter.chars().next()?.to_ascii_uppercase();
     if c.is_ascii_uppercase() {
-        Some((c as u8 - b'A') as usize)
+        Some(usize::from((c as u8).saturating_sub(b'A')))
     } else {
         None
     }
@@ -115,7 +121,7 @@ fn cell_value(
     raw.trim().parse::<f64>().map_err(|_| FormulaError::Parse)
 }
 
-/// Parses `A1` / `a12` into (row_index, col_index), both 0-based.
+/// Parses `A1` / `a12` into (`row_index`, `col_index`), both 0-based.
 fn parse_cell_ref(s: &str) -> Option<(usize, usize)> {
     let s = s.trim();
     let split_at = s.find(|c: char| c.is_ascii_digit())?;
@@ -128,7 +134,7 @@ fn parse_cell_ref(s: &str) -> Option<(usize, usize)> {
     if row_num == 0 {
         return None;
     }
-    Some((row_num - 1, col))
+    Some((row_num.saturating_sub(1), col))
 }
 
 /// Parses a function argument that's a range: `A1:B1`, `A1:A10`, or a bare column like `A` /
@@ -148,7 +154,7 @@ fn resolve_range(
     // Bare column letter(s) on both ends (e.g. "A" or "A:A") -> whole column.
     if let (Some(c1), Some(c2)) = (col_index(start), col_index(end)) {
         if !start.chars().next().unwrap_or(' ').is_ascii_digit()
-            && start.chars().all(|c| c.is_alphabetic())
+            && start.chars().all(char::is_alphabetic)
         {
             let col = c1;
             if c1 != c2 {
@@ -159,8 +165,7 @@ fn resolve_range(
                 let raw = cells
                     .get(r)
                     .and_then(|row| row.get(col))
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
+                    .map_or("", String::as_str);
                 if raw.trim().is_empty() {
                     continue;
                 }
@@ -180,7 +185,7 @@ fn resolve_range(
     } else {
         (r2, r1)
     };
-    let mut out = Vec::with_capacity(hi - lo + 1);
+    let mut out = Vec::with_capacity(hi.saturating_sub(lo).saturating_add(1));
     for r in lo..=hi {
         out.push(cell_value(cells, r, c1)?);
     }
@@ -195,16 +200,18 @@ fn split_top_level_args(arg: &str) -> Vec<&str> {
     let mut start = 0usize;
     for (i, c) in arg.char_indices() {
         match c {
-            | '(' => depth += 1,
-            | ')' => depth -= 1,
+            | '(' => depth = depth.saturating_add(1),
+            | ')' => depth = depth.saturating_sub(1),
             | ',' if depth == 0 => {
-                parts.push(arg[start..i].trim());
-                start = i + 1;
+                let segment = arg.get(start..i).unwrap_or("").trim();
+                parts.push(segment);
+                start = i.saturating_add(1);
             },
             | _ => {},
         }
     }
-    parts.push(arg[start..].trim());
+    let last_segment = arg.get(start..).unwrap_or("").trim();
+    parts.push(last_segment);
     parts
 }
 
@@ -223,21 +230,22 @@ fn eval_function(
                     if values.is_empty() {
                         Err(FormulaError::DivZero)
                     } else {
-                        Ok(values.iter().sum::<f64>() / values.len() as f64)
+                        let count = u32::try_from(values.len()).map_or(1.0, f64::from);
+                        Ok(values.iter().sum::<f64>() / count)
                     }
                 },
-                | "COUNT" => Ok(values.len() as f64),
+                | "COUNT" => Ok(u32::try_from(values.len()).map_or(0.0, f64::from)),
                 | "MIN" => {
                     values
                         .iter()
-                        .cloned()
+                        .copied()
                         .fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.min(v))))
                         .ok_or(FormulaError::DivZero)
                 },
                 | "MAX" => {
                     values
                         .iter()
-                        .cloned()
+                        .copied()
                         .fold(None, |acc, v| Some(acc.map_or(v, |a: f64| a.max(v))))
                         .ok_or(FormulaError::DivZero)
                 },
@@ -257,7 +265,11 @@ fn eval_function(
             let parts = split_top_level_args(arg);
             let v = eval(parts.first().copied().unwrap_or(""), cells)?;
             let digits = match parts.get(1) {
-                | Some(d) => eval(d, cells)? as i32,
+                | Some(d) => {
+                    format!("{:.0}", eval(d, cells)?)
+                        .parse::<i32>()
+                        .unwrap_or(0)
+                },
                 | None => 0,
             };
             let factor = 10f64.powi(digits);
@@ -265,20 +277,22 @@ fn eval_function(
         },
         | "POWER" | "POW" => {
             let parts = split_top_level_args(arg);
-            if parts.len() != 2 {
-                return Err(FormulaError::Parse);
-            }
-            let base = eval(parts[0], cells)?;
-            let exp = eval(parts[1], cells)?;
+            let [base_s, exp_s] = match parts.as_slice() {
+                | [a, b] => [*a, *b],
+                | _ => return Err(FormulaError::Parse),
+            };
+            let base = eval(base_s, cells)?;
+            let exp = eval(exp_s, cells)?;
             Ok(base.powf(exp))
         },
         | "MOD" => {
             let parts = split_top_level_args(arg);
-            if parts.len() != 2 {
-                return Err(FormulaError::Parse);
-            }
-            let a = eval(parts[0], cells)?;
-            let b = eval(parts[1], cells)?;
+            let [a_s, b_s] = match parts.as_slice() {
+                | [a, b] => [*a, *b],
+                | _ => return Err(FormulaError::Parse),
+            };
+            let a = eval(a_s, cells)?;
+            let b = eval(b_s, cells)?;
             if b == 0.0 {
                 Err(FormulaError::DivZero)
             } else {
@@ -287,14 +301,15 @@ fn eval_function(
         },
         | "IF" => {
             let parts = split_top_level_args(arg);
-            if parts.len() != 3 {
-                return Err(FormulaError::Parse);
-            }
-            let cond = eval(parts[0], cells)?;
-            if cond != 0.0 {
-                eval(parts[1], cells)
+            let [cond_s, then_s, else_s] = match parts.as_slice() {
+                | [a, b, c] => [*a, *b, *c],
+                | _ => return Err(FormulaError::Parse),
+            };
+            let cond = eval(cond_s, cells)?;
+            if cond == 0.0 {
+                eval(else_s, cells)
             } else {
-                eval(parts[2], cells)
+                eval(then_s, cells)
             }
         },
         | _ => Err(FormulaError::Parse),
@@ -327,7 +342,7 @@ impl<'a> Parser<'a> {
 
     fn skip_ws(&mut self) {
         while matches!(self.peek(), Some(c) if c.is_whitespace()) {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
         }
     }
 
@@ -337,17 +352,23 @@ impl<'a> Parser<'a> {
         let lhs = self.expr()?;
         self.skip_ws();
         let first = self.peek();
-        let second = self.chars.get(self.pos + 1).copied();
-        let op = if matches!(first, Some('<') | Some('>')) && second == Some('=') {
-            let op: String = self.chars[self.pos..self.pos + 2].iter().collect();
-            self.pos += 2;
+        let second = self.chars.get(self.pos.saturating_add(1)).copied();
+        let op = if matches!(first, Some('<' | '>')) && second == Some('=') {
+            let end_pos = self.pos.saturating_add(2);
+            let op: String = self
+                .chars
+                .get(self.pos..end_pos)
+                .unwrap_or(&[])
+                .iter()
+                .collect();
+            self.pos = end_pos;
             Some(op)
         } else if first == Some('<') && second == Some('>') {
-            self.pos += 2;
+            self.pos = self.pos.saturating_add(2);
             Some("<>".to_string())
-        } else if matches!(first, Some('<') | Some('>') | Some('=')) {
-            let op = first.unwrap().to_string();
-            self.pos += 1;
+        } else if let Some(c) = first.filter(|&c| c == '<' || c == '>' || c == '=') {
+            let op = c.to_string();
+            self.pos = self.pos.saturating_add(1);
             Some(op)
         } else {
             None
@@ -355,8 +376,8 @@ impl<'a> Parser<'a> {
         let Some(op) = op else { return Ok(lhs) };
         let rhs = self.expr()?;
         let truth = match op.as_str() {
-            | "=" => lhs == rhs,
-            | "<>" => lhs != rhs,
+            | "=" => (lhs - rhs).abs() < f64::EPSILON,
+            | "<>" => (lhs - rhs).abs() >= f64::EPSILON,
             | "<=" => lhs <= rhs,
             | ">=" => lhs >= rhs,
             | "<" => lhs < rhs,
@@ -372,11 +393,11 @@ impl<'a> Parser<'a> {
             self.skip_ws();
             match self.peek() {
                 | Some('+') => {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                     val += self.term()?;
                 },
                 | Some('-') => {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                     val -= self.term()?;
                 },
                 | _ => break,
@@ -391,11 +412,11 @@ impl<'a> Parser<'a> {
             self.skip_ws();
             match self.peek() {
                 | Some('*') => {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                     val *= self.power()?;
                 },
                 | Some('/') => {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                     let rhs = self.power()?;
                     if rhs == 0.0 {
                         return Err(FormulaError::DivZero);
@@ -414,7 +435,7 @@ impl<'a> Parser<'a> {
         let base = self.factor()?;
         self.skip_ws();
         if self.peek() == Some('^') {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
             let exp = self.power()?;
             return Ok(base.powf(exp));
         }
@@ -425,15 +446,15 @@ impl<'a> Parser<'a> {
         self.skip_ws();
         match self.peek() {
             | Some('-') => {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
                 Ok(-self.factor()?)
             },
             | Some('(') => {
-                self.pos += 1;
+                self.pos = self.pos.saturating_add(1);
                 let val = self.comparison()?;
                 self.skip_ws();
                 if self.peek() == Some(')') {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                 } else {
                     return Err(FormulaError::Parse);
                 }
@@ -448,9 +469,11 @@ impl<'a> Parser<'a> {
     fn number(&mut self) -> EvalResult {
         let start = self.pos;
         while matches!(self.peek(), Some(c) if c.is_ascii_digit() || c == '.') {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
         }
-        self.chars[start..self.pos]
+        self.chars
+            .get(start..self.pos)
+            .unwrap_or(&[])
             .iter()
             .collect::<String>()
             .parse::<f64>()
@@ -461,40 +484,55 @@ impl<'a> Parser<'a> {
     fn ident_or_cellref(&mut self) -> EvalResult {
         let start = self.pos;
         while matches!(self.peek(), Some(c) if c.is_ascii_alphabetic()) {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
         }
-        let letters: String = self.chars[start..self.pos].iter().collect();
+        let letters: String = self
+            .chars
+            .get(start..self.pos)
+            .unwrap_or(&[])
+            .iter()
+            .collect();
         self.skip_ws();
 
         if self.peek() == Some('(') {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
             let arg_start = self.pos;
-            let mut depth = 1;
+            let mut depth = 1usize;
             while depth > 0 {
                 match self.peek() {
-                    | Some('(') => depth += 1,
-                    | Some(')') => depth -= 1,
+                    | Some('(') => depth = depth.saturating_add(1),
+                    | Some(')') => depth = depth.saturating_sub(1),
                     | None => return Err(FormulaError::Parse),
                     | _ => {},
                 }
                 if depth > 0 {
-                    self.pos += 1;
+                    self.pos = self.pos.saturating_add(1);
                 }
             }
-            let arg: String = self.chars[arg_start..self.pos].iter().collect();
-            self.pos += 1; // consume ')'
+            let arg: String = self
+                .chars
+                .get(arg_start..self.pos)
+                .unwrap_or(&[])
+                .iter()
+                .collect();
+            self.pos = self.pos.saturating_add(1); // consume ')'
             return eval_function(&letters, &arg, self.cells);
         }
 
         // Not a function call -> must be a cell reference: letters immediately followed by digits.
         let digit_start = self.pos;
         while matches!(self.peek(), Some(c) if c.is_ascii_digit()) {
-            self.pos += 1;
+            self.pos = self.pos.saturating_add(1);
         }
         if self.pos == digit_start {
             return Err(FormulaError::Parse);
         }
-        let digits: String = self.chars[digit_start..self.pos].iter().collect();
+        let digits: String = self
+            .chars
+            .get(digit_start..self.pos)
+            .unwrap_or(&[])
+            .iter()
+            .collect();
         let (row, col) =
             parse_cell_ref(&format!("{letters}{digits}")).ok_or(FormulaError::Parse)?;
         cell_value(self.cells, row, col)
@@ -579,7 +617,11 @@ mod tests {
     #[test]
     fn nested_formula_reference_recurses() {
         let mut g = grid();
-        g[2][1] = "=SUM(A1:A2)".to_string(); // B3 = SUM(A1:A2) = 30
+        if let Some(row) = g.get_mut(2) {
+            if let Some(cell) = row.get_mut(1) {
+                *cell = "=SUM(A1:A2)".to_string(); // B3 = SUM(A1:A2) = 30
+            }
+        }
         assert_eq!(display_value("=B3+1", &g), "31");
     }
 

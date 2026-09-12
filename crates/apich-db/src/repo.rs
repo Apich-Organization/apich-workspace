@@ -54,17 +54,25 @@ use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Data access layer and repository operations on PostgreSQL.
 pub struct Repository<'a> {
     pool: &'a PgPool,
 }
 
+#[allow(missing_docs)]
 impl<'a> Repository<'a> {
-    pub fn new(pool: &'a PgPool) -> Self {
+    /// Creates a new repository bound to a PostgreSQL connection pool.
+    #[must_use]
+    pub const fn new(pool: &'a PgPool) -> Self {
         Self { pool }
     }
 
     // --- User Operations ---
 
+    /// Create user.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_user(
         &self,
         dto: CreateUserDto,
@@ -77,11 +85,11 @@ impl<'a> Repository<'a> {
         let quota = dto.storage_quota_bytes.unwrap_or(10 * 1024 * 1024 * 1024);
 
         let user = sqlx::query_as::<_, User>(
-            r#"
+            r"
             INSERT INTO users (id, username, email, password_hash, display_name, role, is_platform_admin, storage_quota_bytes)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.username)
@@ -97,6 +105,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
+    /// Get user by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_user_by_id(
         &self,
         id: Uuid,
@@ -108,6 +120,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
+    /// Get user by username.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_user_by_username(
         &self,
         username: &str,
@@ -119,13 +135,17 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
+    /// Update user profile.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_user_profile(
         &self,
         id: Uuid,
         dto: UpdateUserProfileDto,
     ) -> Result<User> {
         let user = sqlx::query_as::<_, User>(
-            r#"
+            r"
             UPDATE users
             SET display_name = COALESCE($2, display_name),
                 email = COALESCE($3, email),
@@ -133,7 +153,7 @@ impl<'a> Repository<'a> {
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.display_name)
@@ -145,18 +165,22 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
+    /// Update user password.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_user_password(
         &self,
         id: Uuid,
         password_hash: &str,
     ) -> Result<()> {
         sqlx::query(
-            r#"
+            r"
             UPDATE users
             SET password_hash = $2,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
-            "#,
+            ",
         )
         .bind(id)
         .bind(password_hash)
@@ -168,6 +192,10 @@ impl<'a> Repository<'a> {
 
     // --- Workspace Operations ---
 
+    /// Create workspace.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_workspace(
         &self,
         dto: CreateWorkspaceDto,
@@ -180,11 +208,11 @@ impl<'a> Repository<'a> {
         let mut tx = self.pool.begin().await?;
 
         let ws = sqlx::query_as::<_, Workspace>(
-            r#"
+            r"
             INSERT INTO workspaces (id, owner_id, slug, name, description, visibility, container_name, settings)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.owner_id)
@@ -199,10 +227,10 @@ impl<'a> Repository<'a> {
 
         // Add owner as workspace member
         sqlx::query(
-            r#"
+            r"
             INSERT INTO workspace_members (workspace_id, user_id, role)
             VALUES ($1, $2, $3)
-            "#,
+            ",
         )
         .bind(ws.id)
         .bind(dto.owner_id)
@@ -214,6 +242,10 @@ impl<'a> Repository<'a> {
         Ok(ws)
     }
 
+    /// Get workspace by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_workspace_by_id(
         &self,
         id: Uuid,
@@ -225,6 +257,10 @@ impl<'a> Repository<'a> {
         Ok(ws)
     }
 
+    /// Add workspace member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn add_workspace_member(
         &self,
         workspace_id: Uuid,
@@ -232,12 +268,12 @@ impl<'a> Repository<'a> {
         role: MemberRole,
     ) -> Result<WorkspaceMember> {
         let member = sqlx::query_as::<_, WorkspaceMember>(
-            r#"
+            r"
             INSERT INTO workspace_members (workspace_id, user_id, role)
             VALUES ($1, $2, $3)
             ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role
             RETURNING *
-            "#,
+            ",
         )
         .bind(workspace_id)
         .bind(user_id)
@@ -250,6 +286,10 @@ impl<'a> Repository<'a> {
 
     // --- Document Operations ---
 
+    /// Create document.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_document(
         &self,
         dto: CreateDocumentDto,
@@ -260,11 +300,11 @@ impl<'a> Repository<'a> {
         let metadata = dto.metadata.unwrap_or_else(|| serde_json::json!({}));
 
         let doc = sqlx::query_as::<_, Document>(
-            r#"
+            r"
             INSERT INTO documents (id, workspace_id, rel_path, title, content, doc_type, metadata)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.workspace_id)
@@ -280,6 +320,9 @@ impl<'a> Repository<'a> {
     }
 
     /// Atomic document upsert leveraging PostgreSQL MERGE syntax
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn upsert_document(
         &self,
         dto: CreateDocumentDto,
@@ -290,7 +333,7 @@ impl<'a> Repository<'a> {
         let metadata = dto.metadata.unwrap_or_else(|| serde_json::json!({}));
 
         let doc = sqlx::query_as::<_, Document>(
-            r#"
+            r"
             INSERT INTO documents (id, workspace_id, rel_path, title, content, doc_type, metadata)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (workspace_id, rel_path) DO UPDATE SET
@@ -301,7 +344,7 @@ impl<'a> Repository<'a> {
                 metadata = EXCLUDED.metadata,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.workspace_id)
@@ -316,6 +359,10 @@ impl<'a> Repository<'a> {
         Ok(doc)
     }
 
+    /// Get document by path.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_document_by_path(
         &self,
         workspace_id: Uuid,
@@ -332,6 +379,9 @@ impl<'a> Repository<'a> {
     }
 
     /// Full-text search on documents using PostgreSQL 18 generated tsvector and GIN index
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn search_documents_fulltext(
         &self,
         workspace_id: Uuid,
@@ -339,14 +389,14 @@ impl<'a> Repository<'a> {
         limit: i64,
     ) -> Result<Vec<DocumentSearchResult>> {
         let results = sqlx::query_as::<_, DocumentSearchResult>(
-            r#"
+            r"
             SELECT id, workspace_id, rel_path, title, content, doc_type, version, metadata, created_at, updated_at,
                    ts_rank(search_tokens, websearch_to_tsquery('english', $2)) AS rank
             FROM documents
             WHERE workspace_id = $1 AND search_tokens @@ websearch_to_tsquery('english', $2)
             ORDER BY rank DESC, updated_at DESC
             LIMIT $3;
-            "#,
+            ",
         )
         .bind(workspace_id)
         .bind(query)
@@ -357,18 +407,21 @@ impl<'a> Repository<'a> {
         Ok(results)
     }
 
-    /// Query documents matching JSONB metadata containment (`@>`), accelerated by GIN jsonb_path_ops
+    /// Query documents matching JSONB metadata containment (`@>`), accelerated by GIN `jsonb_path_ops`
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn find_documents_by_metadata(
         &self,
         workspace_id: Uuid,
         filter: &serde_json::Value,
     ) -> Result<Vec<Document>> {
         let docs = sqlx::query_as::<_, Document>(
-            r#"
+            r"
             SELECT * FROM documents
             WHERE workspace_id = $1 AND metadata @> $2
             ORDER BY updated_at DESC;
-            "#,
+            ",
         )
         .bind(workspace_id)
         .bind(filter)
@@ -379,12 +432,15 @@ impl<'a> Repository<'a> {
     }
 
     /// Extract array elements from JSONB metadata using standard SQL/JSON `json_table` (PostgreSQL 17/18)
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn extract_document_tags(
         &self,
         doc_id: Uuid,
     ) -> Result<Vec<String>> {
         let tags: Vec<String> = sqlx::query_scalar(
-            r#"
+            r"
             SELECT jt.tag
             FROM documents d,
             JSON_TABLE(
@@ -395,7 +451,7 @@ impl<'a> Repository<'a> {
                 )
             ) AS jt
             WHERE d.id = $1;
-            "#,
+            ",
         )
         .bind(doc_id)
         .fetch_all(self.pool)
@@ -404,7 +460,10 @@ impl<'a> Repository<'a> {
         Ok(tags)
     }
 
-    /// Extract creation timestamp from UUIDv7 natively via PostgreSQL 18 function `uuid_extract_timestamp`
+    /// Extract creation timestamp from `UUIDv7` natively via PostgreSQL 18 function `uuid_extract_timestamp`
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn extract_uuidv7_timestamp(
         &self,
         id: Uuid,
@@ -419,6 +478,10 @@ impl<'a> Repository<'a> {
 
     // --- Knowledge Graph Operations (Plan.md Section 4) ---
 
+    /// Create knowledge node.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_knowledge_node(
         &self,
         dto: CreateKnowledgeNodeDto,
@@ -427,11 +490,11 @@ impl<'a> Repository<'a> {
         let metadata = dto.metadata.unwrap_or_else(|| serde_json::json!({}));
 
         let node = sqlx::query_as::<_, KnowledgeNode>(
-            r#"
+            r"
             INSERT INTO knowledge_nodes (id, workspace_id, node_type, title, content_hash, metadata)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.workspace_id)
@@ -445,6 +508,10 @@ impl<'a> Repository<'a> {
         Ok(node)
     }
 
+    /// Create knowledge edge.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_knowledge_edge(
         &self,
         dto: CreateKnowledgeEdgeDto,
@@ -453,11 +520,11 @@ impl<'a> Repository<'a> {
         let weight = dto.weight.unwrap_or(1.0);
 
         let edge = sqlx::query_as::<_, KnowledgeEdge>(
-            r#"
+            r"
             INSERT INTO knowledge_edges (id, workspace_id, source_id, target_id, relation_type, weight)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.workspace_id)
@@ -473,6 +540,10 @@ impl<'a> Repository<'a> {
 
     // --- Audit Log Operations (Plan.md Section 6) ---
 
+    /// Record audit log.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn record_audit_log(
         &self,
         dto: CreateAuditLogDto,
@@ -480,11 +551,11 @@ impl<'a> Repository<'a> {
         let id = Uuid::now_v7();
 
         let log = sqlx::query_as::<_, AuditLog>(
-            r#"
+            r"
             INSERT INTO audit_logs (id, user_id, workspace_id, action, details, ip_address)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.user_id)
@@ -500,6 +571,10 @@ impl<'a> Repository<'a> {
 
     // --- User Extensions ---
 
+    /// Get user by email.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_user_by_email(
         &self,
         email: &str,
@@ -511,6 +586,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
+    /// List users.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_users(&self) -> Result<Vec<User>> {
         let users = sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
             .fetch_all(self.pool)
@@ -520,6 +599,10 @@ impl<'a> Repository<'a> {
 
     // --- Organization Operations ---
 
+    /// Create organizationanization.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_organization(
         &self,
         owner_id: Uuid,
@@ -530,11 +613,11 @@ impl<'a> Repository<'a> {
         let allow_team_override = dto.allow_team_override.unwrap_or(true);
 
         let org = sqlx::query_as::<_, Organization>(
-            r#"
+            r"
             INSERT INTO organizations (id, slug, name, description, chat_url, meeting_url, drive_url, ai_agent_url, allow_team_override)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(&dto.slug)
@@ -550,10 +633,10 @@ impl<'a> Repository<'a> {
 
         // Add creator as organization owner
         sqlx::query(
-            r#"
+            r"
             INSERT INTO org_members (org_id, user_id, role)
             VALUES ($1, $2, 'owner')
-            "#,
+            ",
         )
         .bind(org.id)
         .bind(owner_id)
@@ -564,6 +647,10 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
+    /// Get organizationanization by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_organization_by_id(
         &self,
         id: Uuid,
@@ -575,6 +662,10 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
+    /// Get organizationanization by slug.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_organization_by_slug(
         &self,
         slug: &str,
@@ -586,17 +677,21 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
+    /// List organizationanizations for user.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_organizations_for_user(
         &self,
         user_id: Uuid,
     ) -> Result<Vec<Organization>> {
         let orgs = sqlx::query_as::<_, Organization>(
-            r#"
+            r"
             SELECT o.* FROM organizations o
             JOIN org_members om ON o.id = om.org_id
             WHERE om.user_id = $1
             ORDER BY o.name ASC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(self.pool)
@@ -604,6 +699,10 @@ impl<'a> Repository<'a> {
         Ok(orgs)
     }
 
+    /// List organizationanizations.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_organizations(
         &self,
         limit: i64,
@@ -617,6 +716,10 @@ impl<'a> Repository<'a> {
         Ok(orgs)
     }
 
+    /// Add organization member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn add_org_member(
         &self,
         org_id: Uuid,
@@ -624,11 +727,11 @@ impl<'a> Repository<'a> {
         role: &str,
     ) -> Result<()> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO org_members (org_id, user_id, role)
             VALUES ($1, $2, $3)
             ON CONFLICT (org_id, user_id) DO UPDATE SET role = EXCLUDED.role
-            "#,
+            ",
         )
         .bind(org_id)
         .bind(user_id)
@@ -638,6 +741,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Remove organization member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn remove_org_member(
         &self,
         org_id: Uuid,
@@ -651,18 +758,22 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// List organization members.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_org_members(
         &self,
         org_id: Uuid,
     ) -> Result<Vec<OrgMemberWithUser>> {
         let rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, String, String, Option<String>, DateTime<Utc>)>(
-            r#"
+            r"
             SELECT om.org_id, om.user_id, om.role, u.username, u.email, u.display_name, u.avatar_url, om.joined_at
             FROM org_members om
             JOIN users u ON om.user_id = u.id
             WHERE om.org_id = $1
             ORDER BY om.joined_at ASC
-            "#,
+            ",
         )
         .bind(org_id)
         .fetch_all(self.pool)
@@ -689,13 +800,17 @@ impl<'a> Repository<'a> {
         Ok(members)
     }
 
+    /// Update organizationanization.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_organization(
         &self,
         id: Uuid,
         dto: UpdateOrganizationDto,
     ) -> Result<Organization> {
         let org = sqlx::query_as::<_, Organization>(
-            r#"
+            r"
             UPDATE organizations
             SET name = COALESCE($2, name),
                 slug = COALESCE($3, slug),
@@ -708,7 +823,7 @@ impl<'a> Repository<'a> {
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.name)
@@ -725,6 +840,10 @@ impl<'a> Repository<'a> {
         Ok(org)
     }
 
+    /// Delete organizationanization.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn delete_organization(
         &self,
         id: Uuid,
@@ -742,14 +861,16 @@ impl<'a> Repository<'a> {
     /// - If Org has `allow_team_override == false`, Org links are strictly enforced globally.
     /// - If Org has `allow_team_override == true` and `team_id` is provided, traverses the team hierarchy
     ///   upwards to find team-level customizations, falling back to Org links for any unconfigured items.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn resolve_hub_links(
         &self,
         org_id: Uuid,
         team_id: Option<Uuid>,
     ) -> Result<EffectiveHubLinks> {
-        let org = match self.get_organization_by_id(org_id).await? {
-            | Some(o) => o,
-            | None => return Ok(EffectiveHubLinks::default()),
+        let Some(org) = self.get_organization_by_id(org_id).await? else {
+            return Ok(EffectiveHubLinks::default());
         };
 
         if !org.allow_team_override || team_id.is_none() {
@@ -807,7 +928,10 @@ impl<'a> Repository<'a> {
 
     // --- Team Operations (Recursive tree) ---
 
-
+    /// Create team.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_team(
         &self,
         creator_id: Uuid,
@@ -817,11 +941,11 @@ impl<'a> Repository<'a> {
         let mut tx = self.pool.begin().await?;
 
         let team = sqlx::query_as::<_, Team>(
-            r#"
+            r"
             INSERT INTO teams (id, org_id, parent_team_id, name, slug, description, chat_url, meeting_url, drive_url, ai_agent_url)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.org_id)
@@ -838,11 +962,11 @@ impl<'a> Repository<'a> {
 
         // Creator becomes team admin
         sqlx::query(
-            r#"
+            r"
             INSERT INTO team_members (team_id, user_id, role)
             VALUES ($1, $2, 'admin')
             ON CONFLICT (team_id, user_id) DO UPDATE SET role = 'admin'
-            "#,
+            ",
         )
         .bind(team.id)
         .bind(creator_id)
@@ -853,6 +977,10 @@ impl<'a> Repository<'a> {
         Ok(team)
     }
 
+    /// Get team by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_team_by_id(
         &self,
         id: Uuid,
@@ -864,6 +992,10 @@ impl<'a> Repository<'a> {
         Ok(team)
     }
 
+    /// List teams by organization.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_teams_by_org(
         &self,
         org_id: Uuid,
@@ -878,12 +1010,13 @@ impl<'a> Repository<'a> {
     }
 
     /// Build hierarchical team tree for an organization
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_team_tree_for_org(
         &self,
         org_id: Uuid,
     ) -> Result<Vec<TeamTreeNode>> {
-        let all_teams = self.list_teams_by_org(org_id).await?;
-
         // Helper to recursively assemble tree nodes
         fn assemble_subtrees(
             parent_id: Option<Uuid>,
@@ -903,9 +1036,14 @@ impl<'a> Repository<'a> {
                 .collect()
         }
 
+        let all_teams = self.list_teams_by_org(org_id).await?;
         Ok(assemble_subtrees(None, &all_teams))
     }
 
+    /// Add team member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn add_team_member(
         &self,
         team_id: Uuid,
@@ -913,11 +1051,11 @@ impl<'a> Repository<'a> {
         role: &str,
     ) -> Result<()> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO team_members (team_id, user_id, role)
             VALUES ($1, $2, $3)
             ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role
-            "#,
+            ",
         )
         .bind(team_id)
         .bind(user_id)
@@ -927,6 +1065,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Remove team member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn remove_team_member(
         &self,
         team_id: Uuid,
@@ -940,18 +1082,22 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// List team members.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_team_members(
         &self,
         team_id: Uuid,
     ) -> Result<Vec<TeamMemberWithUser>> {
         let rows = sqlx::query_as::<_, (Uuid, Uuid, String, String, String, String, Option<String>, DateTime<Utc>)>(
-            r#"
+            r"
             SELECT tm.team_id, tm.user_id, tm.role, u.username, u.email, u.display_name, u.avatar_url, tm.joined_at
             FROM team_members tm
             JOIN users u ON tm.user_id = u.id
             WHERE tm.team_id = $1
             ORDER BY tm.joined_at ASC
-            "#,
+            ",
         )
         .bind(team_id)
         .fetch_all(self.pool)
@@ -978,6 +1124,10 @@ impl<'a> Repository<'a> {
         Ok(members)
     }
 
+    /// Update team.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_team(
         &self,
         id: Uuid,
@@ -989,7 +1139,7 @@ impl<'a> Repository<'a> {
         };
 
         let team = sqlx::query_as::<_, Team>(
-            r#"
+            r"
             UPDATE teams
             SET name = COALESCE($2, name),
                 slug = COALESCE($3, slug),
@@ -1002,7 +1152,7 @@ impl<'a> Repository<'a> {
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.name)
@@ -1020,6 +1170,10 @@ impl<'a> Repository<'a> {
         Ok(team)
     }
 
+    /// Delete team.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn delete_team(
         &self,
         id: Uuid,
@@ -1033,7 +1187,10 @@ impl<'a> Repository<'a> {
 
     // --- Project Operations (Core Unit) ---
 
-
+    /// Create project.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_project(
         &self,
         dto: CreateProjectDto,
@@ -1042,11 +1199,11 @@ impl<'a> Repository<'a> {
         let settings = dto.settings.unwrap_or_else(|| serde_json::json!({}));
 
         let proj = sqlx::query_as::<_, Project>(
-            r#"
+            r"
             INSERT INTO projects (id, org_id, team_id, owner_id, name, slug, description, storage_path, settings)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.org_id)
@@ -1072,6 +1229,10 @@ impl<'a> Repository<'a> {
         Ok(proj)
     }
 
+    /// Get project by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_project_by_id(
         &self,
         id: Uuid,
@@ -1083,6 +1244,10 @@ impl<'a> Repository<'a> {
         Ok(proj)
     }
 
+    /// Get project by slug.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_project_by_slug(
         &self,
         org_id: Uuid,
@@ -1097,12 +1262,16 @@ impl<'a> Repository<'a> {
         Ok(proj)
     }
 
+    /// List projects for user.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_projects_for_user(
         &self,
         user_id: Uuid,
     ) -> Result<Vec<Project>> {
         let projs = sqlx::query_as::<_, Project>(
-            r#"
+            r"
             SELECT DISTINCT p.* FROM projects p
             LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = $1
             LEFT JOIN team_members tm ON p.team_id = tm.team_id AND tm.user_id = $1
@@ -1114,7 +1283,7 @@ impl<'a> Repository<'a> {
                 OR om.user_id = $1
             )
             ORDER BY p.updated_at DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_all(self.pool)
@@ -1122,6 +1291,10 @@ impl<'a> Repository<'a> {
         Ok(projs)
     }
 
+    /// List all projects admin.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_all_projects_admin(&self) -> Result<Vec<Project>> {
         let projs = sqlx::query_as::<_, Project>(
             "SELECT * FROM projects WHERE status != 'deleted' ORDER BY updated_at DESC",
@@ -1131,6 +1304,10 @@ impl<'a> Repository<'a> {
         Ok(projs)
     }
 
+    /// Update project status.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_project_status(
         &self,
         id: Uuid,
@@ -1144,6 +1321,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Set project vcs initialized.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn set_project_vcs_initialized(
         &self,
         id: Uuid,
@@ -1157,6 +1338,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Update project settings.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_project_settings(
         &self,
         id: Uuid,
@@ -1174,6 +1359,10 @@ impl<'a> Repository<'a> {
 
     // --- Project Members & Sharing ---
 
+    /// Add project member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn add_project_member(
         &self,
         project_id: Uuid,
@@ -1181,12 +1370,12 @@ impl<'a> Repository<'a> {
         role: &str,
     ) -> Result<ProjectMember> {
         let member = sqlx::query_as::<_, ProjectMember>(
-            r#"
+            r"
             INSERT INTO project_members (project_id, user_id, role)
             VALUES ($1, $2, $3)
             ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP
             RETURNING *
-            "#,
+            ",
         )
         .bind(project_id)
         .bind(user_id)
@@ -1197,6 +1386,10 @@ impl<'a> Repository<'a> {
         Ok(member)
     }
 
+    /// Update project member role.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_project_member_role(
         &self,
         project_id: Uuid,
@@ -1204,12 +1397,12 @@ impl<'a> Repository<'a> {
         role: &str,
     ) -> Result<ProjectMember> {
         let member = sqlx::query_as::<_, ProjectMember>(
-            r#"
+            r"
             UPDATE project_members
             SET role = $1, updated_at = CURRENT_TIMESTAMP
             WHERE project_id = $2 AND user_id = $3
             RETURNING *
-            "#,
+            ",
         )
         .bind(role)
         .bind(project_id)
@@ -1220,6 +1413,10 @@ impl<'a> Repository<'a> {
         Ok(member)
     }
 
+    /// Remove project member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn remove_project_member(
         &self,
         project_id: Uuid,
@@ -1233,12 +1430,16 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// List project members.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_project_members(
         &self,
         project_id: Uuid,
     ) -> Result<Vec<ProjectMemberWithUser>> {
         let members = sqlx::query_as::<_, ProjectMemberWithUser>(
-            r#"
+            r"
             SELECT
                 pm.project_id,
                 pm.user_id,
@@ -1259,7 +1460,7 @@ impl<'a> Repository<'a> {
                     ELSE 5
                 END,
                 pm.created_at ASC
-            "#,
+            ",
         )
         .bind(project_id)
         .fetch_all(self.pool)
@@ -1268,6 +1469,10 @@ impl<'a> Repository<'a> {
         Ok(members)
     }
 
+    /// Get project member.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_project_member(
         &self,
         project_id: Uuid,
@@ -1286,6 +1491,10 @@ impl<'a> Repository<'a> {
 
     // --- Project Sandbox Container Mapping (1 Project + 1 User) ---
 
+    /// Upsert project sandbox.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn upsert_project_sandbox(
         &self,
         project_id: Uuid,
@@ -1297,7 +1506,7 @@ impl<'a> Repository<'a> {
         let is_running = status == "running";
 
         let sandbox = sqlx::query_as::<_, ProjectSandbox>(
-            r#"
+            r"
             INSERT INTO project_sandboxes (id, project_id, user_id, container_name, status, last_started_at, last_activity_at)
             VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE NULL END, CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE NULL END)
             ON CONFLICT (project_id, user_id) DO UPDATE
@@ -1308,7 +1517,7 @@ impl<'a> Repository<'a> {
                 last_activity_at = CASE WHEN $6 THEN CURRENT_TIMESTAMP ELSE project_sandboxes.last_activity_at END,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(project_id)
@@ -1322,6 +1531,10 @@ impl<'a> Repository<'a> {
         Ok(sandbox)
     }
 
+    /// Get project sandbox.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_project_sandbox(
         &self,
         project_id: Uuid,
@@ -1340,6 +1553,9 @@ impl<'a> Repository<'a> {
     /// Record real activity in a running sandbox (a terminal command, script run, or agent run),
     /// resetting its idle clock. The idle reaper (`ProjectManagerService::reap_idle_sandboxes`)
     /// stops any `running` sandbox whose activity is older than the configured idle timeout.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn touch_sandbox_activity(
         &self,
         project_id: Uuid,
@@ -1357,6 +1573,9 @@ impl<'a> Repository<'a> {
 
     /// All `running` sandboxes whose last real activity (or, if none was ever recorded, their
     /// start time) is older than `idle_since` -- candidates for the idle reaper to stop.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_idle_running_sandboxes(
         &self,
         idle_since: DateTime<Utc>,
@@ -1375,6 +1594,9 @@ impl<'a> Repository<'a> {
     /// running container; nothing previously deleted a stopped one, so every sandbox this app ever
     /// started accumulated on the host forever once idle-stopped -- confirmed live: dozens of
     /// `apich-proj-*` containers going back over a day, none of them removed.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_stale_stopped_sandboxes(
         &self,
         stopped_since: DateTime<Utc>,
@@ -1388,10 +1610,13 @@ impl<'a> Repository<'a> {
         Ok(rows)
     }
 
-    /// Every tracked (project, user) -> container_name mapping regardless of status -- used to
+    /// Every tracked (project, user) -> `container_name` mapping regardless of status -- used to
     /// cross-reference against the real, ground-truth list of containers podman reports, so a
     /// container that exists on the host but was never recorded here (or whose record was already
     /// deleted) can be recognized as orphaned and removed.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_all_sandbox_container_names(&self) -> Result<Vec<String>> {
         let rows: Vec<(String,)> = sqlx::query_as("SELECT container_name FROM project_sandboxes")
             .fetch_all(self.pool)
@@ -1402,6 +1627,9 @@ impl<'a> Repository<'a> {
     /// Removes a sandbox's tracking row entirely, once its container has actually been removed
     /// from the host -- leaving a stale row around (even with `status = 'stopped'`) after the real
     /// container is gone serves no purpose and only risks a future stale-container mixup.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn delete_project_sandbox(
         &self,
         project_id: Uuid,
@@ -1417,6 +1645,10 @@ impl<'a> Repository<'a> {
 
     // --- User Session Operations ---
 
+    /// Create user session.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_user_session(
         &self,
         user_id: Uuid,
@@ -1427,11 +1659,11 @@ impl<'a> Repository<'a> {
     ) -> Result<UserSession> {
         let id = Uuid::now_v7();
         let session = sqlx::query_as::<_, UserSession>(
-            r#"
+            r"
             INSERT INTO user_sessions (id, user_id, token_hash, expires_at, user_agent, ip_address)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(user_id)
@@ -1445,16 +1677,20 @@ impl<'a> Repository<'a> {
         Ok(session)
     }
 
+    /// Get user by session token hash.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_user_by_session_token_hash(
         &self,
         token_hash: &str,
     ) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
-            r#"
+            r"
             SELECT u.* FROM users u
             JOIN user_sessions s ON u.id = s.user_id
             WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP AND u.is_active = true
-            "#,
+            ",
         )
         .bind(token_hash)
         .fetch_optional(self.pool)
@@ -1463,6 +1699,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
+    /// Delete user session.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn delete_user_session(
         &self,
         token_hash: &str,
@@ -1476,6 +1716,10 @@ impl<'a> Repository<'a> {
 
     // --- FIDO2 / WebAuthn Credentials ---
 
+    /// Save fIDo2 credential.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn save_fido2_credential(
         &self,
         user_id: Uuid,
@@ -1487,11 +1731,11 @@ impl<'a> Repository<'a> {
     ) -> Result<Fido2Credential> {
         let id = Uuid::now_v7();
         let cred = sqlx::query_as::<_, Fido2Credential>(
-            r#"
+            r"
             INSERT INTO fido2_credentials (id, user_id, credential_id, public_key, counter, device_name, aaguid)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(user_id)
@@ -1506,6 +1750,10 @@ impl<'a> Repository<'a> {
         Ok(cred)
     }
 
+    /// Get fIDo2 credentials by user.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_fido2_credentials_by_user(
         &self,
         user_id: Uuid,
@@ -1519,6 +1767,10 @@ impl<'a> Repository<'a> {
         Ok(creds)
     }
 
+    /// Get fIDo2 credential by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_fido2_credential_by_id(
         &self,
         credential_id: &str,
@@ -1532,6 +1784,10 @@ impl<'a> Repository<'a> {
         Ok(cred)
     }
 
+    /// Update fIDo2 counter.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_fido2_counter(
         &self,
         credential_id: &str,
@@ -1549,6 +1805,10 @@ impl<'a> Repository<'a> {
 
     // --- Personal Access Tokens ---
 
+    /// Create personal access token.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_personal_access_token(
         &self,
         user_id: Uuid,
@@ -1559,11 +1819,11 @@ impl<'a> Repository<'a> {
     ) -> Result<PersonalAccessToken> {
         let id = Uuid::now_v7();
         let pat = sqlx::query_as::<_, PersonalAccessToken>(
-            r#"
+            r"
             INSERT INTO personal_access_tokens (id, user_id, name, token_hash, token_prefix, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(user_id)
@@ -1576,6 +1836,10 @@ impl<'a> Repository<'a> {
         Ok(pat)
     }
 
+    /// List personal access tokens.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_personal_access_tokens(
         &self,
         user_id: Uuid,
@@ -1591,19 +1855,22 @@ impl<'a> Repository<'a> {
 
     /// Look up the active user behind a plaintext PAT's hash, for Basic/Bearer auth on the
     /// self-hosted git and apich-vcs remote endpoints. Touches `last_used_at` on a hit.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_user_by_active_pat_hash(
         &self,
         token_hash: &str,
     ) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, User>(
-            r#"
+            r"
             SELECT u.* FROM users u
             JOIN personal_access_tokens t ON u.id = t.user_id
             WHERE t.token_hash = $1
               AND t.revoked_at IS NULL
               AND (t.expires_at IS NULL OR t.expires_at > CURRENT_TIMESTAMP)
               AND u.is_active = true
-            "#,
+            ",
         )
         .bind(token_hash)
         .fetch_optional(self.pool)
@@ -1620,6 +1887,10 @@ impl<'a> Repository<'a> {
         Ok(user)
     }
 
+    /// Revoke personal access token.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn revoke_personal_access_token(
         &self,
         user_id: Uuid,
@@ -1637,6 +1908,10 @@ impl<'a> Repository<'a> {
 
     // --- SSH Public Keys (storage/identity only -- no SSH transport server) ---
 
+    /// Add ssh public key.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn add_ssh_public_key(
         &self,
         user_id: Uuid,
@@ -1647,11 +1922,11 @@ impl<'a> Repository<'a> {
     ) -> Result<SshPublicKey> {
         let id = Uuid::now_v7();
         let key = sqlx::query_as::<_, SshPublicKey>(
-            r#"
+            r"
             INSERT INTO ssh_public_keys (id, user_id, name, key_type, public_key, fingerprint)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(user_id)
@@ -1664,6 +1939,10 @@ impl<'a> Repository<'a> {
         Ok(key)
     }
 
+    /// List ssh public keys.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_ssh_public_keys(
         &self,
         user_id: Uuid,
@@ -1677,6 +1956,10 @@ impl<'a> Repository<'a> {
         Ok(keys)
     }
 
+    /// Delete ssh public key.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn delete_ssh_public_key(
         &self,
         user_id: Uuid,
@@ -1692,6 +1975,10 @@ impl<'a> Repository<'a> {
 
     // --- GPG Public Keys (signature verification for apich-vcs snapshots) ---
 
+    /// Add gpg public key.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn add_gpg_public_key(
         &self,
         user_id: Uuid,
@@ -1701,11 +1988,11 @@ impl<'a> Repository<'a> {
     ) -> Result<GpgPublicKey> {
         let id = Uuid::now_v7();
         let key = sqlx::query_as::<_, GpgPublicKey>(
-            r#"
+            r"
             INSERT INTO gpg_public_keys (id, user_id, name, public_key, fingerprint)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(user_id)
@@ -1717,6 +2004,10 @@ impl<'a> Repository<'a> {
         Ok(key)
     }
 
+    /// List gpg public keys.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_gpg_public_keys(
         &self,
         user_id: Uuid,
@@ -1730,6 +2021,10 @@ impl<'a> Repository<'a> {
         Ok(keys)
     }
 
+    /// Delete gpg public key.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn delete_gpg_public_key(
         &self,
         user_id: Uuid,
@@ -1746,16 +2041,19 @@ impl<'a> Repository<'a> {
     /// All GPG public keys belonging to anyone with access to a project (owner + members) --
     /// used to check a snapshot's signature under "vigilant mode" without needing to know exactly
     /// which member authored it (apich-vcs snapshots don't yet carry a real per-member author id).
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_gpg_public_keys_for_project(
         &self,
         project_id: Uuid,
     ) -> Result<Vec<GpgPublicKey>> {
         let keys = sqlx::query_as::<_, GpgPublicKey>(
-            r#"
+            r"
             SELECT DISTINCT k.* FROM gpg_public_keys k
             WHERE k.user_id = (SELECT owner_id FROM projects WHERE id = $1)
                OR k.user_id IN (SELECT user_id FROM project_members WHERE project_id = $1)
-            "#,
+            ",
         )
         .bind(project_id)
         .fetch_all(self.pool)
@@ -1763,6 +2061,10 @@ impl<'a> Repository<'a> {
         Ok(keys)
     }
 
+    /// Set project vigilant mode.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn set_project_vigilant_mode(
         &self,
         project_id: Uuid,
@@ -1780,6 +2082,10 @@ impl<'a> Repository<'a> {
 
     // --- System Settings & Invitations ---
 
+    /// Get system settings.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_system_settings(&self) -> Result<SystemSettings> {
         let settings =
             sqlx::query_as::<_, SystemSettings>("SELECT * FROM system_settings WHERE id = 1")
@@ -1788,12 +2094,16 @@ impl<'a> Repository<'a> {
         Ok(settings)
     }
 
+    /// Update system settings.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_system_settings(
         &self,
         dto: UpdateSystemSettingsDto,
     ) -> Result<SystemSettings> {
         let settings = sqlx::query_as::<_, SystemSettings>(
-            r#"
+            r"
             UPDATE system_settings
             SET registration_mode = COALESCE($1, registration_mode),
                 smtp_host = COALESCE($2, smtp_host),
@@ -1807,7 +2117,7 @@ impl<'a> Repository<'a> {
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = 1
             RETURNING *
-            "#,
+            ",
         )
         .bind(dto.registration_mode)
         .bind(dto.smtp_host)
@@ -1824,6 +2134,10 @@ impl<'a> Repository<'a> {
         Ok(settings)
     }
 
+    /// Create invitation.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_invitation(
         &self,
         token: &str,
@@ -1833,11 +2147,11 @@ impl<'a> Repository<'a> {
         let role = dto.role.unwrap_or_else(|| "member".to_string());
 
         let invite = sqlx::query_as::<_, Invitation>(
-            r#"
+            r"
             INSERT INTO invitations (id, token, email, org_id, team_id, role, inviter_id, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(token)
@@ -1853,6 +2167,10 @@ impl<'a> Repository<'a> {
         Ok(invite)
     }
 
+    /// Get invitation by token.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_invitation_by_token(
         &self,
         token: &str,
@@ -1866,6 +2184,10 @@ impl<'a> Repository<'a> {
         Ok(invite)
     }
 
+    /// Mark invitation used.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn mark_invitation_used(
         &self,
         token: &str,
@@ -1879,16 +2201,20 @@ impl<'a> Repository<'a> {
 
     // --- SSO / OAuth2 Platform Operations ---
 
+    /// Create oauth client.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_oauth_client(
         &self,
         dto: CreateOAuthClientDto,
     ) -> Result<OAuthClient> {
         let client = sqlx::query_as::<_, OAuthClient>(
-            r#"
+            r"
             INSERT INTO oauth_clients (client_id, client_secret_hash, name, redirect_uris, is_confidential)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
-            "#,
+            ",
         )
         .bind(&dto.client_id)
         .bind(&dto.client_secret_hash)
@@ -1901,6 +2227,10 @@ impl<'a> Repository<'a> {
         Ok(client)
     }
 
+    /// Get oauth client by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_oauth_client_by_id(
         &self,
         client_id: &str,
@@ -1913,6 +2243,10 @@ impl<'a> Repository<'a> {
         Ok(client)
     }
 
+    /// List oauth clients.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_oauth_clients(&self) -> Result<Vec<OAuthClient>> {
         let clients = sqlx::query_as::<_, OAuthClient>(
             "SELECT * FROM oauth_clients ORDER BY created_at DESC",
@@ -1922,6 +2256,10 @@ impl<'a> Repository<'a> {
         Ok(clients)
     }
 
+    /// Create oauth auth code.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_oauth_auth_code(
         &self,
         code: &str,
@@ -1932,11 +2270,11 @@ impl<'a> Repository<'a> {
         expires_at: DateTime<Utc>,
     ) -> Result<OAuthAuthCode> {
         let auth_code = sqlx::query_as::<_, OAuthAuthCode>(
-            r#"
+            r"
             INSERT INTO oauth_auth_codes (code, client_id, user_id, redirect_uri, scope, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(code)
         .bind(client_id)
@@ -1950,16 +2288,20 @@ impl<'a> Repository<'a> {
         Ok(auth_code)
     }
 
+    /// Consume oauth auth code.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn consume_oauth_auth_code(
         &self,
         code: &str,
     ) -> Result<Option<OAuthAuthCode>> {
         let auth_code = sqlx::query_as::<_, OAuthAuthCode>(
-            r#"
+            r"
             DELETE FROM oauth_auth_codes
             WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP
             RETURNING *
-            "#,
+            ",
         )
         .bind(code)
         .fetch_optional(self.pool)
@@ -1970,17 +2312,21 @@ impl<'a> Repository<'a> {
 
     // --- Template Library Operations ---
 
+    /// Create template.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn create_template(
         &self,
         dto: CreateTemplateDto,
     ) -> Result<Template> {
         let id = Uuid::now_v7();
         let template = sqlx::query_as::<_, Template>(
-            r#"
+            r"
             INSERT INTO templates (id, kind, name, slug, description, owner_user_id, visibility)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(&dto.kind)
@@ -1994,6 +2340,10 @@ impl<'a> Repository<'a> {
         Ok(template)
     }
 
+    /// Get template by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_template_by_id(
         &self,
         id: Uuid,
@@ -2008,13 +2358,16 @@ impl<'a> Repository<'a> {
     /// Every template a `user_id` may see: their own (any visibility), plus every 'public' one,
     /// plus every 'shared' one whose `template_shares` list includes an org/team they belong to.
     /// `kind` optionally narrows the gallery to one content type (see `TemplateKind`).
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_visible_templates(
         &self,
         user_id: Uuid,
         kind: Option<&str>,
     ) -> Result<Vec<TemplateWithLatestVersion>> {
         let templates = sqlx::query_as::<_, TemplateWithLatestVersion>(
-            r#"
+            r"
             SELECT
                 t.id, t.kind, t.name, t.slug, t.description, t.owner_user_id, t.visibility,
                 t.created_at, t.updated_at,
@@ -2038,7 +2391,7 @@ impl<'a> Repository<'a> {
               )
             GROUP BY t.id, u.username
             ORDER BY t.updated_at DESC
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(kind)
@@ -2047,6 +2400,10 @@ impl<'a> Repository<'a> {
         Ok(templates)
     }
 
+    /// List templates owned by.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_templates_owned_by(
         &self,
         user_id: Uuid,
@@ -2060,6 +2417,10 @@ impl<'a> Repository<'a> {
         Ok(templates)
     }
 
+    /// Update template visibility.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn update_template_visibility(
         &self,
         id: Uuid,
@@ -2075,6 +2436,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Delete template.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn delete_template(
         &self,
         id: Uuid,
@@ -2086,6 +2451,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Add template share.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn add_template_share(
         &self,
         template_id: Uuid,
@@ -2094,11 +2463,11 @@ impl<'a> Repository<'a> {
     ) -> Result<TemplateShare> {
         let id = Uuid::now_v7();
         let share = sqlx::query_as::<_, TemplateShare>(
-            r#"
+            r"
             INSERT INTO template_shares (id, template_id, org_id, team_id)
             VALUES ($1, $2, $3, $4)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(template_id)
@@ -2109,6 +2478,10 @@ impl<'a> Repository<'a> {
         Ok(share)
     }
 
+    /// Remove template share.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn remove_template_share(
         &self,
         share_id: Uuid,
@@ -2120,6 +2493,10 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// List template shares.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_template_shares(
         &self,
         template_id: Uuid,
@@ -2133,17 +2510,21 @@ impl<'a> Repository<'a> {
         Ok(shares)
     }
 
+    /// Publish template version.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn publish_template_version(
         &self,
         dto: PublishTemplateVersionDto,
     ) -> Result<TemplateVersion> {
         let id = Uuid::now_v7();
         let version = sqlx::query_as::<_, TemplateVersion>(
-            r#"
+            r"
             INSERT INTO template_versions (id, template_id, version_label, changelog, content, published_by)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
+            ",
         )
         .bind(id)
         .bind(dto.template_id)
@@ -2162,6 +2543,10 @@ impl<'a> Repository<'a> {
         Ok(version)
     }
 
+    /// List template versions.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn list_template_versions(
         &self,
         template_id: Uuid,
@@ -2175,6 +2560,10 @@ impl<'a> Repository<'a> {
         Ok(versions)
     }
 
+    /// Get template version by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_template_version_by_id(
         &self,
         id: Uuid,
@@ -2187,6 +2576,10 @@ impl<'a> Repository<'a> {
         Ok(version)
     }
 
+    /// Get latest template version.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
     pub async fn get_latest_template_version(
         &self,
         template_id: Uuid,

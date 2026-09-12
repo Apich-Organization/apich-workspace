@@ -53,7 +53,7 @@ impl ProjectManager {
         }
     }
 
-    /// Create a new project, provision storage workspace directory, and initialize FastCDC VCS
+    /// Create a new project, provision storage workspace directory, and initialize `FastCDC` VCS
     pub async fn create_project(
         &self,
         mut dto: CreateProjectDto,
@@ -68,10 +68,7 @@ impl ProjectManager {
         };
 
         tokio::fs::create_dir_all(&project_dir).await.map_err(|e| {
-            WebError::Internal(format!(
-                "Failed to create project workspace directory: {}",
-                e
-            ))
+            WebError::Internal(format!("Failed to create project workspace directory: {e}"))
         })?;
 
         // Canonicalize before persisting: `base_storage_dir` (from `APICH_STORAGE_DIR`, default
@@ -90,8 +87,7 @@ impl ProjectManager {
         // equation entirely, for the lifetime of the project.
         let project_dir = tokio::fs::canonicalize(&project_dir).await.map_err(|e| {
             WebError::Internal(format!(
-                "Failed to resolve project workspace directory: {}",
-                e
+                "Failed to resolve project workspace directory: {e}"
             ))
         })?;
 
@@ -332,10 +328,7 @@ impl ProjectManager {
 
         let full_path = std::path::Path::new(&proj.storage_path).join(rel_path);
         if !full_path.exists() {
-            return Err(WebError::NotFound(format!(
-                "Script not found: {}",
-                rel_path
-            )));
+            return Err(WebError::NotFound(format!("Script not found: {rel_path}")));
         }
         let ext = full_path
             .extension()
@@ -350,7 +343,7 @@ impl ProjectManager {
         // exec already defaults its cwd to `/workspace` (see `UserContainer::exec`), so a plain
         // `rel_path` argument just works.
         let run_id = uuid::Uuid::new_v4().simple().to_string();
-        let rust_bin_path = format!("/tmp/apich_run_{}", run_id);
+        let rust_bin_path = format!("/tmp/apich_run_{run_id}");
         let cmd: Vec<String> = match ext.as_str() {
             | "py" => vec!["python3".to_string(), rel_path.to_string()],
             | "sh" | "bash" => vec!["bash".to_string(), rel_path.to_string()],
@@ -372,7 +365,10 @@ impl ProjectManager {
         };
         let mut cmd = cmd;
         if !args.trim().is_empty() {
-            cmd.extend(args.split_whitespace().map(|s| s.to_string()));
+            cmd.extend(
+                args.split_whitespace()
+                    .map(std::string::ToString::to_string),
+            );
         }
 
         let before_images = crate::services::document_renderer::DocumentRenderer::scan_images(
@@ -416,11 +412,11 @@ impl ProjectManager {
                     };
                     let b64 =
                         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-                    let data_uri = format!("data:{};base64,{}", mime, b64);
-                    let name = img_path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "output.png".to_string());
+                    let data_uri = format!("data:{mime};base64,{b64}");
+                    let name = img_path.file_name().map_or_else(
+                        || "output.png".to_string(),
+                        |n| n.to_string_lossy().to_string(),
+                    );
                     output_images.push(crate::services::document_renderer::ScriptOutputImage {
                         name,
                         data_uri,
@@ -494,16 +490,16 @@ impl ProjectManager {
             .await;
 
         let pdf_rel_path = if parent.is_empty() {
-            format!("{}.pdf", file_stem)
+            format!("{file_stem}.pdf")
         } else {
-            format!("{}/{}.pdf", parent, file_stem)
+            format!("{parent}/{file_stem}.pdf")
         };
 
         if !result.success() {
             let log_rel_path = if parent.is_empty() {
-                format!("{}.log", file_stem)
+                format!("{file_stem}.log")
             } else {
-                format!("{}/{}.log", parent, file_stem)
+                format!("{parent}/{file_stem}.log")
             };
             let log = container
                 .read_file_str(&log_rel_path)
@@ -516,8 +512,7 @@ impl ProjectManager {
             | Ok(bytes) => Ok(Ok(bytes)),
             | Err(e) => {
                 Ok(Err(format!(
-                    "pdflatex reported success but no PDF was found: {}",
-                    e
+                    "pdflatex reported success but no PDF was found: {e}"
                 )))
             },
         }
@@ -635,7 +630,7 @@ impl ProjectManager {
     /// returns the `.tex` source line that produced whatever's at that spot, via the real
     /// `synctex` CLI (part of every TeX Live install) reading the `.synctex.gz` written by
     /// `compile_latex_in_sandbox`'s `-synctex=1`. This is the same mechanism real LaTeX IDEs
-    /// (TeXstudio, Overleaf, VS Code's LaTeX Workshop) use for PDF-click-to-source-line --
+    /// (`TeXstudio`, Overleaf, VS Code's LaTeX Workshop) use for PDF-click-to-source-line --
     /// there's no simpler approximation that's actually correct, since where a glyph ends up on
     /// the page depends on the full TeX layout algorithm, not just line-counting.
     /// Returns `Ok(None)` (not an error) if synctex has no record for that exact spot, which is
@@ -660,12 +655,12 @@ impl ProjectManager {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         let pdf_rel_path = if parent.is_empty() {
-            format!("{}.pdf", file_stem)
+            format!("{file_stem}.pdf")
         } else {
-            format!("{}/{}.pdf", parent, file_stem)
+            format!("{parent}/{file_stem}.pdf")
         };
 
-        let spec = format!("{}:{}:{}:{}", page, x, y, pdf_rel_path);
+        let spec = format!("{page}:{x}:{y}:{pdf_rel_path}");
         let cmd = vec![
             "synctex".to_string(),
             "edit".to_string(),
@@ -711,7 +706,7 @@ impl ProjectManager {
         let container = self.ensure_agent_container(project_id, user_id).await?;
 
         let run_id = uuid::Uuid::new_v4().simple().to_string();
-        let out_rel_path = format!(".apich_slide_build_{}", run_id);
+        let out_rel_path = format!(".apich_slide_build_{run_id}");
         let download_stem = std::path::Path::new(rel_path)
             .file_stem()
             .and_then(|s| s.to_str())
@@ -739,8 +734,7 @@ impl ProjectManager {
             cmd.push(target.to_string());
         }
 
-        let opts =
-            apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(1800));
+        let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_mins(30));
         let stream = container.exec_stream(opts).await?;
 
         let _ = self
@@ -1017,7 +1011,7 @@ impl ProjectManager {
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        let commit_msg = format!("{} (by user {})", message, user_suffix);
+        let commit_msg = format!("{message} (by user {user_suffix})");
         let summary = vcs.snapshot_if_changed(&commit_msg)?;
 
         Ok(summary)
@@ -1204,7 +1198,7 @@ impl ProjectManager {
         Ok(ms)
     }
 
-    /// Undo the last reversible VCS operation (branch HEAD moves back per the OpLog)
+    /// Undo the last reversible VCS operation (branch HEAD moves back per the `OpLog`)
     pub async fn vcs_undo(
         &self,
         project_id: Uuid,
@@ -1330,7 +1324,7 @@ impl ProjectManager {
 
         let full_path = PathBuf::from(&proj.storage_path).join(rel_path);
         if !full_path.exists() {
-            return Err(WebError::NotFound(format!("File '{}' not found", rel_path)));
+            return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
         }
 
         let new_content = if let Some(custom) = custom_content {
@@ -1338,17 +1332,17 @@ impl ProjectManager {
         } else {
             let raw = tokio::fs::read_to_string(&full_path)
                 .await
-                .map_err(|e| WebError::Internal(format!("Failed to read file: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("Failed to read file: {e}")))?;
             resolve_conflict_content(&raw, choice)
         };
 
         tokio::fs::write(&full_path, new_content.as_bytes())
             .await
-            .map_err(|e| WebError::Internal(format!("Failed to write resolved file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to write resolved file: {e}")))?;
 
         // Create snapshot recording the resolution
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        let _ = vcs.snapshot_if_changed(format!("Resolved merge conflict in {}", rel_path))?;
+        let _ = vcs.snapshot_if_changed(format!("Resolved merge conflict in {rel_path}"))?;
 
         Ok(())
     }
@@ -1581,7 +1575,7 @@ impl ProjectManager {
             .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
         vcs.git_rebase(upstream)?;
-        let _ = vcs.snapshot_if_changed(format!("Rebased onto {}", upstream));
+        let _ = vcs.snapshot_if_changed(format!("Rebased onto {upstream}"));
         Ok(())
     }
 
@@ -1616,7 +1610,7 @@ impl ProjectManager {
             .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
         vcs.git_pull(remote, branch)?;
-        let _ = vcs.snapshot_if_changed(format!("Pulled from {} {}", remote, branch));
+        let _ = vcs.snapshot_if_changed(format!("Pulled from {remote} {branch}"));
         Ok(())
     }
 
@@ -1713,7 +1707,7 @@ impl ProjectManager {
                         }
 
                         let meta = entry.metadata().await.ok();
-                        let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                        let size_bytes = meta.as_ref().map_or(0, std::fs::Metadata::len);
                         let modified_rfc3339 = meta
                             .and_then(|m| m.modified().ok())
                             .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
@@ -1896,7 +1890,7 @@ impl ProjectManager {
         Ok(info)
     }
 
-    /// Update project-level sharing configuration (mode: public/specific/private, role: read_only/read_and_review/read_write_and_review)
+    /// Update project-level sharing configuration (mode: public/specific/private, role: `read_only/read_and_review/read_write_and_review`)
     pub async fn update_project_share_settings(
         &self,
         project_id: Uuid,
@@ -1937,12 +1931,12 @@ impl ProjectManager {
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if !full_path.exists() {
-            return Err(WebError::NotFound(format!("File '{}' not found", rel_path)));
+            return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
         }
 
         let content = tokio::fs::read_to_string(&full_path)
             .await
-            .map_err(|e| WebError::Internal(format!("Failed to read file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to read file: {e}")))?;
         Ok(content)
     }
 
@@ -1967,12 +1961,12 @@ impl ProjectManager {
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if !full_path.exists() {
-            return Err(WebError::NotFound(format!("File '{}' not found", rel_path)));
+            return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
         }
 
         tokio::fs::read(&full_path)
             .await
-            .map_err(|e| WebError::Internal(format!("Failed to read file: {}", e)))
+            .map_err(|e| WebError::Internal(format!("Failed to read file: {e}")))
     }
 
     /// Write text content to file and record VCS snapshot
@@ -1997,19 +1991,19 @@ impl ProjectManager {
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if let Some(parent) = full_path.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                WebError::Internal(format!("Failed to create parent directory: {}", e))
+                WebError::Internal(format!("Failed to create parent directory: {e}"))
             })?;
         }
 
         tokio::fs::write(&full_path, content.as_bytes())
             .await
-            .map_err(|e| WebError::Internal(format!("Failed to write file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to write file: {e}")))?;
 
         // FastCDC snapshot on save
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        let _ = vcs.snapshot_if_changed(format!("Update {} (by user {})", clean, user_suffix))?;
+        let _ = vcs.snapshot_if_changed(format!("Update {clean} (by user {user_suffix})"))?;
 
         Ok(())
     }
@@ -2036,14 +2030,13 @@ impl ProjectManager {
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if full_path.exists() {
             return Err(WebError::Conflict(format!(
-                "File '{}' already exists",
-                rel_path
+                "File '{rel_path}' already exists"
             )));
         }
 
         if let Some(parent) = full_path.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                WebError::Internal(format!("Failed to create parent directory: {}", e))
+                WebError::Internal(format!("Failed to create parent directory: {e}"))
             })?;
         }
 
@@ -2053,10 +2046,10 @@ impl ProjectManager {
             || clean.ends_with(".db")
         {
             let conn = rusqlite::Connection::open(&full_path).map_err(|e| {
-                WebError::Internal(format!("Failed to initialize SQLite table: {}", e))
+                WebError::Internal(format!("Failed to initialize SQLite table: {e}"))
             })?;
             conn.execute_batch(
-                r#"CREATE TABLE records (
+                r"CREATE TABLE records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     item_name TEXT NOT NULL,
     category TEXT,
@@ -2066,9 +2059,9 @@ impl ProjectManager {
 );
 INSERT INTO records (item_name, category, value, status, notes) VALUES
 ('Sample Data Alpha', 'Experimental', 98.4, 'verified', 'Initial measurement'),
-('Sample Data Beta', 'Control', 45.2, 'pending', 'Awaiting cross-validation');"#,
+('Sample Data Beta', 'Control', 45.2, 'pending', 'Awaiting cross-validation');",
             )
-            .map_err(|e| WebError::Internal(format!("Failed to seed table: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to seed table: {e}")))?;
         } else {
             // A new "slide" (cargo-slide) file imports `theme.typ`/`slide.typ` -- provision them
             // into this project if they're not already there (previously only ever written by
@@ -2080,7 +2073,7 @@ INSERT INTO records (item_name, category, value, status, notes) VALUES
                 )
                 .await
                 .map_err(|e| {
-                    WebError::Internal(format!("Failed to provision slide.typ/theme.typ: {}", e))
+                    WebError::Internal(format!("Failed to provision slide.typ/theme.typ: {e}"))
                 })?;
             }
             let initial_content = match template {
@@ -2132,7 +2125,7 @@ This document is authored inside APICH Unified Research Cloud.
 "#
                 },
                 | "latex" => {
-                    r#"\documentclass{article}
+                    r"\documentclass{article}
 \usepackage[utf8]{inputenc}
 
 \title{New Research Report}
@@ -2146,7 +2139,7 @@ This document is authored inside APICH Unified Research Cloud.
 Begin drafting your LaTeX manuscript here.
 
 \end{document}
-"#
+"
                 },
                 | "note" => {
                     r#"---
@@ -2170,13 +2163,13 @@ status: "in_progress"
 
             tokio::fs::write(&full_path, initial_content.as_bytes())
                 .await
-                .map_err(|e| WebError::Internal(format!("Failed to write new file: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("Failed to write new file: {e}")))?;
         }
 
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        let _ = vcs.snapshot_if_changed(format!("Create {} (by user {})", clean, user_suffix))?;
+        let _ = vcs.snapshot_if_changed(format!("Create {clean} (by user {user_suffix})"))?;
 
         Ok(())
     }
@@ -2207,27 +2200,25 @@ status: "in_progress"
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if full_path.exists() {
             return Err(WebError::Conflict(format!(
-                "File '{}' already exists",
-                rel_path
+                "File '{rel_path}' already exists"
             )));
         }
 
         if let Some(parent) = full_path.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                WebError::Internal(format!("Failed to create parent directory: {}", e))
+                WebError::Internal(format!("Failed to create parent directory: {e}"))
             })?;
         }
 
         tokio::fs::write(&full_path, content.as_bytes())
             .await
-            .map_err(|e| WebError::Internal(format!("Failed to write new file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to write new file: {e}")))?;
 
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
         let _ = vcs.snapshot_if_changed(format!(
-            "Create {} from template (by user {})",
-            clean, user_suffix
+            "Create {clean} from template (by user {user_suffix})"
         ))?;
 
         Ok(())
@@ -2253,17 +2244,17 @@ status: "in_progress"
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
         if !full_path.exists() {
-            return Err(WebError::NotFound(format!("File '{}' not found", rel_path)));
+            return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
         }
 
         tokio::fs::remove_file(&full_path)
             .await
-            .map_err(|e| WebError::Internal(format!("Failed to delete file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to delete file: {e}")))?;
 
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        let _ = vcs.snapshot_if_changed(format!("Delete {} (by user {})", clean, user_suffix))?;
+        let _ = vcs.snapshot_if_changed(format!("Delete {clean} (by user {user_suffix})"))?;
 
         Ok(())
     }

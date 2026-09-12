@@ -8,19 +8,30 @@ use apich_sandbox::SandboxManager;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Shared application state and dependency injection context passed to all handlers.
 #[derive(Clone)]
 pub struct AppState {
+    /// Database client handle.
     pub db: Arc<Database>,
+    /// Sandbox container manager.
     pub sandbox_manager: Arc<SandboxManager>,
+    /// Project and repository lifecycle service.
     pub project_manager: Arc<ProjectManager>,
+    /// User and team identity service.
     pub identity_service: Arc<IdentityService>,
+    /// Single sign-on and `OAuth2` service.
     pub sso_service: Arc<SsoService>,
+    /// Email dispatch service.
     pub mailer: Arc<MailerService>,
+    /// `WebAuthn` passkey manager.
     pub passkey_manager: Arc<PasskeyManager>,
+    /// Base URL of the deployed application.
     pub base_url: String,
 }
 
 impl AppState {
+    /// Creates a new application state with initialized services and managers.
+    #[must_use]
     pub fn new(
         db: Arc<Database>,
         sandbox_manager: Arc<SandboxManager>,

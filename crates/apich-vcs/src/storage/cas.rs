@@ -1,5 +1,8 @@
+//! Content-Addressable Storage (CAS) engine.
+
 use crate::chunking::FastCdc;
 use crate::chunking::FastCdcConfig;
+
 use crate::error::Result;
 use crate::error::VcsError;
 use crate::model::ChunkRef;
@@ -22,6 +25,10 @@ pub struct ContentAddressableStorage {
 }
 
 impl ContentAddressableStorage {
+    /// Creates or opens a `ContentAddressableStorage` repository at `root_dir`.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn new(root_dir: impl AsRef<Path>) -> Result<Self> {
         let root = root_dir.as_ref().to_path_buf();
         fs::create_dir_all(root.join("chunks"))?;
@@ -31,6 +38,7 @@ impl ContentAddressableStorage {
     }
 
     /// Root directory of the CAS store (typically `<project>/.apich/cas`)
+    #[must_use]
     pub fn root_dir(&self) -> &Path {
         &self.root_dir
     }
@@ -55,9 +63,11 @@ impl ContentAddressableStorage {
             .join("chunks")
             .join(prefix1)
             .join(prefix2)
-            .join(format!("{}.chunk", hash))
+            .join(format!("{hash}.chunk"))
     }
 
+    /// Checks whether a chunk exists in the store for the given BLAKE3 hash.
+    #[must_use]
     pub fn has_chunk(
         &self,
         hash: &str,
@@ -66,6 +76,9 @@ impl ContentAddressableStorage {
     }
 
     /// Put raw chunk bytes into CAS (compressed via Gzip). Returns BLAKE3 hex hash.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn put_chunk(
         &self,
         data: &[u8],
@@ -91,6 +104,9 @@ impl ContentAddressableStorage {
     }
 
     /// Read raw chunk bytes from CAS (decompressed)
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn get_chunk(
         &self,
         hash: &str,
@@ -107,8 +123,12 @@ impl ContentAddressableStorage {
         Ok(decompressed)
     }
 
-    /// Process a whole file buffer through FastCDC, store all chunks into CAS,
-    /// and compute full-file BLAKE3 hash and Git SHA-1 hash.
+    /// Process a whole file buffer through `FastCDC` and store all chunks into CAS.
+    ///
+    /// Computes and returns the full-file BLAKE3 hash and Git SHA-1 hash alongside chunk references.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn put_file_data(
         &self,
         data: &[u8],
@@ -139,6 +159,9 @@ impl ContentAddressableStorage {
     }
 
     /// Reconstruct whole file content from chunk references
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn read_file_data(
         &self,
         chunks: &[ChunkRef],
@@ -159,9 +182,13 @@ impl ContentAddressableStorage {
     ) -> PathBuf {
         self.root_dir
             .join("trees")
-            .join(format!("{}.json", tree_hash))
+            .join(format!("{tree_hash}.json"))
     }
 
+    /// Stores a serialized `VcsTree` to disk if not already present.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn put_tree(
         &self,
         tree: &VcsTree,
@@ -174,13 +201,17 @@ impl ContentAddressableStorage {
         Ok(())
     }
 
+    /// Loads a `VcsTree` by its canonical tree hash.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn get_tree(
         &self,
         tree_hash: &str,
     ) -> Result<VcsTree> {
         let path = self.tree_path(tree_hash);
         if !path.exists() {
-            return Err(VcsError::Internal(format!("Tree not found: {}", tree_hash)));
+            return Err(VcsError::Internal(format!("Tree not found: {tree_hash}")));
         }
         let json = fs::read(path)?;
         let tree: VcsTree = serde_json::from_slice(&json)?;
@@ -193,9 +224,13 @@ impl ContentAddressableStorage {
         &self,
         id: Uuid,
     ) -> PathBuf {
-        self.root_dir.join("snapshots").join(format!("{}.json", id))
+        self.root_dir.join("snapshots").join(format!("{id}.json"))
     }
 
+    /// Persists a `Snapshot` to disk.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn put_snapshot(
         &self,
         snapshot: &Snapshot,
@@ -206,6 +241,10 @@ impl ContentAddressableStorage {
         Ok(())
     }
 
+    /// Loads a `Snapshot` by its unique UUID.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn get_snapshot(
         &self,
         id: Uuid,
@@ -219,6 +258,10 @@ impl ContentAddressableStorage {
         Ok(snapshot)
     }
 
+    /// Lists all snapshots in the repository sorted chronologically ascending.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn list_snapshots(&self) -> Result<Vec<Snapshot>> {
         let mut list = Vec::new();
         let snapshots_dir = self.root_dir.join("snapshots");
@@ -243,6 +286,10 @@ impl ContentAddressableStorage {
         Ok(list)
     }
 
+    /// Deletes a snapshot file by its UUID.
+    ///
+    /// # Errors
+    /// Returns an error if reading, writing, hashing, or accessing content-addressed storage fails.
     pub fn remove_snapshot(
         &self,
         id: Uuid,

@@ -6,10 +6,13 @@ use serde::Serialize;
 /// Other modules (e.g. `apich-git`, `apich-slide`, plugins) can attach arbitrary
 /// domain structs to entities without requiring database schema alterations.
 pub trait ExtensibleMetadata {
+    /// Returns an immutable reference to the entity's JSON metadata.
     fn metadata(&self) -> &serde_json::Value;
+
+    /// Returns a mutable reference to the entity's JSON metadata.
     fn metadata_mut(&mut self) -> &mut serde_json::Value;
 
-    /// Retrieve strongly-typed extension data stored under `key`
+    /// Retrieve strongly-typed extension data stored under `key`.
     fn get_ext<T: DeserializeOwned>(
         &self,
         key: &str,
@@ -19,7 +22,10 @@ pub trait ExtensibleMetadata {
             .and_then(|val| serde_json::from_value(val.clone()).ok())
     }
 
-    /// Store strongly-typed extension data under `key`
+    /// Store strongly-typed extension data under `key`.
+    ///
+    /// # Errors
+    /// Returns an error if serializing `value` into `serde_json::Value` fails.
     fn set_ext<T: Serialize>(
         &mut self,
         key: &str,

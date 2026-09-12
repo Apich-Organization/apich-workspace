@@ -1,66 +1,82 @@
+//! Built-in ignore profile definitions.
+
+/// Built-in ignore profile categories for synthetic filtering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IgnoreProfile {
+    /// Academic files: LaTeX, Typst, BibTeX aux, and generated PDFs.
     Academic,
+    /// Python build and cache artifacts: `__pycache__`, `.venv`, `.pytest_cache`.
     Python,
+    /// R workspace and history artifacts: `.Rhistory`, `.RData`.
     R,
+    /// General development artifacts: logs, environment files, swap files.
     Development,
+    /// Rust build artifacts: `target/`.
     Rust,
+    /// JavaScript and Node.js dependencies: `node_modules/`, `dist/`.
     JavaScript,
+    /// Java build outputs: `*.class`, `target/`.
     Java,
+    /// C and C++ compiled binaries, object files, and build directories.
     CCpp,
+    /// Editor and IDE configuration directories (`.vscode`, `.idea`, swap files).
     Editor,
 }
 
 impl IgnoreProfile {
     /// All known profiles, in the order they should be shown to a user
-    pub fn all() -> &'static [IgnoreProfile] {
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
         &[
-            IgnoreProfile::Development,
-            IgnoreProfile::Rust,
-            IgnoreProfile::JavaScript,
-            IgnoreProfile::Python,
-            IgnoreProfile::R,
-            IgnoreProfile::Java,
-            IgnoreProfile::CCpp,
-            IgnoreProfile::Academic,
-            IgnoreProfile::Editor,
+            Self::Development,
+            Self::Rust,
+            Self::JavaScript,
+            Self::Python,
+            Self::R,
+            Self::Java,
+            Self::CCpp,
+            Self::Academic,
+            Self::Editor,
         ]
     }
 
     /// Machine-readable id, stable across releases (used for config wiring / URLs)
-    pub fn id(&self) -> &'static str {
+    #[must_use]
+    pub const fn id(&self) -> &'static str {
         match self {
-            | IgnoreProfile::Academic => "academic",
-            | IgnoreProfile::Python => "python",
-            | IgnoreProfile::R => "r",
-            | IgnoreProfile::Development => "development",
-            | IgnoreProfile::Rust => "rust",
-            | IgnoreProfile::JavaScript => "javascript",
-            | IgnoreProfile::Java => "java",
-            | IgnoreProfile::CCpp => "ccpp",
-            | IgnoreProfile::Editor => "editor",
+            | Self::Academic => "academic",
+            | Self::Python => "python",
+            | Self::R => "r",
+            | Self::Development => "development",
+            | Self::Rust => "rust",
+            | Self::JavaScript => "javascript",
+            | Self::Java => "java",
+            | Self::CCpp => "ccpp",
+            | Self::Editor => "editor",
         }
     }
 
     /// Short human label for UI display
-    pub fn label(&self) -> &'static str {
+    #[must_use]
+    pub const fn label(&self) -> &'static str {
         match self {
-            | IgnoreProfile::Academic => "Academic (LaTeX/Typst)",
-            | IgnoreProfile::Python => "Python",
-            | IgnoreProfile::R => "R",
-            | IgnoreProfile::Development => "General dev",
-            | IgnoreProfile::Rust => "Rust / Cargo",
-            | IgnoreProfile::JavaScript => "JavaScript / Node",
-            | IgnoreProfile::Java => "Java / JVM",
-            | IgnoreProfile::CCpp => "C / C++",
-            | IgnoreProfile::Editor => "Editors & OS junk",
+            | Self::Academic => "Academic (LaTeX/Typst)",
+            | Self::Python => "Python",
+            | Self::R => "R",
+            | Self::Development => "General dev",
+            | Self::Rust => "Rust / Cargo",
+            | Self::JavaScript => "JavaScript / Node",
+            | Self::Java => "Java / JVM",
+            | Self::CCpp => "C / C++",
+            | Self::Editor => "Editors & OS junk",
         }
     }
 
     /// Return the list of glob patterns associated with the profile
-    pub fn patterns(&self) -> &'static [&'static str] {
+    #[must_use]
+    pub const fn patterns(&self) -> &'static [&'static str] {
         match self {
-            | IgnoreProfile::Academic => {
+            | Self::Academic => {
                 &[
                     "*.aux",
                     "*.fls",
@@ -100,7 +116,7 @@ impl IgnoreProfile {
                     "*.xdv",
                 ]
             },
-            | IgnoreProfile::Python => {
+            | Self::Python => {
                 &[
                     "__pycache__/**",
                     "*.pyc",
@@ -128,7 +144,7 @@ impl IgnoreProfile {
                     ".hypothesis/**",
                 ]
             },
-            | IgnoreProfile::R => {
+            | Self::R => {
                 &[
                     ".Rhistory",
                     ".RData",
@@ -144,7 +160,7 @@ impl IgnoreProfile {
                     ".httr-oauth",
                 ]
             },
-            | IgnoreProfile::Development => {
+            | Self::Development => {
                 &[
                     "target/**",
                     "node_modules/**",
@@ -163,7 +179,7 @@ impl IgnoreProfile {
                     ".cache/**",
                 ]
             },
-            | IgnoreProfile::Rust => {
+            | Self::Rust => {
                 &[
                     "target/**",
                     "Cargo.lock.bak",
@@ -173,7 +189,7 @@ impl IgnoreProfile {
                     ".cargo/git/**",
                 ]
             },
-            | IgnoreProfile::JavaScript => {
+            | Self::JavaScript => {
                 &[
                     "node_modules/**",
                     "dist/**",
@@ -195,7 +211,7 @@ impl IgnoreProfile {
                     ".yarn/install-state.gz",
                 ]
             },
-            | IgnoreProfile::Java => {
+            | Self::Java => {
                 &[
                     "*.class",
                     "target/**",
@@ -208,7 +224,7 @@ impl IgnoreProfile {
                     "hs_err_pid*.log",
                 ]
             },
-            | IgnoreProfile::CCpp => {
+            | Self::CCpp => {
                 &[
                     "*.o",
                     "*.obj",
@@ -229,7 +245,7 @@ impl IgnoreProfile {
                     ".ccls-cache/**",
                 ]
             },
-            | IgnoreProfile::Editor => {
+            | Self::Editor => {
                 &[
                     ".vscode/**",
                     ".idea/**",

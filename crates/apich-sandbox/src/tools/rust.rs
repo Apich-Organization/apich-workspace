@@ -1,17 +1,25 @@
+//! Rust compiler and Cargo toolchain integration.
+
 use crate::container::UserContainer;
 use crate::error::Result;
 use crate::exec::ExecResult;
 
+/// Helper for invoking rustc, cargo, and rustfmt inside a container.
 pub struct RustToolchain<'a> {
     container: &'a UserContainer,
 }
 
 impl<'a> RustToolchain<'a> {
-    pub fn new(container: &'a UserContainer) -> Self {
+    /// Creates a new `RustToolchain` instance.
+    #[must_use]
+    pub const fn new(container: &'a UserContainer) -> Self {
         Self { container }
     }
 
     /// Check rustc version
+    ///
+    /// # Errors
+    /// Returns an error if querying rustc version fails.
     pub async fn rustc_version(&self) -> Result<String> {
         let res = self.container.exec(&["rustc", "--version"]).await?;
         res.ensure_success(self.container.container_name())?;
@@ -19,6 +27,9 @@ impl<'a> RustToolchain<'a> {
     }
 
     /// Check cargo version
+    ///
+    /// # Errors
+    /// Returns an error if querying cargo version fails.
     pub async fn cargo_version(&self) -> Result<String> {
         let res = self.container.exec(&["cargo", "--version"]).await?;
         res.ensure_success(self.container.container_name())?;
@@ -26,6 +37,9 @@ impl<'a> RustToolchain<'a> {
     }
 
     /// Run `cargo build` with extra arguments
+    ///
+    /// # Errors
+    /// Returns an error if executing cargo build fails.
     pub async fn cargo_build(
         &self,
         extra_args: &[&str],
@@ -36,6 +50,9 @@ impl<'a> RustToolchain<'a> {
     }
 
     /// Run `cargo check`
+    ///
+    /// # Errors
+    /// Returns an error if executing cargo check fails.
     pub async fn cargo_check(
         &self,
         extra_args: &[&str],
@@ -46,6 +63,9 @@ impl<'a> RustToolchain<'a> {
     }
 
     /// Run `cargo test`
+    ///
+    /// # Errors
+    /// Returns an error if executing cargo test fails.
     pub async fn cargo_test(
         &self,
         extra_args: &[&str],
@@ -56,6 +76,9 @@ impl<'a> RustToolchain<'a> {
     }
 
     /// Run `cargo run`
+    ///
+    /// # Errors
+    /// Returns an error if executing cargo run fails.
     pub async fn cargo_run(
         &self,
         extra_args: &[&str],
@@ -66,6 +89,9 @@ impl<'a> RustToolchain<'a> {
     }
 
     /// Run `cargo-slide` (Section 2 of plan.md)
+    ///
+    /// # Errors
+    /// Returns an error if executing cargo slide fails.
     pub async fn cargo_slide(
         &self,
         extra_args: &[&str],
@@ -76,6 +102,9 @@ impl<'a> RustToolchain<'a> {
     }
 
     /// Compile a single rust source file directly with rustc
+    ///
+    /// # Errors
+    /// Returns an error if executing rustc compile fails.
     pub async fn compile_file(
         &self,
         source_path: &str,

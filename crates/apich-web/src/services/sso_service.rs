@@ -51,7 +51,7 @@ pub struct JwksResponse {
 }
 
 impl SsoService {
-    pub fn new(
+    pub const fn new(
         db: Arc<Database>,
         issuer_url: String,
         jwt_secret: String,
@@ -63,7 +63,7 @@ impl SsoService {
         }
     }
 
-    /// Return OIDC OpenID Provider Configuration discovery document
+    /// Return OIDC `OpenID` Provider Configuration discovery document
     pub fn get_discovery(&self) -> OidcDiscovery {
         OidcDiscovery {
             issuer: self.issuer_url.clone(),
@@ -101,7 +101,7 @@ impl SsoService {
         }
     }
 
-    /// Issue an OAuth2 Authorization Code
+    /// Issue an `OAuth2` Authorization Code
     pub async fn issue_auth_code(
         &self,
         client_id: &str,
@@ -131,7 +131,7 @@ impl SsoService {
         Ok(code)
     }
 
-    /// Exchange authorization code for access_token and id_token JWTs
+    /// Exchange authorization code for `access_token` and `id_token` JWTs
     pub async fn exchange_code(
         &self,
         code: &str,
@@ -194,7 +194,7 @@ impl SsoService {
             &claims,
             &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
         )
-        .map_err(|e| WebError::Internal(format!("JWT encode error: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("JWT encode error: {e}")))?;
 
         // For access_token, we can issue an opaque token or signed JWT
         let access_token = id_token.clone();
@@ -208,7 +208,7 @@ impl SsoService {
         })
     }
 
-    /// UserInfo endpoint claim resolver
+    /// `UserInfo` endpoint claim resolver
     pub async fn get_userinfo(
         &self,
         user_id: Uuid,

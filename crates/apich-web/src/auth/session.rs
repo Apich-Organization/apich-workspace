@@ -11,9 +11,11 @@ use rand::RngCore;
 use sha2::Digest;
 use sha2::Sha256;
 
+/// Name of the HTTP cookie used to store the user authentication session token.
 pub const SESSION_COOKIE_NAME: &str = "apich_session";
 
-/// Generate a cryptographically strong 32-byte session token encoded in Base64URL
+/// Generate a cryptographically strong 32-byte session token encoded in `Base64URL`
+#[must_use]
 pub fn generate_session_token() -> String {
     let mut bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut bytes);
@@ -21,6 +23,7 @@ pub fn generate_session_token() -> String {
 }
 
 /// Compute SHA-256 hash of a session token for secure database storage
+#[must_use]
 pub fn hash_session_token(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
@@ -28,22 +31,18 @@ pub fn hash_session_token(token: &str) -> String {
 }
 
 /// Helper to format Set-Cookie header for session
+#[must_use]
 pub fn build_session_cookie(
     token: &str,
     max_age_secs: i64,
 ) -> String {
-    format!(
-        "{}={}; Path=/; Max-Age={}; HttpOnly; SameSite=Lax",
-        SESSION_COOKIE_NAME, token, max_age_secs
-    )
+    format!("{SESSION_COOKIE_NAME}={token}; Path=/; Max-Age={max_age_secs}; HttpOnly; SameSite=Lax")
 }
 
 /// Helper to clear session cookie
+#[must_use]
 pub fn build_clear_cookie() -> String {
-    format!(
-        "{}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
-        SESSION_COOKIE_NAME
-    )
+    format!("{SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
 }
 
 /// Authenticated user extracted from session cookie or Authorization Bearer header
@@ -74,7 +73,7 @@ where
                             if let Ok(user_id) = uuid::Uuid::parse_str(&claims.sub) {
                                 let repo = app_state.db.repository();
                                 if let Ok(Some(user)) = repo.get_user_by_id(user_id).await {
-                                    return Ok(AuthUser(user));
+                                    return Ok(Self(user));
                                 }
                             }
                         }
@@ -83,12 +82,12 @@ where
                     let token_hash = hash_session_token(token);
                     let repo = app_state.db.repository();
                     if let Ok(Some(user)) = repo.get_user_by_session_token_hash(&token_hash).await {
-                        return Ok(AuthUser(user));
+                        return Ok(Self(user));
                     }
                     // Personal access tokens are hashed with the same scheme as session tokens
                     // (see `handlers::generate_pat`), so a PAT presented as a Bearer token works too.
                     if let Ok(Some(user)) = repo.get_user_by_active_pat_hash(&token_hash).await {
-                        return Ok(AuthUser(user));
+                        return Ok(Self(user));
                     }
                 }
 
@@ -105,7 +104,7 @@ where
                                 if let Ok(Some(user)) =
                                     repo.get_user_by_active_pat_hash(&token_hash).await
                                 {
-                                    return Ok(AuthUser(user));
+                                    return Ok(Self(user));
                                 }
                             }
                         }
@@ -126,7 +125,7 @@ where
                             if let Ok(Some(user)) =
                                 repo.get_user_by_session_token_hash(&token_hash).await
                             {
-                                return Ok(AuthUser(user));
+                                return Ok(Self(user));
                             }
                         }
                     }
@@ -156,7 +155,7 @@ where
     ) -> Result<Self, Self::Rejection> {
         let AuthUser(user) = AuthUser::from_request_parts(parts, state).await?;
         if user.is_platform_admin || user.role == apich_db::UserRole::Admin {
-            Ok(RequirePlatformAdmin(user))
+            Ok(Self(user))
         } else {
             Err(WebError::Forbidden(
                 "Platform administrator privileges required".to_string(),

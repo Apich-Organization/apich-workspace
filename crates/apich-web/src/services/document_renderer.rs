@@ -69,7 +69,7 @@ impl DocumentRenderer {
                 success: false,
                 pages_svg: Vec::new(),
                 total_pages: 0,
-                error_message: Some(format!("Source file not found: {}", rel_path)),
+                error_message: Some(format!("Source file not found: {rel_path}")),
             };
         }
 
@@ -79,13 +79,13 @@ impl DocumentRenderer {
         }
 
         let run_id = uuid::Uuid::new_v4().to_string();
-        let compile_dir = tmp_parent.join(format!("typst_{}", run_id));
+        let compile_dir = tmp_parent.join(format!("typst_{run_id}"));
         if let Err(e) = std::fs::create_dir_all(&compile_dir) {
             return TypstRenderResult {
                 success: false,
                 pages_svg: Vec::new(),
                 total_pages: 0,
-                error_message: Some(format!("Failed to create tmp dir: {}", e)),
+                error_message: Some(format!("Failed to create tmp dir: {e}")),
             };
         }
 
@@ -103,8 +103,7 @@ impl DocumentRenderer {
         // live: compiling the annotated copy from `.typst_dev_tmp/` threw exactly that error.
         let annotated_dir = target_file
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| root.to_path_buf());
+            .map_or_else(|| root.to_path_buf(), Path::to_path_buf);
         let mut annotated_path: Option<PathBuf> = None;
         let mut zero_content_calls: Vec<u32> = Vec::new();
 
@@ -112,7 +111,7 @@ impl DocumentRenderer {
             if let Ok(source) = std::fs::read_to_string(&target_file) {
                 let (annotated, calls) = Self::annotate_typst_lines_for_reverse_search(&source);
                 zero_content_calls = calls;
-                let file_path = annotated_dir.join(format!(".apich_sync_{}.typ", run_id));
+                let file_path = annotated_dir.join(format!(".apich_sync_{run_id}.typ"));
                 if std::fs::write(&file_path, annotated.as_bytes()).is_ok() {
                     input_to_compile = file_path.clone();
                     annotated_path = Some(file_path);
@@ -149,7 +148,7 @@ impl DocumentRenderer {
                     success: false,
                     pages_svg: Vec::new(),
                     total_pages: 0,
-                    error_message: Some(format!("Failed to execute typst binary: {}", e)),
+                    error_message: Some(format!("Failed to execute typst binary: {e}")),
                 };
             },
         };
@@ -237,7 +236,7 @@ impl DocumentRenderer {
         let root = project_root.as_ref();
         let target_file = root.join(rel_path);
         if !target_file.exists() {
-            return Err(format!("Source file not found: {}", rel_path));
+            return Err(format!("Source file not found: {rel_path}"));
         }
 
         let tmp_parent = Path::new("/home/user/tmp");
@@ -245,7 +244,7 @@ impl DocumentRenderer {
             std::fs::create_dir_all(tmp_parent).ok();
         }
         let run_id = uuid::Uuid::new_v4().to_string();
-        let out_path = tmp_parent.join(format!("typst_pdf_{}.pdf", run_id));
+        let out_path = tmp_parent.join(format!("typst_pdf_{run_id}.pdf"));
 
         let typst_bin = if Path::new("/home/user/.cargo/bin/typst").exists() {
             "/home/user/.cargo/bin/typst"
@@ -266,13 +265,13 @@ impl DocumentRenderer {
         let output = cmd
             .output()
             .await
-            .map_err(|e| format!("Failed to execute typst binary: {}", e))?;
+            .map_err(|e| format!("Failed to execute typst binary: {e}"))?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
 
         let bytes = std::fs::read(&out_path)
-            .map_err(|e| format!("typst reported success but no PDF was found: {}", e))?;
+            .map_err(|e| format!("typst reported success but no PDF was found: {e}"))?;
         let _ = std::fs::remove_file(&out_path);
         Ok(bytes)
     }
@@ -284,7 +283,7 @@ impl DocumentRenderer {
             let mut paths: Vec<PathBuf> = entries
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| p.extension().map(|e| e == "svg").unwrap_or(false))
+                .filter(|p| p.extension().is_some_and(|e| e == "svg"))
                 .collect();
 
             paths.sort_by_key(|p| {
@@ -370,7 +369,7 @@ impl DocumentRenderer {
                 continue;
             }
 
-            let in_markup_before = stack.last().map(|c| *c == '[').unwrap_or(true);
+            let in_markup_before = stack.last().map_or(true, |c| *c == '[');
             let stack_was_empty = stack.is_empty();
             let stack_len_before = stack.len();
             let mut balanced = true;
@@ -419,7 +418,7 @@ impl DocumentRenderer {
                 if let Some((_, annotated_any)) = current_call.as_mut() {
                     *annotated_any = true;
                 }
-                result.push(format!("#link(\"sync:line:{}\")[{}]", line_num, line));
+                result.push(format!("#link(\"sync:line:{line_num}\")[{line}]"));
             }
 
             if let Some((start, annotated_any)) = current_call {
@@ -453,7 +452,7 @@ impl DocumentRenderer {
             .map(|mut page| {
                 if !page.contains("sync:line:") {
                     if let (Some(&line), Some(pos)) = (calls.next(), page.find("<svg")) {
-                        page.insert_str(pos + 4, &format!(" data-fallback-line=\"{}\"", line));
+                        page.insert_str(pos + 4, &format!(" data-fallback-line=\"{line}\""));
                     }
                 }
                 page
@@ -479,10 +478,7 @@ impl DocumentRenderer {
         let script_file = root.join(rel_path);
 
         if !script_file.exists() {
-            return Err(WebError::NotFound(format!(
-                "Script not found: {}",
-                rel_path
-            )));
+            return Err(WebError::NotFound(format!("Script not found: {rel_path}")));
         }
 
         let ext = script_file
@@ -506,7 +502,7 @@ impl DocumentRenderer {
         // and any extra CLI args as real argv entries (`$1`, `${@:2}`) rather than interpolating
         // them into the shell string, so user-supplied args can't be misparsed as shell syntax.
         let run_id = uuid::Uuid::new_v4().simple().to_string();
-        let rust_bin_path = format!("/home/user/tmp/apich_run_{}", run_id);
+        let rust_bin_path = format!("/home/user/tmp/apich_run_{run_id}");
         let (interpreter, base_args): (&str, Vec<String>) = match ext.as_str() {
             | "py" => ("python3", vec![rel_path.to_string()]),
             | "sh" | "bash" => ("bash", vec![rel_path.to_string()]),
@@ -553,7 +549,7 @@ impl DocumentRenderer {
 
         let mut child = cmd
             .spawn()
-            .map_err(|e| WebError::Internal(format!("Failed to spawn script process: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to spawn script process: {e}")))?;
 
         if let Some(input) = stdin_input {
             if let Some(mut stdin) = child.stdin.take() {
@@ -565,7 +561,7 @@ impl DocumentRenderer {
         let output = child
             .wait_with_output()
             .await
-            .map_err(|e| WebError::Internal(format!("Script process execution error: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Script process execution error: {e}")))?;
 
         if ext == "rs" {
             let _ = std::fs::remove_file(&rust_bin_path);
@@ -601,11 +597,11 @@ impl DocumentRenderer {
                     };
                     let b64 =
                         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-                    let data_uri = format!("data:{};base64,{}", mime, b64);
-                    let name = img_path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "output.png".to_string());
+                    let data_uri = format!("data:{mime};base64,{b64}");
+                    let name = img_path.file_name().map_or_else(
+                        || "output.png".to_string(),
+                        |n| n.to_string_lossy().to_string(),
+                    );
 
                     output_images.push(ScriptOutputImage { name, data_uri });
                 }
@@ -664,7 +660,7 @@ impl DocumentRenderer {
         map
     }
 
-    /// Render Markdown document into HTML with KaTeX math rendering, interactive task checkboxes, and [[WikiLinks]]
+    /// Render Markdown document into HTML with `KaTeX` math rendering, interactive task checkboxes, and [[`WikiLinks`]]
     pub fn render_markdown_interactive(
         content: &str,
         file_path: &str,
@@ -735,8 +731,8 @@ impl DocumentRenderer {
                     in_list = true;
                 }
 
-                let mark = caps.get(1).map(|m| m.as_str()).unwrap_or(" ");
-                let raw_body = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+                let mark = caps.get(1).map_or(" ", |m| m.as_str());
+                let raw_body = caps.get(2).map_or("", |m| m.as_str()).trim();
                 let completed = mark == "x" || mark == "X";
                 let status = if completed {
                     "done"
@@ -758,7 +754,7 @@ impl DocumentRenderer {
                 clean_title = date_regex.replace_all(&clean_title, "").to_string();
                 let title = clean_title.trim().to_string();
 
-                let id = format!("{}:{}", file_path, line_num);
+                let id = format!("{file_path}:{line_num}");
                 tasks.push(MarkdownTask {
                     id,
                     file_path: file_path.to_string(),
@@ -829,18 +825,10 @@ impl DocumentRenderer {
                     let htext = trimmed[level..].trim();
                     let formatted_text = Self::format_inline_markdown(htext, project_id);
                     html.push_str(&format!(
-                        "<h{} data-line=\"{}\" class=\"doc-heading\" id=\"sec-{}\">\
-                            <span>{}</span>\
-                            <a href=\"javascript:void(0)\" class=\"line-sync-anchor\" data-line=\"{}\" title=\"Reverse search: jump to line {}\">#L{}</a>\
-                        </h{}>\n",
-                        level,
-                        line_num,
-                        line_num,
-                        formatted_text,
-                        line_num,
-                        line_num,
-                        line_num,
-                        level
+                        "<h{level} data-line=\"{line_num}\" class=\"doc-heading\" id=\"sec-{line_num}\">\
+                            <span>{formatted_text}</span>\
+                            <a href=\"javascript:void(0)\" class=\"line-sync-anchor\" data-line=\"{line_num}\" title=\"Reverse search: jump to line {line_num}\">#L{line_num}</a>\
+                        </h{level}>\n"
                     ));
                     continue;
                 }
@@ -855,8 +843,7 @@ impl DocumentRenderer {
             // Regular paragraph
             let p_formatted = Self::format_inline_markdown(trimmed, project_id);
             html.push_str(&format!(
-                "<p class=\"doc-paragraph\" data-line=\"{}\">{}</p>\n",
-                line_num, p_formatted
+                "<p class=\"doc-paragraph\" data-line=\"{line_num}\">{p_formatted}</p>\n"
             ));
         }
 
@@ -874,7 +861,7 @@ impl DocumentRenderer {
         MarkdownRenderResult { html, tasks }
     }
 
-    /// Format inline Markdown elements: `code`, **bold**, *italic*, $inline math$, and [[WikiLinks]]
+    /// Format inline Markdown elements: `code`, **bold**, *italic*, $inline math$, and [[`WikiLinks`]]
     fn format_inline_markdown(
         input: &str,
         project_id: uuid::Uuid,
@@ -891,13 +878,13 @@ impl DocumentRenderer {
         // demo project's own pipe-form links rendered exactly this way.
         let wiki_link = Regex::new(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]").unwrap();
         out = wiki_link
-            .replace_all(&out, |caps: &regex::Captures| {
-                let target = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
-                let display = caps.get(2).map(|m| m.as_str().trim()).unwrap_or(target);
+            .replace_all(&out, |caps: &regex::Captures<'_>| {
+                let target = caps.get(1).map_or("", |m| m.as_str().trim());
+                let display = caps.get(2).map_or(target, |m| m.as_str().trim());
                 let note_file = if target.ends_with(".anote") || target.ends_with(".md") {
                     target.to_string()
                 } else {
-                    format!("{}.anote", target)
+                    format!("{target}.anote")
                 };
                 format!(
                     "<a href=\"/projects/{}/note?file={}\" class=\"wiki-link-pill\">[[{}]]</a>",
@@ -911,22 +898,19 @@ impl DocumentRenderer {
         // Inline math: $formula$
         let inline_math = Regex::new(r"\$([^\$]+)\$").unwrap();
         out = inline_math
-            .replace_all(&out, |caps: &regex::Captures| {
-                let math = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                format!(
-                    "<span class=\"math-inline\" data-math=\"{}\">${}$</span>",
-                    math, math
-                )
+            .replace_all(&out, |caps: &regex::Captures<'_>| {
+                let math = caps.get(1).map_or("", |m| m.as_str());
+                format!("<span class=\"math-inline\" data-math=\"{math}\">${math}$</span>")
             })
             .to_string();
 
         // Bold: **text**
         let bold = Regex::new(r"\*\*([^\*]+)\*\*").unwrap();
         out = bold
-            .replace_all(&out, |caps: &regex::Captures| {
+            .replace_all(&out, |caps: &regex::Captures<'_>| {
                 format!(
                     "<strong>{}</strong>",
-                    caps.get(1).map(|m| m.as_str()).unwrap_or("")
+                    caps.get(1).map_or("", |m| m.as_str())
                 )
             })
             .to_string();
@@ -934,10 +918,10 @@ impl DocumentRenderer {
         // Inline code: `code`
         let code = Regex::new(r"`([^`]+)`").unwrap();
         out = code
-            .replace_all(&out, |caps: &regex::Captures| {
+            .replace_all(&out, |caps: &regex::Captures<'_>| {
                 format!(
                     "<code class=\"inline-code\">{}</code>",
-                    caps.get(1).map(|m| m.as_str()).unwrap_or("")
+                    caps.get(1).map_or("", |m| m.as_str())
                 )
             })
             .to_string();

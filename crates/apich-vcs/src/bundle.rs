@@ -1,3 +1,5 @@
+//! Project bundle export and import implementation.
+
 use crate::api::ProjectVcs;
 use crate::error::Result;
 use crate::error::VcsError;
@@ -21,27 +23,35 @@ use tar::Builder;
 use tar::Header;
 use uuid::Uuid;
 
-/// Result of accepting an uploaded bundle as a "push" (or, symmetrically, of accepting a
-/// downloaded bundle as a "pull"): which branches advanced, and which were left untouched
+/// Result of accepting an uploaded bundle.
+///
+/// Indicates which branches advanced, and which were left untouched
 /// because they were not a fast-forward of the receiving side's current history.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PushOutcome {
+    /// Branches that were successfully accepted and updated.
     pub accepted_branches: Vec<String>,
+    /// Branches that were rejected alongside the reason for rejection.
     pub rejected_branches: Vec<(String, String)>,
 }
 
 /// Metadata manifest stored within every APICH project bundle
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleManifest {
+    /// VCS format version used to create the bundle.
     pub vcs_version: String,
+    /// Timestamp when the bundle was created.
     pub created_at: DateTime<Utc>,
+    /// Name of the active branch at export time.
     pub head_branch: Option<String>,
+    /// Snapshot ID of HEAD at export time.
     pub head_snapshot_id: Option<Uuid>,
+    /// Total number of snapshots contained in the bundle.
     pub total_snapshots: usize,
 }
 
 /// Configuration options for project bundle export
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BundleOptions {
     /// Flate2 gzip compression level (default: 6)
     pub compression_level: u32,
@@ -63,6 +73,9 @@ pub struct ProjectBundle;
 
 impl ProjectBundle {
     /// Export the entire VCS repository (.apich directory and metadata) to a compressed stream
+    ///
+    /// # Errors
+    /// Returns an error if the bundle export, import, or file operation fails.
     pub fn export<W: Write>(
         vcs: &ProjectVcs,
         writer: W,
@@ -107,6 +120,9 @@ impl ProjectBundle {
     }
 
     /// Helper to export bundle directly to a filesystem path
+    ///
+    /// # Errors
+    /// Returns an error if the bundle export, import, or file operation fails.
     pub fn export_to_file(
         vcs: &ProjectVcs,
         dest_path: impl AsRef<Path>,
@@ -116,8 +132,12 @@ impl ProjectBundle {
         Self::export(vcs, file, options)
     }
 
-    /// Import a project bundle from a stream into a destination folder, fully materializing
-    /// all historical snapshots, branches, OpLog, and working copy files
+    /// Import a project bundle from a stream into a destination folder.
+    ///
+    /// Fully materializes all historical snapshots, branches, `OpLog`, and working copy files.
+    ///
+    /// # Errors
+    /// Returns an error if the bundle export, import, or file operation fails.
     pub fn import<R: Read>(
         reader: R,
         target_dir: impl AsRef<Path>,
@@ -141,6 +161,9 @@ impl ProjectBundle {
     }
 
     /// Helper to import a bundle file from disk into a target directory
+    ///
+    /// # Errors
+    /// Returns an error if the bundle export, import, or file operation fails.
     pub fn import_from_file(
         bundle_path: impl AsRef<Path>,
         target_dir: impl AsRef<Path>,
@@ -149,8 +172,10 @@ impl ProjectBundle {
         Self::import(file, target_dir)
     }
 
-    /// Accept an uploaded/downloaded bundle as a "push" (or symmetrically, a "pull" -- the same
-    /// merge logic is safe in both directions) into an *existing* project: unlike `import`, this
+    /// Accept an uploaded or downloaded bundle into an existing project.
+    ///
+    /// Acts as a "push" (or symmetrically, a "pull" -- the same
+    /// merge logic is safe in both directions): unlike `import`, this
     /// never replaces or wipes anything already there.
     ///
     /// CAS objects (chunks/trees/snapshots) are merged in unconditionally -- they're
@@ -160,6 +185,9 @@ impl ProjectBundle {
     /// for that branch is an ancestor of the incoming HEAD (a fast-forward) or the branch doesn't
     /// exist here yet; anything else is left untouched and reported back, mirroring how a real
     /// Git server rejects a non-fast-forward push rather than silently discarding history.
+    ///
+    /// # Errors
+    /// Returns an error if the bundle export, import, or file operation fails.
     pub fn accept_push<R: Read>(
         vcs: &ProjectVcs,
         reader: R,
@@ -262,8 +290,9 @@ impl ProjectBundle {
         false
     }
 
-    /// Recursively copy files from `src` into `dest`, skipping any path that already exists at
-    /// the destination -- correct here specifically because every file under `.apich/cas/` is
+    /// Recursively copy files from `src` into `dest`, skipping any existing paths.
+    ///
+    /// Correct here specifically because every file under `.apich/cas/` is
     /// named by the content hash of its own bytes, so "already exists" means "already identical".
     fn merge_copy_dir(
         src: &Path,
@@ -285,6 +314,9 @@ impl ProjectBundle {
 
     /// Export a clean archive (tar.gz) of a specific snapshot without .apich metadata
     /// Ideal for journal submissions, grading downloads, and distribution
+    ///
+    /// # Errors
+    /// Returns an error if the bundle export, import, or file operation fails.
     pub fn export_snapshot_archive<W: Write>(
         vcs: &ProjectVcs,
         snapshot_id: Uuid,
@@ -316,6 +348,9 @@ impl ProjectBundle {
     }
 
     /// Helper to export clean snapshot archive to a file
+    ///
+    /// # Errors
+    /// Returns an error if the bundle export, import, or file operation fails.
     pub fn export_snapshot_archive_to_file(
         vcs: &ProjectVcs,
         snapshot_id: Uuid,

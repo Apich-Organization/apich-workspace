@@ -1,3 +1,5 @@
+//! Branch pointer domain models.
+
 use chrono::DateTime;
 use chrono::Utc;
 use serde::Deserialize;
@@ -18,6 +20,7 @@ pub struct Branch {
 }
 
 impl Branch {
+    /// Creates a new branch with the specified name pointing to the given snapshot ID.
     pub fn new(
         name: impl Into<String>,
         head_snapshot_id: Uuid,

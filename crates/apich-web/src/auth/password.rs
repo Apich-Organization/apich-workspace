@@ -13,7 +13,7 @@ pub fn hash_password(password: &str) -> WebResult<String> {
     let argon2 = Argon2::default();
     let password_hash = argon2
         .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| WebError::Internal(format!("Password hashing failed: {}", e)))?
+        .map_err(|e| WebError::Internal(format!("Password hashing failed: {e}")))?
         .to_string();
 
     Ok(password_hash)
@@ -35,8 +35,7 @@ pub fn verify_password(
         | Err(argon2::password_hash::Error::Password) => Ok(false),
         | Err(e) => {
             Err(WebError::Internal(format!(
-                "Password verification error: {}",
-                e
+                "Password verification error: {e}"
             )))
         },
     }

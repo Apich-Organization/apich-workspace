@@ -118,8 +118,8 @@ pub fn OrgTeamsPage(
                                 slug_field="slug".to_string()
                                 name_label=i18n.org_name().to_string()
                                 slug_label=i18n.org_slug().to_string()
-                                name_placeholder="".to_string()
-                                slug_placeholder="".to_string()
+                                name_placeholder=String::new()
+                                slug_placeholder=String::new()
                             />
                             <div class="form-group">
                                 <label>{i18n.description_label()}</label>
@@ -165,7 +165,7 @@ fn render_org_card(
                             label=i18n.remove().to_string()
                             message="Remove member?".to_string()
                             button_class="btn btn-danger btn-sm".to_string()
-                            button_style="".to_string()
+                            button_style=String::new()
                         />
                     </form>
                 }
@@ -192,8 +192,8 @@ fn render_org_card(
         .collect::<Vec<_>>();
 
     let manage_controls = card.can_manage.then(|| {
-        let modal_team_id = format!("modal-team-{}", org_id);
-        let modal_member_id = format!("modal-org-member-{}", org_id);
+        let modal_team_id = format!("modal-team-{org_id}");
+        let modal_member_id = format!("modal-org-member-{org_id}");
         view! {
             <button type="button" class="btn btn-secondary btn-sm" onclick=format!("document.getElementById('{}').style.display='flex'", modal_team_id)>
                 "+ " {i18n.create_team()}
@@ -207,7 +207,7 @@ fn render_org_card(
                     label=i18n.delete().to_string()
                     message="Delete this organization and everything under it?".to_string()
                     button_class="btn btn-danger btn-sm".to_string()
-                    button_style="".to_string()
+                    button_style=String::new()
                 />
             </form>
         }
@@ -279,7 +279,7 @@ fn render_org_card(
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
                 <div>
                     <h3 style="font-size:1.3rem; font-weight:700; color:var(--text-main);">{org.name.clone()}</h3>
-                    <span style="font-size:0.8rem; color:var(--text-sub);">"Slug: "<code>{org.slug.clone()}</code></span>
+                    <span style="font-size:0.8rem; color:var(--text-sub);">"Slug: "<code>{org.slug}</code></span>
                 </div>
                 <div style="display:flex; gap:0.5rem; align-items:center;">{manage_controls}</div>
             </div>
@@ -313,8 +313,8 @@ fn render_team_row(
 ) -> impl IntoView {
     let team_id = row.team.id;
     let indent = format!("{}rem", 1.25 * row.depth as f64);
-    let modal_sub_id = format!("modal-subteam-{}", team_id);
-    let modal_member_id = format!("modal-team-member-{}", team_id);
+    let modal_sub_id = format!("modal-subteam-{team_id}");
+    let modal_member_id = format!("modal-team-member-{team_id}");
 
     let member_chips = row
         .members

@@ -1,6 +1,10 @@
+//! # APICH Web Server
+//!
+//! Main entry point for the APICH web application and API service.
+
 #![recursion_limit = "512"]
 
-pub use apich_web::app::EMBEDDED_CSS;
+use apich_web::app::EMBEDDED_CSS;
 
 use apich_db::CreateOrganizationDto;
 use apich_db::CreateProjectDto;
@@ -20,6 +24,7 @@ use std::time::Duration;
 use tracing::info;
 
 /// Top-level full HTML page shell wrapper
+#[must_use]
 pub fn render_html_page(
     title: &str,
     content_html: &str,
@@ -30,14 +35,13 @@ pub fn render_html_page(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{} - APICH Technical Workspace</title>
-    <style>{}</style>
+    <title>{title} - APICH Technical Workspace</title>
+    <style>{EMBEDDED_CSS}</style>
 </head>
 <body>
-    <div id="app">{}</div>
+    <div id="app">{content_html}</div>
 </body>
-</html>"#,
-        title, EMBEDDED_CSS, content_html
+</html>"#
     )
 }
 
@@ -54,8 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "8080".to_string())
         .parse()?;
 
-    let base_url =
-        std::env::var("BASE_URL").unwrap_or_else(|_| format!("http://localhost:{}", port));
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| format!("http://localhost:{port}"));
     let jwt_secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "apich_development_secret_key_change_in_production".to_string());
     let workspace_dir = PathBuf::from(
@@ -233,7 +236,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|v| v.parse().ok())
             .unwrap_or(24);
         let stopped_grace = chrono::Duration::hours(stopped_grace_hours);
-        let check_every = std::time::Duration::from_secs(30 * 60);
+        let check_every = std::time::Duration::from_mins(30);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(check_every);
             loop {
@@ -247,10 +250,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         info!(
                             count = n,
                             "Container removal reaper removed {} stale stopped sandbox(es)", n
-                        )
+                        );
                     },
                     | Err(e) => {
-                        tracing::warn!(error = %e, "Container removal reaper (stopped sandboxes) failed")
+                        tracing::warn!(error = %e, "Container removal reaper (stopped sandboxes) failed");
                     },
                 }
                 match removal_project_manager.reap_orphaned_containers().await {
@@ -259,10 +262,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         info!(
                             count = n,
                             "Container removal reaper removed {} orphaned container(s)", n
-                        )
+                        );
                     },
                     | Err(e) => {
-                        tracing::warn!(error = %e, "Container removal reaper (orphans) failed")
+                        tracing::warn!(error = %e, "Container removal reaper (orphans) failed");
                     },
                 }
             }
@@ -285,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
          ⚙️ Platform Admin:   http://127.0.0.1:{port}/admin/platform\n\
          ========================================================================"
     );
-    println!("{}", banner);
+    println!("{banner}");
     info!("Server listening on http://{}", addr);
 
     axum::serve(listener, app).await?;

@@ -1,17 +1,25 @@
+//! Typst typesetting compiler toolchain.
+
 use crate::container::UserContainer;
 use crate::error::Result;
 use crate::exec::ExecResult;
 
+/// Helper for compiling Typst documents inside a container.
 pub struct TypstToolchain<'a> {
     container: &'a UserContainer,
 }
 
 impl<'a> TypstToolchain<'a> {
-    pub fn new(container: &'a UserContainer) -> Self {
+    /// Creates a new `TypstToolchain` instance.
+    #[must_use]
+    pub const fn new(container: &'a UserContainer) -> Self {
         Self { container }
     }
 
     /// Check typst version
+    ///
+    /// # Errors
+    /// Returns an error if executing typst --version fails.
     pub async fn typst_version(&self) -> Result<String> {
         let res = self.container.exec(&["typst", "--version"]).await?;
         res.ensure_success(self.container.container_name())?;
@@ -19,6 +27,9 @@ impl<'a> TypstToolchain<'a> {
     }
 
     /// Compile a .typ file to PDF
+    ///
+    /// # Errors
+    /// Returns an error if compiling Typst document to PDF fails.
     pub async fn compile(
         &self,
         input_file: &str,
@@ -30,6 +41,9 @@ impl<'a> TypstToolchain<'a> {
     }
 
     /// Compile a .typ file to SVG (e.g. for browser preview)
+    ///
+    /// # Errors
+    /// Returns an error if compiling Typst document to SVG fails.
     pub async fn compile_svg(
         &self,
         input_file: &str,
@@ -43,6 +57,9 @@ impl<'a> TypstToolchain<'a> {
     }
 
     /// Compile a .typ file to PNG
+    ///
+    /// # Errors
+    /// Returns an error if compiling Typst document to PNG fails.
     pub async fn compile_png(
         &self,
         input_file: &str,
@@ -58,6 +75,9 @@ impl<'a> TypstToolchain<'a> {
     }
 
     /// Query metadata / labels from a Typst document
+    ///
+    /// # Errors
+    /// Returns an error if executing typst query fails.
     pub async fn query(
         &self,
         input_file: &str,

@@ -23,56 +23,83 @@ struct ChallengeEntry {
     created_at: Instant,
 }
 
+/// Manager for WebAuthn/FIDO2 passkey registration and assertion challenges.
 #[derive(Clone, Default)]
 pub struct PasskeyManager {
     challenges: Arc<Mutex<HashMap<String, ChallengeEntry>>>,
 }
 
+/// `WebAuthn` options for creating a new public key credential (registration).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PublicKeyCredentialCreationOptions {
+    /// Cryptographic challenge string in `Base64URL`.
     pub challenge: String,
+    /// Relying party metadata.
     pub rp: RelyingPartyInfo,
+    /// User account information.
     pub user: UserInfo,
+    /// Supported public key credential algorithms.
     pub pub_key_cred_params: Vec<PubKeyCredParam>,
+    /// Client timeout in milliseconds.
     pub timeout: u64,
 }
 
+/// Relying Party entity information for `WebAuthn` ceremonies.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RelyingPartyInfo {
+    /// Human-readable relying party display name.
     pub name: String,
+    /// Relying party origin domain ID.
     pub id: String,
 }
 
+/// User entity metadata passed during credential creation.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserInfo {
+    /// User unique ID in `Base64URL`.
     pub id: String,
+    /// Account username.
     pub name: String,
+    /// Display name.
     pub display_name: String,
 }
 
+/// Supported cryptographic algorithm parameter for credentials.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PubKeyCredParam {
+    /// Credential type (e.g. "public-key").
     #[serde(rename = "type")]
     pub cred_type: String,
-    pub alg: i32, // -7 for ES256 (P-256 with SHA-256)
+    /// COSE algorithm identifier (-7 for ES256).
+    pub alg: i32,
 }
 
+/// `WebAuthn` options for requesting an existing credential assertion (authentication).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PublicKeyCredentialRequestOptions {
+    /// Cryptographic challenge in `Base64URL`.
     pub challenge: String,
+    /// Client timeout in milliseconds.
     pub timeout: u64,
+    /// Relying party ID.
     pub rp_id: String,
 }
 
+/// Parsed `WebAuthn` `clientDataJSON` payload from browser.
 #[derive(Debug, Deserialize)]
 pub struct ClientDataJson {
+    /// Ceremony type ("webauthn.create" or "webauthn.get").
     #[serde(rename = "type")]
     pub ceremony_type: String,
+    /// Returned challenge matching the issued challenge.
     pub challenge: String,
+    /// Origin URL where ceremony occurred.
     pub origin: String,
 }
 
 impl PasskeyManager {
+    /// Creates a new passkey manager instance.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             challenges: Arc::new(Mutex::new(HashMap::new())),
@@ -80,6 +107,7 @@ impl PasskeyManager {
     }
 
     /// Generate a cryptographically secure 32-byte random challenge
+    #[must_use]
     pub fn generate_challenge(
         &self,
         user_id: Option<Uuid>,
@@ -123,7 +151,7 @@ impl PasskeyManager {
         }
     }
 
-    /// Verify WebAuthn Assertion ECDSA P-256 signature over (auth_data || sha256(client_data_json))
+    /// Verify `WebAuthn` Assertion ECDSA P-256 signature over (`auth_data` || `sha256(client_data_json)`)
     pub fn verify_assertion(
         &self,
         public_key_bytes: &[u8],
@@ -134,7 +162,7 @@ impl PasskeyManager {
     ) -> WebResult<bool> {
         // 1. Parse client data JSON and verify challenge
         let client_data: ClientDataJson = serde_json::from_slice(client_data_json)
-            .map_err(|e| WebError::PasskeyError(format!("Malformed clientDataJSON: {}", e)))?;
+            .map_err(|e| WebError::PasskeyError(format!("Malformed clientDataJSON: {e}")))?;
 
         if client_data.challenge != expected_challenge {
             return Err(WebError::PasskeyError("Challenge mismatch".to_string()));
@@ -149,20 +177,19 @@ impl PasskeyManager {
         // 3. Parse P-256 VerifyingKey (supports SEC1 uncompressed/compressed or DER)
         let verifying_key = VerifyingKey::from_sec1_bytes(public_key_bytes)
             .or_else(|_| VerifyingKey::from_public_key_der(public_key_bytes))
-            .map_err(|e| WebError::PasskeyError(format!("Invalid public key: {}", e)))?;
+            .map_err(|e| WebError::PasskeyError(format!("Invalid public key: {e}")))?;
 
         // 4. Parse ECDSA Signature (supports ASN.1 DER or IEEE P1363 raw r||s)
         let signature = Signature::from_der(signature_bytes)
             .or_else(|_| Signature::from_slice(signature_bytes))
-            .map_err(|e| WebError::PasskeyError(format!("Invalid signature format: {}", e)))?;
+            .map_err(|e| WebError::PasskeyError(format!("Invalid signature format: {e}")))?;
 
         // 5. Verify ECDSA signature
         match verifying_key.verify(&signed_data, &signature) {
             | Ok(()) => Ok(true),
             | Err(e) => {
                 Err(WebError::PasskeyError(format!(
-                    "Signature verification failed: {}",
-                    e
+                    "Signature verification failed: {e}"
                 )))
             },
         }

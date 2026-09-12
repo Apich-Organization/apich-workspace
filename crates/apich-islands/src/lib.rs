@@ -1,10 +1,17 @@
 //! Interactive Leptos islands: real Rust compiled to WASM for the specific pieces of the UI
-//! that need client-side interactivity (canvas drawing, live editing, WebAuthn, chat/agent
+//! that need client-side interactivity (canvas drawing, live editing, `WebAuthn`, chat/agent
 //! streaming). Everything else in apich-web stays plain server-rendered HTML.
 //!
 //! This crate has zero dependency on apich-db/apich-sandbox/apich-vcs/sqlx/tokio so it can
 //! compile for wasm32-unknown-unknown. Island props must stay primitive/serializable
-//! (String, i64, bool, Vec<String>, serde_json::Value) -- never a server-only DB model type.
+//! (String, i64, bool, Vec<String>, `serde_json::Value`) -- never a server-only DB model type.
+
+#![allow(missing_docs)]
+#![allow(
+    clippy::must_use_candidate,
+    clippy::too_many_lines,
+    clippy::needless_pass_by_value
+)]
 
 use leptos::prelude::*;
 
@@ -35,7 +42,9 @@ pub use auth_tabs::AuthTabsIsland;
 pub use confirm_submit::ConfirmSubmitButton;
 pub use copy_link::CopyLinkIsland;
 pub use delete_row_button::DeleteRowButtonIsland;
+pub use document_editor::DocEditorFlags;
 pub use document_editor::DocumentEditorIsland;
+pub use document_editor::DocumentPreviewKind;
 pub use document_editor::HeadingItem;
 pub use file_share::FileShareModalIsland;
 pub use file_share::ShareableUser;
@@ -57,15 +66,17 @@ pub use webauthn::PasskeyEnrollIsland;
 pub use webauthn::PasskeyLoginIsland;
 pub use whiteboard::WhiteboardIsland;
 
-/// Minimal bilingual-string helper for islands. This crate can't depend on apich-web's `I18n`
-/// type (it must stay wasm32-compilable with zero server-only dependencies -- see this module's
-/// own doc comment), so pages pass a plain `is_zh: bool` prop (from `I18n::is_zh()`) instead, and
-/// island UI text picks between an English and Chinese literal with this. Before this existed,
-/// every island's UI text (formula bar, note toolbar, terminal quick-commands, SQL console
-/// presets, ...) was hardcoded English regardless of the user's selected language -- `i18n.rs`'s
-/// ~200 translated strings never reached any of the interactive islands at all, only the plain
-/// server-rendered page chrome around them.
-pub fn t(
+/// Minimal bilingual-string helper for islands.
+///
+/// This crate can't depend on apich-web's `I18n` type (it must stay wasm32-compilable with zero
+/// server-only dependencies -- see this module's own doc comment), so pages pass a plain
+/// `is_zh: bool` prop (from `I18n::is_zh()`) instead, and island UI text picks between an English
+/// and Chinese literal with this. Before this existed, every island's UI text (formula bar, note
+/// toolbar, terminal quick-commands, SQL console presets, ...) was hardcoded English regardless
+/// of the user's selected language -- `i18n.rs`'s ~200 translated strings never reached any of the
+/// interactive islands at all, only the plain server-rendered page chrome around them.
+#[must_use]
+pub const fn t(
     is_zh: bool,
     en: &'static str,
     zh: &'static str,
@@ -77,18 +88,21 @@ pub fn t(
     }
 }
 
-/// Proof-of-concept island validating the SSR-render + WASM-hydrate pipeline end to end
-/// before building the real feature islands. A plain server `#[component]` would render this
-/// once and never update; because this is `#[island]`, the button click actually runs in the
-/// browser as real Rust (compiled to WASM), not a hand-written JS string.
+/// Proof-of-concept island validating the SSR-render + WASM-hydrate pipeline end to end.
+///
+/// A plain server `#[component]` would render this once and never update; because this is
+/// `#[island]`, the button click actually runs in the browser as real Rust (compiled to WASM),
+/// not a hand-written JS string.
 #[island]
+#[must_use]
+#[allow(clippy::must_use_candidate)]
 pub fn PingCounterIsland(#[prop(into)] start: i32) -> impl IntoView {
     let (count, set_count) = signal(start);
     view! {
         <button
             type="button"
             class="btn btn-secondary btn-sm"
-            on:click=move |_| set_count.update(|n| *n += 1)
+            on:click=move |_| set_count.update(|n| *n = n.saturating_add(1))
         >
             "Island alive, clicked " {move || count.get()} " times"
         </button>

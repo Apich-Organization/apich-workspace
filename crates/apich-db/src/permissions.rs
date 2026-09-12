@@ -10,6 +10,9 @@ pub struct PermissionManager;
 
 impl PermissionManager {
     /// Initialize application user and enforce the principle of least privilege
+    ///
+    /// # Errors
+    /// Returns an error if querying or executing database permission queries fails.
     pub async fn setup_least_privilege(
         admin_pool: &PgPool,
         config: &PostgresConfig,
@@ -51,42 +54,35 @@ impl PermissionManager {
         }
 
         // 2. Grant CONNECT on database
-        let grant_connect_sql = format!(
-            "GRANT CONNECT ON DATABASE \"{}\" TO \"{}\"",
-            database, app_user
-        );
+        let grant_connect_sql =
+            format!("GRANT CONNECT ON DATABASE \"{database}\" TO \"{app_user}\"");
         sqlx::query(&grant_connect_sql).execute(admin_pool).await?;
 
         // 3. Grant schema usage and creation
-        let grant_schema_sql = format!("GRANT USAGE, CREATE ON SCHEMA public TO \"{}\"", app_user);
+        let grant_schema_sql = format!("GRANT USAGE, CREATE ON SCHEMA public TO \"{app_user}\"");
         sqlx::query(&grant_schema_sql).execute(admin_pool).await?;
 
         // 4. Grant table CRUD permissions
         let grant_tables_sql = format!(
-            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{}\"",
-            app_user
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"{app_user}\""
         );
         sqlx::query(&grant_tables_sql).execute(admin_pool).await?;
 
         // 5. Grant sequence permissions
-        let grant_sequences_sql = format!(
-            "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"{}\"",
-            app_user
-        );
+        let grant_sequences_sql =
+            format!("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"{app_user}\"");
         sqlx::query(&grant_sequences_sql)
             .execute(admin_pool)
             .await?;
 
         // 6. Set default privileges for newly created tables & sequences in schema public
         let default_tables_sql = format!(
-            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{}\"",
-            app_user
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{app_user}\""
         );
         sqlx::query(&default_tables_sql).execute(admin_pool).await?;
 
         let default_sequences_sql = format!(
-            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"{}\"",
-            app_user
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"{app_user}\""
         );
         sqlx::query(&default_sequences_sql)
             .execute(admin_pool)
@@ -100,6 +96,9 @@ impl PermissionManager {
     }
 
     /// Verify that application user has proper access but lacks superuser powers
+    ///
+    /// # Errors
+    /// Returns an error if querying roles fails or if the application user has superuser privileges.
     pub async fn verify_permissions(
         app_pool: &PgPool,
         app_user: &str,
@@ -116,8 +115,7 @@ impl PermissionManager {
 
         if is_superuser || can_create_db {
             return Err(DbError::PermissionError(format!(
-                "Security violation: Application user '{}' has superuser or createdb privilege!",
-                username
+                "Security violation: Application user '{username}' has superuser or createdb privilege!"
             )));
         }
 
@@ -141,6 +139,9 @@ pub struct IdentityPermissionResolver;
 
 impl IdentityPermissionResolver {
     /// Check if user is a platform-wide administrator
+    ///
+    /// # Errors
+    /// Returns an error if querying database user records fails.
     pub async fn is_platform_admin(
         pool: &PgPool,
         user_id: uuid::Uuid,
@@ -157,6 +158,9 @@ impl IdentityPermissionResolver {
     }
 
     /// Check if user can manage an Organization
+    ///
+    /// # Errors
+    /// Returns an error if querying database organization member records fails.
     pub async fn can_manage_org(
         pool: &PgPool,
         user_id: uuid::Uuid,
@@ -167,12 +171,12 @@ impl IdentityPermissionResolver {
         }
 
         let is_org_admin = sqlx::query_scalar::<_, bool>(
-            r#"
+            r"
             SELECT EXISTS (
                 SELECT 1 FROM org_members
                 WHERE org_id = $1 AND user_id = $2 AND role IN ('owner', 'admin')
             )
-            "#,
+            ",
         )
         .bind(org_id)
         .bind(user_id)
@@ -183,6 +187,9 @@ impl IdentityPermissionResolver {
     }
 
     /// Check if user can manage a Team (including inherited rights from Org Admin or parent Team Admin)
+    ///
+    /// # Errors
+    /// Returns an error if querying team, organization, or ancestor team hierarchies fails.
     pub async fn can_manage_team(
         pool: &PgPool,
         user_id: uuid::Uuid,
@@ -199,19 +206,18 @@ impl IdentityPermissionResolver {
                 .fetch_optional(pool)
                 .await?;
 
-        let org_id = match org_id {
-            | Some(id) => id,
-            | None => return Ok(false),
+        let Some(org_id) = org_id else {
+            return Ok(false);
         };
 
         // 2. Org owner / admin has management rights over all teams in that org
         let is_org_admin = sqlx::query_scalar::<_, bool>(
-            r#"
+            r"
             SELECT EXISTS (
                 SELECT 1 FROM org_members
                 WHERE org_id = $1 AND user_id = $2 AND role IN ('owner', 'admin')
             )
-            "#,
+            ",
         )
         .bind(org_id)
         .bind(user_id)
@@ -224,7 +230,7 @@ impl IdentityPermissionResolver {
 
         // 3. Check if user is an admin of this team OR any ancestor team up the hierarchy tree
         let is_ancestor_admin = sqlx::query_scalar::<_, bool>(
-            r#"
+            r"
             WITH RECURSIVE team_ancestors AS (
                 SELECT id, parent_team_id FROM teams WHERE id = $1
                 UNION ALL
@@ -237,7 +243,7 @@ impl IdentityPermissionResolver {
                 JOIN team_ancestors ta ON tm.team_id = ta.id
                 WHERE tm.user_id = $2 AND tm.role IN ('owner', 'admin')
             )
-            "#,
+            ",
         )
         .bind(team_id)
         .bind(user_id)
@@ -248,6 +254,9 @@ impl IdentityPermissionResolver {
     }
 
     /// Check if user can manage a Project (e.g. edit, archive, delete, config)
+    ///
+    /// # Errors
+    /// Returns an error if querying project, organization, or team membership fails.
     pub async fn can_manage_project(
         pool: &PgPool,
         user_id: uuid::Uuid,
@@ -278,9 +287,8 @@ impl IdentityPermissionResolver {
         .fetch_optional(pool)
         .await?;
 
-        let row = match row {
-            | Some(r) => r,
-            | None => return Ok(false),
+        let Some(row) = row else {
+            return Ok(false);
         };
 
         let owner_id: uuid::Uuid = row.try_get("owner_id")?;
@@ -304,6 +312,9 @@ impl IdentityPermissionResolver {
     }
 
     /// Check if user can edit / write / snapshot a Project
+    ///
+    /// # Errors
+    /// Returns an error if querying project permissions or team membership fails.
     pub async fn can_edit_project(
         pool: &PgPool,
         user_id: uuid::Uuid,
@@ -353,6 +364,9 @@ impl IdentityPermissionResolver {
     }
 
     /// Check if user can access / view a Project
+    ///
+    /// # Errors
+    /// Returns an error if querying project permissions or organization membership fails.
     pub async fn can_access_project(
         pool: &PgPool,
         user_id: uuid::Uuid,
@@ -380,9 +394,8 @@ impl IdentityPermissionResolver {
             .fetch_optional(pool)
             .await?;
 
-        let row = match row {
-            | Some(r) => r,
-            | None => return Ok(false),
+        let Some(row) = row else {
+            return Ok(false);
         };
 
         let org_id: uuid::Uuid = row.try_get("org_id")?;
@@ -400,12 +413,15 @@ impl IdentityPermissionResolver {
     }
 
     /// Retrieve all subteams recursively descending from a given team node
+    ///
+    /// # Errors
+    /// Returns an error if querying recursive team hierarchies fails.
     pub async fn get_descendant_team_ids(
         pool: &PgPool,
         root_team_id: uuid::Uuid,
     ) -> Result<Vec<uuid::Uuid>> {
         let ids = sqlx::query_scalar::<_, uuid::Uuid>(
-            r#"
+            r"
             WITH RECURSIVE team_subtrees AS (
                 SELECT id FROM teams WHERE id = $1
                 UNION ALL
@@ -414,7 +430,7 @@ impl IdentityPermissionResolver {
                 JOIN team_subtrees ts ON t.parent_team_id = ts.id
             )
             SELECT id FROM team_subtrees
-            "#,
+            ",
         )
         .bind(root_team_id)
         .fetch_all(pool)
@@ -428,6 +444,9 @@ impl IdentityPermissionResolver {
     /// 'public' means every user on the instance, and 'shared' means whatever specific orgs/teams
     /// are listed in `template_shares` -- deliberately not limited to the owner's own org, a
     /// template can be shared to any org/team the owner chooses.
+    ///
+    /// # Errors
+    /// Returns an error if querying template metadata or share records fails.
     pub async fn can_access_template(
         pool: &PgPool,
         user_id: uuid::Uuid,
@@ -449,14 +468,14 @@ impl IdentityPermissionResolver {
             | "public" => Ok(true),
             | "shared" => {
                 let is_shared = sqlx::query_scalar::<_, bool>(
-                    r#"
+                    r"
                     SELECT EXISTS (
                         SELECT 1 FROM template_shares ts
                         LEFT JOIN org_members om ON ts.org_id = om.org_id AND om.user_id = $2
                         LEFT JOIN team_members tm ON ts.team_id = tm.team_id AND tm.user_id = $2
                         WHERE ts.template_id = $1 AND (om.user_id IS NOT NULL OR tm.user_id IS NOT NULL)
                     )
-                    "#,
+                    ",
                 )
                 .bind(template_id)
                 .bind(user_id)
@@ -470,6 +489,9 @@ impl IdentityPermissionResolver {
 
     /// Only a template's owner can publish new versions, edit its visibility/shares, or delete
     /// it -- unlike projects, a template has no member/admin roles of its own to delegate this to.
+    ///
+    /// # Errors
+    /// Returns an error if querying template owner records fails.
     pub async fn can_manage_template(
         pool: &PgPool,
         user_id: uuid::Uuid,

@@ -58,7 +58,7 @@ pub fn TerminalPage(
 
     view! {
         <AppShell
-            user=user.clone()
+            user=user
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::Projects
             current_path=current_path

@@ -114,7 +114,7 @@ pub fn TablePage(
 
     view! {
         <AppShell
-            user=user.clone()
+            user=user
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::Projects
             current_path=current_path
@@ -239,7 +239,7 @@ fn render_column_panel(
     all_columns: &[String],
     column_view: &ColumnViewConfig,
 ) -> impl IntoView {
-    let action = format!("/projects/{}/table/column-view", project_id);
+    let action = format!("/projects/{project_id}/table/column-view");
     let visible = column_view.apply(all_columns);
     let n_visible = visible.len();
 
@@ -253,7 +253,7 @@ fn render_column_panel(
             .map(|(k, v)| view! { <input type="hidden" name=k value=v /> })
             .collect();
         view! {
-            <form method="post" action=action.clone() class="inline-form" style="display:inline;">
+            <form method="post" action=action class="inline-form" style="display:inline;">
                 <input type="hidden" name="file" value=cur_file />
                 <input type="hidden" name="table" value=table_name />
                 <input type="hidden" name="mode" value=mode />
@@ -354,8 +354,7 @@ fn render_grid(
         .map(|col| {
             cur_tbl_schema
                 .and_then(|ts| ts.columns.iter().find(|c| &c.name == col))
-                .map(|c| c.data_type.clone())
-                .unwrap_or_else(|| "TEXT".to_string())
+                .map_or_else(|| "TEXT".to_string(), |c| c.data_type.clone())
         })
         .collect();
     let primary_keys: Vec<bool> = visible_order
@@ -363,8 +362,7 @@ fn render_grid(
         .map(|col| {
             cur_tbl_schema
                 .and_then(|ts| ts.columns.iter().find(|c| &c.name == col))
-                .map(|c| c.is_primary_key)
-                .unwrap_or(false)
+                .is_some_and(|c| c.is_primary_key)
         })
         .collect();
     let rows: Vec<Vec<String>> = td
@@ -451,7 +449,7 @@ fn render_grid(
                         <apich_islands::DeleteRowButtonIsland label="🗑️ Delete Row".to_string() />
                     </form>
                     {
-                        let import_action = format!("/projects/{}/table/import", project_id);
+                        let import_action = format!("/projects/{project_id}/table/import");
                         let cur_file_owned = cur_file.to_string();
                         let table_name_owned = td.table_name.clone();
                         view! {
@@ -493,7 +491,7 @@ fn render_grid(
                         <input type="hidden" name="file" value=cur_file.to_string() />
                         <input type="hidden" name="table" value=td.table_name.clone() />
                         <input type="hidden" name="mode" value=mode.to_string() />
-                        <input type="text" name="search" value=cur_search.clone() placeholder="Search cells..." class="form-control" style="width:180px; padding:0.25rem 0.6rem; font-size:0.8rem;" />
+                        <input type="text" name="search" value=cur_search placeholder="Search cells..." class="form-control" style="width:180px; padding:0.25rem 0.6rem; font-size:0.8rem;" />
                         <button type="submit" class="btn btn-secondary btn-sm">"Search"</button>
                     </form>
                     <span style="font-size:0.775rem; color:var(--text-sub);">"Total: "<strong>{td.total_rows}</strong></span>
@@ -504,7 +502,7 @@ fn render_grid(
                 project_id=project_id.to_string()
                 file_path=cur_file.to_string()
                 table_name=td.table_name.clone()
-                columns=visible_order.clone()
+                columns=visible_order
                 column_types=column_types
                 primary_keys=primary_keys
                 rows=rows
@@ -539,7 +537,7 @@ fn render_sql_console(
     let default_sql = if !sql_query.is_empty() {
         sql_query.to_string()
     } else if let Some(t) = table_name {
-        format!("SELECT * FROM \"{}\" LIMIT 50;", t)
+        format!("SELECT * FROM \"{t}\" LIMIT 50;")
     } else {
         "SELECT 1;".to_string()
     };

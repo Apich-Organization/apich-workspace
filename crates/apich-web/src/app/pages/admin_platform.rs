@@ -57,7 +57,7 @@ pub fn AdminPlatformPage(
 
     view! {
         <AppShell
-            user=user.clone()
+            user=user
             is_org_or_team_admin=true
             active_nav=ActiveNav::PlatformAdmin
             current_path=current_path
@@ -122,7 +122,7 @@ pub fn AdminPlatformPage(
                             </div>
                             <div class="form-group">
                                 <label>{i18n.smtp_port()}</label>
-                                <input type="number" name="smtp_port" value=settings.smtp_port.map(|p| p.to_string()).unwrap_or_else(|| "587".to_string()) placeholder="587" class="form-control" />
+                                <input type="number" name="smtp_port" value=settings.smtp_port.map_or_else(|| "587".to_string(), |p| p.to_string()) placeholder="587" class="form-control" />
                             </div>
                         </div>
 

@@ -1,3 +1,5 @@
+//! Organization registration toggle and slug autofill island.
+//!
 //! Real Rust replacement for the registration form's small "create an organization" toggle +
 //! name-to-slug autofill (`register.rs`'s `ORG_TOGGLE_SCRIPT`). Renders as real fields inside
 //! the surrounding server-rendered `<form method="post" action="/register">` -- islands render

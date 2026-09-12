@@ -39,10 +39,9 @@ pub fn DashboardPage(
         let cards = projects
             .into_iter()
             .map(|proj| {
-                let desc = proj
-                    .description
-                    .clone()
-                    .unwrap_or_else(|| "Unified research repository with version control".to_string());
+                let desc = proj.description.clone().unwrap_or_else(|| {
+                    "Unified research repository with version control".to_string()
+                });
                 let created_str = proj.created_at.format("%Y-%m-%d %H:%M").to_string();
                 let href = format!("/projects/{}", proj.id);
                 let href_vcs = format!("/projects/{}?tab=vcs", proj.id);
@@ -50,7 +49,7 @@ pub fn DashboardPage(
                     <div class="project-card">
                         <div class="project-card-header">
                             <div>
-                                <h3 class="project-name"><a href=href.clone()>{proj.name.clone()}</a></h3>
+                                <h3 class="project-name"><a href=href.clone()>{proj.name}</a></h3>
                             </div>
                         </div>
                         <p class="project-desc">{desc}</p>
@@ -59,7 +58,7 @@ pub fn DashboardPage(
                                 <span>"📅 " {created_str}</span>
                             </div>
                             <div class="project-actions">
-                                <a href=href.clone() class="btn btn-primary btn-sm">"📂 Open"</a>
+                                <a href=href class="btn btn-primary btn-sm">"📂 Open"</a>
                                 <a href=href_vcs class="btn btn-secondary btn-sm">"🌿 VCS"</a>
                             </div>
                         </div>

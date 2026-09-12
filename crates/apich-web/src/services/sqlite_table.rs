@@ -26,7 +26,7 @@ pub struct CellStyle {
 
 impl CellStyle {
     fn is_default(&self) -> bool {
-        *self == CellStyle::default()
+        *self == Self::default()
     }
 }
 
@@ -154,7 +154,7 @@ pub struct TableDataPage {
     pub rows: Vec<Vec<serde_json::Value>>,
     /// SQLite `rowid` for each row, parallel to `rows`. Used to identify a row for cell edits
     /// and deletes -- unlike assuming a column literally named "id" exists (it usually
-    /// doesn't; a table's real primary key is just as often "sample_id", "uuid", etc.),
+    /// doesn't; a table's real primary key is just as often "`sample_id`", "uuid", etc.),
     /// `rowid` reliably identifies any ordinary (non-`WITHOUT ROWID`) SQLite row regardless of
     /// what its declared columns are named.
     pub row_ids: Vec<i64>,
@@ -225,7 +225,7 @@ impl SqliteTableService {
                             || ext.eq_ignore_ascii_case("csv"))
                     {
                         let meta = entry.metadata().ok();
-                        let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                        let size_bytes = meta.as_ref().map_or(0, std::fs::Metadata::len);
                         let modified_rfc3339 = meta
                             .and_then(|m| m.modified().ok())
                             .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
@@ -269,11 +269,10 @@ impl SqliteTableService {
             let csv_full_path = project_dir.as_ref().join(clean);
             if !csv_full_path.exists() {
                 return Err(WebError::NotFound(format!(
-                    "CSV file not found: {}",
-                    rel_path
+                    "CSV file not found: {rel_path}"
                 )));
             }
-            let table_rel = format!("{}.table", clean);
+            let table_rel = format!("{clean}.table");
             let table_full_path = project_dir.as_ref().join(&table_rel);
             if !table_full_path.exists() {
                 // Deliberately not `create_empty_database` here: it seeds a `_apich_metadata`
@@ -283,7 +282,7 @@ impl SqliteTableService {
                 // their actual CSV data. `import_csv` opens (and so creates, if missing) the
                 // SQLite file itself, so plain data is the only table this file ever gets.
                 let csv_content = std::fs::read_to_string(&csv_full_path)
-                    .map_err(|e| WebError::Internal(format!("Failed to read CSV file: {}", e)))?;
+                    .map_err(|e| WebError::Internal(format!("Failed to read CSV file: {e}")))?;
                 let table_name = Path::new(clean)
                     .file_stem()
                     .and_then(|s| s.to_str())
@@ -297,8 +296,7 @@ impl SqliteTableService {
         let full_path = project_dir.as_ref().join(clean);
         if !full_path.exists() {
             return Err(WebError::NotFound(format!(
-                "Database file not found: {}",
-                rel_path
+                "Database file not found: {rel_path}"
             )));
         }
         Ok(full_path)
@@ -308,14 +306,14 @@ impl SqliteTableService {
     pub fn get_database_schema<P: AsRef<Path>>(db_path: P) -> WebResult<DatabaseSchema> {
         let path_str = db_path.as_ref().to_string_lossy().to_string();
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
 
         // `_apich_%` tables (metadata, cell styles) are this app's own bookkeeping, not part of
         // the user's actual data -- excluded from the schema the same way sqlite's own internal
         // `sqlite_%` tables are, so they never show up as a selectable table in the UI.
         let mut stmt = conn
             .prepare("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_apich\\_%' ESCAPE '\\' ORDER BY name ASC")
-            .map_err(|e| WebError::Internal(format!("Failed to query schema: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to query schema: {e}")))?;
 
         let table_iter = stmt
             .query_map([], |row| {
@@ -323,7 +321,7 @@ impl SqliteTableService {
                 let tbl_type: String = row.get(1)?;
                 Ok((name, tbl_type == "view"))
             })
-            .map_err(|e| WebError::Internal(format!("Failed to fetch tables: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to fetch tables: {e}")))?;
 
         let mut tables = Vec::new();
 
@@ -351,7 +349,7 @@ impl SqliteTableService {
                         is_primary_key: r.get::<_, i64>(5)? != 0,
                     })
                 })
-                .map_err(|e| WebError::Internal(format!("Failed to get table columns: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("Failed to get table columns: {e}")))?;
 
             let mut columns = Vec::new();
             for c in cols.flatten() {
@@ -390,15 +388,15 @@ impl SqliteTableService {
         search: Option<&str>,
     ) -> WebResult<TableDataPage> {
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
 
         let clean_table = table_name.replace('"', "\"\"");
 
         // Validate table exists and retrieve column list
-        let pragma_sql = format!("PRAGMA table_info(\"{}\")", clean_table);
+        let pragma_sql = format!("PRAGMA table_info(\"{clean_table}\")");
         let mut pragma_stmt = conn
             .prepare(&pragma_sql)
-            .map_err(|e| WebError::BadRequest(format!("Table {} not found: {}", table_name, e)))?;
+            .map_err(|e| WebError::BadRequest(format!("Table {table_name} not found: {e}")))?;
 
         let column_names: Vec<String> = pragma_stmt
             .query_map([], |r| r.get::<_, String>(1))
@@ -408,8 +406,7 @@ impl SqliteTableService {
 
         if column_names.is_empty() {
             return Err(WebError::NotFound(format!(
-                "Table '{}' not found or has no columns",
-                table_name
+                "Table '{table_name}' not found or has no columns"
             )));
         }
 
@@ -427,7 +424,7 @@ impl SqliteTableService {
             }
         }
 
-        let count_sql = format!("SELECT COUNT(*) FROM \"{}\" {}", clean_table, where_clause);
+        let count_sql = format!("SELECT COUNT(*) FROM \"{clean_table}\" {where_clause}");
         let total_rows: u64 = if where_clause.is_empty() {
             conn.query_row(&count_sql, [], |r| r.get(0)).unwrap_or(0)
         } else {
@@ -438,7 +435,7 @@ impl SqliteTableService {
         // Validate sort column
         let sort_sql = if let Some(col) = sort_by {
             if column_names.iter().any(|c| c == col) {
-                let order = match sort_order.map(|s| s.to_uppercase()).as_deref() {
+                let order = match sort_order.map(str::to_uppercase).as_deref() {
                     | Some("DESC") => "DESC",
                     | _ => "ASC",
                 };
@@ -459,13 +456,12 @@ impl SqliteTableService {
         let offset = (current_page - 1) * page_limit;
 
         let query_sql = format!(
-            "SELECT rowid, * FROM \"{}\" {} {} LIMIT {} OFFSET {}",
-            clean_table, where_clause, sort_sql, page_limit, offset
+            "SELECT rowid, * FROM \"{clean_table}\" {where_clause} {sort_sql} LIMIT {page_limit} OFFSET {offset}"
         );
 
         let mut stmt = conn
             .prepare(&query_sql)
-            .map_err(|e| WebError::Internal(format!("Query preparation failed: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Query preparation failed: {e}")))?;
 
         let mut rows = Vec::new();
         let mut row_ids = Vec::new();
@@ -474,7 +470,7 @@ impl SqliteTableService {
         } else {
             stmt.query([&search_pattern])
         }
-        .map_err(|e| WebError::Internal(format!("Query execution failed: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Query execution failed: {e}")))?;
 
         while let Some(r) = rows_iter
             .next()
@@ -531,7 +527,7 @@ impl SqliteTableService {
             )",
             [],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to ensure cell-style table: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to ensure cell-style table: {e}")))?;
         Ok(())
     }
 
@@ -541,7 +537,7 @@ impl SqliteTableService {
         table_name: &str,
     ) -> WebResult<HashMap<String, CellStyle>> {
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
 
         // A read-only connection can still SELECT from a table that doesn't exist yet -- that's
         // just an empty result via `query_map`'s error path here, handled as "no styles" rather
@@ -563,7 +559,7 @@ impl SqliteTableService {
                     color: r.get(4)?,
                     bg_color: r.get(5)?,
                 };
-                Ok((format!("{}:{}", row_id, col_name), style))
+                Ok((format!("{row_id}:{col_name}"), style))
             })
             .map_err(|e| WebError::Internal(e.to_string()))?;
 
@@ -584,7 +580,7 @@ impl SqliteTableService {
         style: &CellStyle,
     ) -> WebResult<()> {
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
         Self::ensure_style_table(&conn)?;
 
         if style.is_default() {
@@ -592,7 +588,7 @@ impl SqliteTableService {
                 "DELETE FROM _apich_cell_styles WHERE table_name = ?1 AND row_id = ?2 AND col_name = ?3",
                 rusqlite::params![table_name, row_id, col_name],
             )
-            .map_err(|e| WebError::Internal(format!("Failed to clear cell style: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to clear cell style: {e}")))?;
             return Ok(());
         }
 
@@ -601,9 +597,9 @@ impl SqliteTableService {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT (table_name, row_id, col_name) DO UPDATE SET
                 bold = excluded.bold, italic = excluded.italic, color = excluded.color, bg_color = excluded.bg_color",
-            rusqlite::params![table_name, row_id, col_name, style.bold as i64, style.italic as i64, style.color, style.bg_color],
+            rusqlite::params![table_name, row_id, col_name, i64::from(style.bold), i64::from(style.italic), style.color, style.bg_color],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to save cell style: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to save cell style: {e}")))?;
         Ok(())
     }
 
@@ -615,7 +611,7 @@ impl SqliteTableService {
             )",
             [],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to ensure column-view table: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to ensure column-view table: {e}")))?;
         Ok(())
     }
 
@@ -626,7 +622,7 @@ impl SqliteTableService {
         table_name: &str,
     ) -> WebResult<ColumnViewConfig> {
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
         let result: rusqlite::Result<String> = conn.query_row(
             "SELECT config_json FROM _apich_column_view WHERE table_name = ?1",
             [table_name],
@@ -645,16 +641,16 @@ impl SqliteTableService {
         config: &ColumnViewConfig,
     ) -> WebResult<()> {
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
         Self::ensure_column_view_table(&conn)?;
         let json = serde_json::to_string(config)
-            .map_err(|e| WebError::Internal(format!("Failed to serialize column view: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to serialize column view: {e}")))?;
         conn.execute(
             "INSERT INTO _apich_column_view (table_name, config_json) VALUES (?1, ?2)
              ON CONFLICT (table_name) DO UPDATE SET config_json = excluded.config_json",
             rusqlite::params![table_name, json],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to save column view: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to save column view: {e}")))?;
         Ok(())
     }
 
@@ -667,7 +663,7 @@ impl SqliteTableService {
             )",
             [],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to ensure query-history table: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to ensure query-history table: {e}")))?;
         Ok(())
     }
 
@@ -679,7 +675,7 @@ impl SqliteTableService {
         sql: &str,
     ) -> WebResult<()> {
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
         Self::ensure_query_history_table(&conn)?;
 
         let last: Option<String> = conn
@@ -697,19 +693,19 @@ impl SqliteTableService {
             "INSERT INTO _apich_query_history (sql_text) VALUES (?1)",
             [sql],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to record query history: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to record query history: {e}")))?;
         conn.execute(
             "DELETE FROM _apich_query_history WHERE id NOT IN (SELECT id FROM _apich_query_history ORDER BY id DESC LIMIT 10)",
             [],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to trim query history: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to trim query history: {e}")))?;
         Ok(())
     }
 
     /// The last 10 distinct SQL console queries run against this file, most recent first.
     pub fn list_query_history<P: AsRef<Path>>(db_path: P) -> WebResult<Vec<String>> {
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
         let mut stmt = match conn
             .prepare("SELECT sql_text FROM _apich_query_history ORDER BY id DESC LIMIT 10")
         {
@@ -739,7 +735,7 @@ impl SqliteTableService {
             )",
             [],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to ensure notebook table: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to ensure notebook table: {e}")))?;
         Ok(())
     }
 
@@ -751,7 +747,7 @@ impl SqliteTableService {
         table_name: &str,
     ) -> WebResult<Vec<NotebookCell>> {
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
         let mut stmt = match conn.prepare(
             "SELECT id, position, language, code, output, output_images FROM _apich_notebook_cells WHERE table_name = ?1 ORDER BY position ASC",
         ) {
@@ -786,7 +782,7 @@ impl SqliteTableService {
         starter_code: &str,
     ) -> WebResult<i64> {
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
         Self::ensure_notebook_table(&conn)?;
         let next_position: i64 = conn
             .query_row(
@@ -799,7 +795,7 @@ impl SqliteTableService {
             "INSERT INTO _apich_notebook_cells (table_name, position, language, code) VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![table_name, next_position, language, starter_code],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to create notebook cell: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to create notebook cell: {e}")))?;
         Ok(conn.last_insert_rowid())
     }
 
@@ -813,7 +809,7 @@ impl SqliteTableService {
         output_images: Option<&[NotebookCellImage]>,
     ) -> WebResult<()> {
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
         Self::ensure_notebook_table(&conn)?;
         match (output, output_images) {
             (Some(out), Some(imgs)) => {
@@ -825,7 +821,7 @@ impl SqliteTableService {
             }
             _ => conn.execute("UPDATE _apich_notebook_cells SET code = ?1 WHERE id = ?2", rusqlite::params![code, cell_id]),
         }
-        .map_err(|e| WebError::Internal(format!("Failed to save notebook cell: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to save notebook cell: {e}")))?;
         Ok(())
     }
 
@@ -834,9 +830,9 @@ impl SqliteTableService {
         cell_id: i64,
     ) -> WebResult<()> {
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
         conn.execute("DELETE FROM _apich_notebook_cells WHERE id = ?1", [cell_id])
-            .map_err(|e| WebError::Internal(format!("Failed to delete notebook cell: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to delete notebook cell: {e}")))?;
         Ok(())
     }
 
@@ -849,7 +845,7 @@ impl SqliteTableService {
         direction: &str,
     ) -> WebResult<()> {
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
         Self::ensure_notebook_table(&conn)?;
 
         let (table_name, position): (String, i64) = conn
@@ -858,7 +854,7 @@ impl SqliteTableService {
                 [cell_id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .map_err(|e| WebError::Internal(format!("Cell not found: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Cell not found: {e}")))?;
 
         let neighbor: Option<(i64, i64)> = if direction == "up" {
             conn.query_row(
@@ -881,12 +877,12 @@ impl SqliteTableService {
                 "UPDATE _apich_notebook_cells SET position = ?1 WHERE id = ?2",
                 rusqlite::params![neighbor_position, cell_id],
             )
-            .map_err(|e| WebError::Internal(format!("Failed to reorder cell: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to reorder cell: {e}")))?;
             conn.execute(
                 "UPDATE _apich_notebook_cells SET position = ?1 WHERE id = ?2",
                 rusqlite::params![position, neighbor_id],
             )
-            .map_err(|e| WebError::Internal(format!("Failed to reorder cell: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to reorder cell: {e}")))?;
         }
         Ok(())
     }
@@ -901,12 +897,10 @@ impl SqliteTableService {
     ) -> String {
         match language {
             "r" => format!(
-                "library(DBI)\nlibrary(RSQLite)\nlibrary(ggplot2)\n\ncon <- dbConnect(RSQLite::SQLite(), Sys.getenv(\"APICH_TABLE_DB\"))\ndf <- dbReadTable(con, \"{table}\")\nhead(df)\n\n# Save a derived result back as a NEW table (never overwrite the source):\n# dbWriteTable(con, \"{table}_summary\", summary_df, overwrite = TRUE)\n\n# A saved plot appears as real output below, the same way a Jupyter cell's does:\n# ggplot(df, aes(x = some_column)) + geom_histogram()\n# ggsave(\"plot.png\", width = 6, height = 4)\n\ndbDisconnect(con)\n",
-                table = table_name
+                "library(DBI)\nlibrary(RSQLite)\nlibrary(ggplot2)\n\ncon <- dbConnect(RSQLite::SQLite(), Sys.getenv(\"APICH_TABLE_DB\"))\ndf <- dbReadTable(con, \"{table_name}\")\nhead(df)\n\n# Save a derived result back as a NEW table (never overwrite the source):\n# dbWriteTable(con, \"{table_name}_summary\", summary_df, overwrite = TRUE)\n\n# A saved plot appears as real output below, the same way a Jupyter cell's does:\n# ggplot(df, aes(x = some_column)) + geom_histogram()\n# ggsave(\"plot.png\", width = 6, height = 4)\n\ndbDisconnect(con)\n"
             ),
             _ => format!(
-                "import os\nimport sqlite3\nimport pandas as pd\nimport matplotlib.pyplot as plt\n\nconn = sqlite3.connect(os.environ[\"APICH_TABLE_DB\"])\ndf = pd.read_sql_query('SELECT * FROM \"{table}\"', conn)\nprint(df.head())\n\n# Save a derived result back as a NEW table (never overwrite the source):\n# df.describe().to_sql(\"{table}_summary\", conn, if_exists=\"replace\")\n\n# A saved plot appears as real output below, the same way a Jupyter cell's does:\n# df.plot()\n# plt.savefig(\"plot.png\")\n\nconn.close()\n",
-                table = table_name
+                "import os\nimport sqlite3\nimport pandas as pd\nimport matplotlib.pyplot as plt\n\nconn = sqlite3.connect(os.environ[\"APICH_TABLE_DB\"])\ndf = pd.read_sql_query('SELECT * FROM \"{table_name}\"', conn)\nprint(df.head())\n\n# Save a derived result back as a NEW table (never overwrite the source):\n# df.describe().to_sql(\"{table_name}_summary\", conn, if_exists=\"replace\")\n\n# A saved plot appears as real output below, the same way a Jupyter cell's does:\n# df.plot()\n# plt.savefig(\"plot.png\")\n\nconn.close()\n"
             ),
         }
     }
@@ -925,15 +919,14 @@ impl SqliteTableService {
         let clean_target_col = target_col.replace('"', "\"\"");
 
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
         let sql = format!(
-            "UPDATE \"{}\" SET \"{}\" = ?1 WHERE \"{}\" = ?2",
-            clean_table, clean_target_col, clean_id_col
+            "UPDATE \"{clean_table}\" SET \"{clean_target_col}\" = ?1 WHERE \"{clean_id_col}\" = ?2"
         );
 
         conn.execute(&sql, rusqlite::params![new_val, row_id_val])
-            .map_err(|e| WebError::Internal(format!("Failed to update cell: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to update cell: {e}")))?;
 
         Ok(())
     }
@@ -945,11 +938,11 @@ impl SqliteTableService {
     ) -> WebResult<i64> {
         let clean_table = table_name.replace('"', "\"\"");
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
-        let sql = format!("INSERT INTO \"{}\" DEFAULT VALUES", clean_table);
+        let sql = format!("INSERT INTO \"{clean_table}\" DEFAULT VALUES");
         conn.execute(&sql, [])
-            .map_err(|e| WebError::Internal(format!("Failed to insert row: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to insert row: {e}")))?;
 
         Ok(conn.last_insert_rowid())
     }
@@ -965,14 +958,11 @@ impl SqliteTableService {
         let clean_id_col = row_id_col.replace('"', "\"\"");
 
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
-        let sql = format!(
-            "DELETE FROM \"{}\" WHERE \"{}\" = ?1",
-            clean_table, clean_id_col
-        );
+        let sql = format!("DELETE FROM \"{clean_table}\" WHERE \"{clean_id_col}\" = ?1");
         conn.execute(&sql, [row_id_val])
-            .map_err(|e| WebError::Internal(format!("Failed to delete row: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to delete row: {e}")))?;
 
         Ok(())
     }
@@ -989,22 +979,22 @@ impl SqliteTableService {
     ) -> WebResult<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
         let clean_table = table_name.replace('"', "\"\"");
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
-        let sql = format!("SELECT * FROM \"{}\"", clean_table);
+        let sql = format!("SELECT * FROM \"{clean_table}\"");
         let mut stmt = conn
             .prepare(&sql)
-            .map_err(|e| WebError::Internal(format!("Failed to prepare export query: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to prepare export query: {e}")))?;
         let col_names: Vec<String> = stmt
             .column_names()
             .into_iter()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
 
         let mut rows_out = Vec::new();
         let mut rows = stmt
             .query([])
-            .map_err(|e| WebError::Internal(format!("Failed to query table: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to query table: {e}")))?;
         while let Some(r) = rows.next().map_err(|e| WebError::Internal(e.to_string()))? {
             let mut line = Vec::with_capacity(col_names.len());
             for i in 0..col_names.len() {
@@ -1042,7 +1032,7 @@ impl SqliteTableService {
             })
             .collect();
         serde_json::to_string_pretty(&objects)
-            .map_err(|e| WebError::Internal(format!("Failed to serialize JSON export: {}", e)))
+            .map_err(|e| WebError::Internal(format!("Failed to serialize JSON export: {e}")))
     }
 
     /// Export a table as tab-separated values (Excel/Numbers paste-friendly).
@@ -1104,17 +1094,17 @@ impl SqliteTableService {
     ) -> WebResult<String> {
         let clean_table = table_name.replace('"', "\"\"");
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
-        let sql = format!("SELECT * FROM \"{}\"", clean_table);
+        let sql = format!("SELECT * FROM \"{clean_table}\"");
         let mut stmt = conn
             .prepare(&sql)
-            .map_err(|e| WebError::Internal(format!("Failed to prepare export query: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to prepare export query: {e}")))?;
 
         let col_names: Vec<String> = stmt
             .column_names()
             .into_iter()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
         let mut csv = String::new();
         // Header
@@ -1123,7 +1113,7 @@ impl SqliteTableService {
 
         let mut rows = stmt
             .query([])
-            .map_err(|e| WebError::Internal(format!("Failed to query table: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to query table: {e}")))?;
 
         while let Some(r) = rows.next().map_err(|e| WebError::Internal(e.to_string()))? {
             let mut line = Vec::with_capacity(col_names.len());
@@ -1132,7 +1122,7 @@ impl SqliteTableService {
                     .get_ref(i)
                     .map_err(|e| WebError::Internal(e.to_string()))?;
                 let s = match val_ref {
-                    | rusqlite::types::ValueRef::Null => "".to_string(),
+                    | rusqlite::types::ValueRef::Null => String::new(),
                     | rusqlite::types::ValueRef::Integer(v) => v.to_string(),
                     | rusqlite::types::ValueRef::Real(v) => v.to_string(),
                     | rusqlite::types::ValueRef::Text(v) => {
@@ -1162,7 +1152,7 @@ impl SqliteTableService {
     ) -> WebResult<usize> {
         let clean_table = table_name.replace('"', "\"\"");
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
         let mut lines = csv_content.lines();
         let header = match lines.next() {
@@ -1192,12 +1182,9 @@ impl SqliteTableService {
             .map(|c| format!("\"{}\" TEXT", c.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(", ");
-        let create_sql = format!(
-            "CREATE TABLE IF NOT EXISTS \"{}\" ({})",
-            clean_table, col_defs
-        );
+        let create_sql = format!("CREATE TABLE IF NOT EXISTS \"{clean_table}\" ({col_defs})");
         conn.execute(&create_sql, [])
-            .map_err(|e| WebError::Internal(format!("Failed to ensure table: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to ensure table: {e}")))?;
 
         // Prepare insert statement
         let placeholders = cols.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
@@ -1206,13 +1193,11 @@ impl SqliteTableService {
             .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(", ");
-        let insert_sql = format!(
-            "INSERT INTO \"{}\" ({}) VALUES ({})",
-            clean_table, quoted_cols, placeholders
-        );
-        let mut insert_stmt = conn.prepare(&insert_sql).map_err(|e| {
-            WebError::Internal(format!("Failed to prepare insert statement: {}", e))
-        })?;
+        let insert_sql =
+            format!("INSERT INTO \"{clean_table}\" ({quoted_cols}) VALUES ({placeholders})");
+        let mut insert_stmt = conn
+            .prepare(&insert_sql)
+            .map_err(|e| WebError::Internal(format!("Failed to prepare insert statement: {e}")))?;
 
         let mut count = 0;
         for line in lines {
@@ -1230,7 +1215,7 @@ impl SqliteTableService {
             }
             insert_stmt
                 .execute(rusqlite::params_from_iter(params_vec))
-                .map_err(|e| WebError::Internal(format!("Failed to insert row: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("Failed to insert row: {e}")))?;
             count += 1;
         }
 
@@ -1265,24 +1250,24 @@ impl SqliteTableService {
         );
 
         let conn = Connection::open(&db_path)
-            .map_err(|e| WebError::Internal(format!("Failed to open database: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
         if is_query {
             let mut stmt = conn
                 .prepare(trimmed)
-                .map_err(|e| WebError::BadRequest(format!("SQL compilation error: {}", e)))?;
+                .map_err(|e| WebError::BadRequest(format!("SQL compilation error: {e}")))?;
 
             let col_count = stmt.column_count();
             let columns: Vec<String> = stmt
                 .column_names()
                 .into_iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect();
 
             let mut rows = Vec::new();
             let mut rows_iter = stmt
                 .query([])
-                .map_err(|e| WebError::Internal(format!("SQL execution failed: {}", e)))?;
+                .map_err(|e| WebError::Internal(format!("SQL execution failed: {e}")))?;
 
             let max_rows = max_rows.clamp(1, 5000);
             let mut truncated = false;
@@ -1307,12 +1292,9 @@ impl SqliteTableService {
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             let count = rows.len();
             let message = if truncated {
-                format!("Query executed successfully ({} rows returned in {:.2} ms, truncated at the {}-row limit -- refine the query or raise the limit to see more)", count, elapsed, max_rows)
+                format!("Query executed successfully ({count} rows returned in {elapsed:.2} ms, truncated at the {max_rows}-row limit -- refine the query or raise the limit to see more)")
             } else {
-                format!(
-                    "Query executed successfully ({} rows returned in {:.2} ms)",
-                    count, elapsed
-                )
+                format!("Query executed successfully ({count} rows returned in {elapsed:.2} ms)")
             };
 
             Ok(SqlExecutionResult {
@@ -1326,8 +1308,8 @@ impl SqliteTableService {
         } else {
             let rows_affected = conn
                 .execute_batch(trimmed)
-                .map(|_| 1)
-                .map_err(|e| WebError::BadRequest(format!("Execution failed: {}", e)))?;
+                .map(|()| 1)
+                .map_err(|e| WebError::BadRequest(format!("Execution failed: {e}")))?;
 
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 
@@ -1337,7 +1319,7 @@ impl SqliteTableService {
                 rows: Vec::new(),
                 rows_affected,
                 execution_time_ms: (elapsed * 100.0).round() / 100.0,
-                message: format!("Batch executed successfully in {:.2} ms", elapsed),
+                message: format!("Batch executed successfully in {elapsed:.2} ms"),
             })
         }
     }
@@ -1347,12 +1329,12 @@ impl SqliteTableService {
         let p = full_path.as_ref();
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                WebError::Internal(format!("Failed to create parent directory: {}", e))
+                WebError::Internal(format!("Failed to create parent directory: {e}"))
             })?;
         }
 
         let conn = Connection::open(p)
-            .map_err(|e| WebError::Internal(format!("Failed to create SQLite file: {}", e)))?;
+            .map_err(|e| WebError::Internal(format!("Failed to create SQLite file: {e}")))?;
 
         // Initialize with default meta table
         conn.execute(
@@ -1363,13 +1345,13 @@ impl SqliteTableService {
             )",
             [],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to initialize table: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to initialize table: {e}")))?;
 
         conn.execute(
             "INSERT OR REPLACE INTO _apich_metadata (key, value) VALUES ('generator', 'APICH Scientific Database')",
             [],
         )
-        .map_err(|e| WebError::Internal(format!("Failed to insert metadata: {}", e)))?;
+        .map_err(|e| WebError::Internal(format!("Failed to insert metadata: {e}")))?;
 
         Ok(())
     }
@@ -1381,8 +1363,7 @@ fn sqlite_val_to_json(val: ValueRef<'_>) -> serde_json::Value {
         | ValueRef::Integer(i) => serde_json::Value::Number(serde_json::Number::from(i)),
         | ValueRef::Real(f) => {
             serde_json::Number::from_f64(f)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
+                .map_or(serde_json::Value::Null, serde_json::Value::Number)
         },
         | ValueRef::Text(t) => {
             let s = String::from_utf8_lossy(t);

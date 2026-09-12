@@ -1,3 +1,5 @@
+//! AI coding agent CLI driver and integration.
+
 use crate::container::UserContainer;
 use crate::error::Result;
 use crate::exec::ExecOptions;
@@ -17,7 +19,7 @@ const AGENT_EXEC_TIMEOUT: Duration = Duration::from_secs(120);
 /// browser (visit a URL, authorize, come back) -- OAuth codes are typically valid for up to
 /// ~15 minutes (verified live: codex's device code says "expires in 15 minutes"), so the exec
 /// itself must not be killed by the much shorter `AGENT_EXEC_TIMEOUT` used for normal agent runs.
-const AGENT_LOGIN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const AGENT_LOGIN_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// How a given agent CLI's real account-login flow behaves, checked live against the actual
 /// built image (`apich-sandbox:latest`), not assumed from documentation:
@@ -40,14 +42,20 @@ pub enum LoginSupport {
 }
 
 /// A CLI coding agent installed in the sandbox image (see `docker/Containerfile.sandbox`).
+///
 /// Per plan.md, these run directly inside the project's container against the real workspace
 /// files -- this is not a hosted chat API call, it's a real agent process with a real shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
+    /// Anthropic Claude Code CLI (`claude`).
     ClaudeCode,
+    /// `OpenAI` Codex CLI (`codex`).
     Codex,
+    /// `OpenCode` CLI (`opencode`).
     OpenCode,
+    /// Aider CLI (`aider`).
     Aider,
+    /// Block Goose CLI (`goose`).
     Goose,
     /// Google's Antigravity CLI (`agy`), the successor to Gemini CLI. Previously left out of
     /// this list entirely -- plan.md names it, but no publicly verifiable install method could
@@ -59,60 +67,62 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
-    pub const ALL: [AgentKind; 6] = [
-        AgentKind::ClaudeCode,
-        AgentKind::Codex,
-        AgentKind::OpenCode,
-        AgentKind::Aider,
-        AgentKind::Goose,
-        AgentKind::Agy,
+    /// Array of all supported agent kinds.
+    pub const ALL: [Self; 6] = [
+        Self::ClaudeCode,
+        Self::Codex,
+        Self::OpenCode,
+        Self::Aider,
+        Self::Goose,
+        Self::Agy,
     ];
 
     /// The binary name on PATH inside the sandbox image, matching
     /// `apich-agent-status` in `docker/Containerfile.sandbox`.
-    pub fn binary(&self) -> &'static str {
+    #[must_use]
+    pub const fn binary(&self) -> &'static str {
         match self {
-            | AgentKind::ClaudeCode => "claude",
-            | AgentKind::Codex => "codex",
-            | AgentKind::OpenCode => "opencode",
-            | AgentKind::Aider => "aider",
-            | AgentKind::Goose => "goose",
-            | AgentKind::Agy => "agy",
+            | Self::ClaudeCode => "claude",
+            | Self::Codex => "codex",
+            | Self::OpenCode => "opencode",
+            | Self::Aider => "aider",
+            | Self::Goose => "goose",
+            | Self::Agy => "agy",
         }
     }
 
-    pub fn display_name(&self) -> &'static str {
+    /// Returns the human-readable display name for this agent.
+    #[must_use]
+    pub const fn display_name(&self) -> &'static str {
         match self {
-            | AgentKind::ClaudeCode => "Claude Code",
-            | AgentKind::Codex => "Codex CLI",
-            | AgentKind::OpenCode => "opencode",
-            | AgentKind::Aider => "Aider",
-            | AgentKind::Goose => "goose",
-            | AgentKind::Agy => "Antigravity CLI",
+            | Self::ClaudeCode => "Claude Code",
+            | Self::Codex => "Codex CLI",
+            | Self::OpenCode => "opencode",
+            | Self::Aider => "Aider",
+            | Self::Goose => "goose",
+            | Self::Agy => "Antigravity CLI",
         }
     }
 
     /// The env var this agent reads its BYOK API key from. The caller is responsible for
     /// actually holding the user's key (never persisted server-side) and passing it into
     /// `run`/`run_stream` -- this only tells the caller which env var name the CLI expects.
-    pub fn credential_env_var(&self) -> &'static str {
+    #[must_use]
+    pub const fn credential_env_var(&self) -> &'static str {
         match self {
-            | AgentKind::ClaudeCode => "ANTHROPIC_API_KEY",
-            | AgentKind::Codex => "OPENAI_API_KEY",
-            | AgentKind::OpenCode => "ANTHROPIC_API_KEY",
-            | AgentKind::Aider => "OPENAI_API_KEY",
-            | AgentKind::Goose => "ANTHROPIC_API_KEY",
+            | Self::ClaudeCode | Self::OpenCode | Self::Goose => "ANTHROPIC_API_KEY",
+            | Self::Codex | Self::Aider => "OPENAI_API_KEY",
             // Confirmed by a real string baked into the `agy` binary itself ("You are using the
             // Gemini API directly with GEMINI_API_KEY..."), not assumed from agy being framed as
             // a Gemini CLI successor.
-            | AgentKind::Agy => "GEMINI_API_KEY",
+            | Self::Agy => "GEMINI_API_KEY",
         }
     }
 
-    pub fn login_support(&self) -> LoginSupport {
+    /// Returns the interactive login model supported by this agent CLI.
+    #[must_use]
+    pub const fn login_support(&self) -> LoginSupport {
         match self {
-            | AgentKind::ClaudeCode => LoginSupport::PasteCodeBack,
-            | AgentKind::Codex => LoginSupport::DeviceCode,
             // `agy --help` has no `login`/`auth` subcommand -- but running the bare `agy`
             // command with no stored credentials *does* trigger a real login flow of its own:
             // an interactive menu ("Select login method: 1. Google OAuth / 2. Use a Google
@@ -123,36 +133,39 @@ impl AgentKind {
             // path, then restoring it). Same PasteCodeBack shape as `claude auth login`; see
             // `AgentToolchain::login`'s Agy branch for the extra menu-selection keystroke this
             // one needs before it reaches that stage.
-            | AgentKind::Agy => LoginSupport::PasteCodeBack,
+            | Self::ClaudeCode | Self::Agy => LoginSupport::PasteCodeBack,
+            | Self::Codex => LoginSupport::DeviceCode,
             // opencode's `auth login` is a full interactive TUI (arrow-key provider picker, not
             // a single linear prompt) and goose's `configure` is a similar wizard; aider has no
             // account-login concept, it's API-key-only. None of these get a fake "login" button
             // here -- BYOK via `AgentToolchain::run`'s `api_key` is still how they're used.
-            | AgentKind::OpenCode | AgentKind::Aider | AgentKind::Goose => LoginSupport::None,
+            | Self::OpenCode | Self::Aider | Self::Goose => LoginSupport::None,
         }
     }
 
     /// Real, verified invocation for each CLI's account-login flow (checked against the actual
     /// built image, see `LoginSupport`'s doc comment). `None` for kinds with no real login flow
     /// this session can drive.
-    fn login_args(&self) -> Option<Vec<String>> {
+    fn login_args(self) -> Option<Vec<String>> {
         match self {
-            | AgentKind::ClaudeCode => Some(vec!["auth".to_string(), "login".to_string()]),
-            | AgentKind::Codex => Some(vec!["login".to_string(), "--device-auth".to_string()]),
+            | Self::ClaudeCode => Some(vec!["auth".to_string(), "login".to_string()]),
+            | Self::Codex => Some(vec!["login".to_string(), "--device-auth".to_string()]),
             // No subcommand at all -- the bare binary itself is what shows the login menu.
-            | AgentKind::Agy => Some(vec![]),
-            | AgentKind::OpenCode | AgentKind::Aider | AgentKind::Goose => None,
+            | Self::Agy => Some(vec![]),
+            | Self::OpenCode | Self::Aider | Self::Goose => None,
         }
     }
 
-    pub fn parse(name: &str) -> Option<AgentKind> {
+    /// Parses a string into an `AgentKind` if recognized.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
         match name {
-            | "claude" | "claude-code" => Some(AgentKind::ClaudeCode),
-            | "codex" => Some(AgentKind::Codex),
-            | "opencode" => Some(AgentKind::OpenCode),
-            | "aider" => Some(AgentKind::Aider),
-            | "goose" => Some(AgentKind::Goose),
-            | "agy" | "antigravity" => Some(AgentKind::Agy),
+            | "claude" | "claude-code" => Some(Self::ClaudeCode),
+            | "codex" => Some(Self::Codex),
+            | "opencode" => Some(Self::OpenCode),
+            | "aider" => Some(Self::Aider),
+            | "goose" => Some(Self::Goose),
+            | "agy" | "antigravity" => Some(Self::Agy),
             | _ => None,
         }
     }
@@ -169,11 +182,11 @@ impl AgentKind {
     /// flag placed directly after it gets swallowed as the prompt text instead. Fixed by putting
     /// `--print <prompt>` last; confirmed working afterward with a real (if throwaway) API key.
     fn non_interactive_args(
-        &self,
+        self,
         prompt: &str,
     ) -> Vec<String> {
         match self {
-            | AgentKind::ClaudeCode => {
+            | Self::ClaudeCode => {
                 vec![
                     "--print".to_string(),
                     "--permission-mode".to_string(),
@@ -183,7 +196,7 @@ impl AgentKind {
                     prompt.to_string(),
                 ]
             },
-            | AgentKind::Codex => {
+            | Self::Codex => {
                 vec![
                     "exec".to_string(),
                     "--sandbox".to_string(),
@@ -192,17 +205,17 @@ impl AgentKind {
                     prompt.to_string(),
                 ]
             },
-            | AgentKind::OpenCode => {
+            | Self::OpenCode => {
                 vec!["run".to_string(), prompt.to_string(), "--auto".to_string()]
             },
-            | AgentKind::Aider => {
+            | Self::Aider => {
                 vec![
                     "--yes-always".to_string(),
                     "--message".to_string(),
                     prompt.to_string(),
                 ]
             },
-            | AgentKind::Goose => {
+            | Self::Goose => {
                 vec![
                     "run".to_string(),
                     "--text".to_string(),
@@ -211,7 +224,7 @@ impl AgentKind {
                     "-q".to_string(),
                 ]
             },
-            | AgentKind::Agy => {
+            | Self::Agy => {
                 vec![
                     "--mode".to_string(),
                     "accept-edits".to_string(),
@@ -225,12 +238,15 @@ impl AgentKind {
     }
 }
 
+/// Helper for running AI coding agents inside a user container.
 pub struct AgentToolchain<'a> {
     container: &'a UserContainer,
 }
 
 impl<'a> AgentToolchain<'a> {
-    pub fn new(container: &'a UserContainer) -> Self {
+    /// Creates a new `AgentToolchain` bound to the specified container.
+    #[must_use]
+    pub const fn new(container: &'a UserContainer) -> Self {
         Self { container }
     }
 
@@ -239,6 +255,9 @@ impl<'a> AgentToolchain<'a> {
     /// `docker/Containerfile.sandbox`'s per-tool `|| echo ... failed` guards), so this checks
     /// real `command -v` results via the image's own `apich-agent-status` script rather than
     /// assuming every kind is present.
+    ///
+    /// # Errors
+    /// Returns an error if querying agent status via container exec fails.
     pub async fn availability(&self) -> Result<Vec<(AgentKind, bool)>> {
         let res = self.container.exec(&["apich-agent-status"]).await?;
         let out = res.stdout_lossy();
@@ -254,7 +273,6 @@ impl<'a> AgentToolchain<'a> {
     }
 
     fn build_options(
-        &self,
         kind: AgentKind,
         prompt: &str,
         api_key: Option<&str>,
@@ -272,26 +290,32 @@ impl<'a> AgentToolchain<'a> {
     /// buffering all output until the process exits. The user's BYOK API key, if given, is
     /// injected as an env var scoped to this single exec call only -- never written to disk
     /// inside the container, never logged.
+    ///
+    /// # Errors
+    /// Returns an error if executing the agent command in the container fails.
     pub async fn run(
         &self,
         kind: AgentKind,
         prompt: &str,
         api_key: Option<&str>,
     ) -> Result<ExecResult> {
-        let opts = self.build_options(kind, prompt, api_key);
+        let opts = Self::build_options(kind, prompt, api_key);
         self.container.exec_with_options(opts).await
     }
 
     /// Same as `run`, but streams stdout/stderr chunks as the agent produces them instead of
     /// buffering until exit -- for live-updating UI (e.g. a terminal-style island) instead of a
     /// single blocking request.
+    ///
+    /// # Errors
+    /// Returns an error if streaming agent execution fails.
     pub async fn run_stream(
         &self,
         kind: AgentKind,
         prompt: &str,
         api_key: Option<&str>,
     ) -> Result<ExecStream> {
-        let opts = self.build_options(kind, prompt, api_key);
+        let opts = Self::build_options(kind, prompt, api_key);
         self.container.exec_stream(opts).await
     }
 
@@ -305,6 +329,9 @@ impl<'a> AgentToolchain<'a> {
     /// Returns `None` if this agent has no real login flow (`LoginSupport::None`) -- the caller
     /// should fall back to BYOK (`run`'s `api_key` param) instead of fabricating a login button
     /// for a tool that doesn't have one.
+    ///
+    /// # Errors
+    /// Returns an error if starting the interactive login session fails.
     pub async fn login(
         &self,
         kind: AgentKind,
@@ -384,7 +411,9 @@ impl<'a> AgentToolchain<'a> {
             tokio::spawn(async move {
                 let mut seen = String::new();
                 let mut sent_enter = false;
-                let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+                let deadline = tokio::time::Instant::now()
+                    .checked_add(Duration::from_secs(60))
+                    .unwrap_or_else(tokio::time::Instant::now);
                 loop {
                     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
                     if remaining.is_zero() {

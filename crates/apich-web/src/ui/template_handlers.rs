@@ -238,8 +238,7 @@ async fn template_detail_page(
                     .await
                     .ok()
                     .flatten()
-                    .map(|o| o.name)
-                    .unwrap_or_else(|| "(unknown org)".to_string())
+                    .map_or_else(|| "(unknown org)".to_string(), |o| o.name)
             } else if let Some(team_id) = share.team_id {
                 match repo.get_team_by_id(team_id).await.ok().flatten() {
                     | Some(team) => {
@@ -1018,8 +1017,7 @@ async fn apply_note_template_action(
         .project_manager
         .read_file(project.id, &file_name)
         .await
-        .map(|c| !c.is_empty())
-        .unwrap_or(false)
+        .is_ok_and(|c| !c.is_empty())
     {
         return redirect_error(&back, format!("{file_name} already exists in this project"));
     }
@@ -1449,8 +1447,7 @@ async fn apply_note_template_from_library_action(
         .project_manager
         .read_file(project.id, &file_name)
         .await
-        .map(|c| !c.is_empty())
-        .unwrap_or(false)
+        .is_ok_and(|c| !c.is_empty())
     {
         return redirect_error(&back, format!("{file_name} already exists in this project"));
     }

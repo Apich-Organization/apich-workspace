@@ -22,9 +22,9 @@ pub enum ProjectTab {
 impl ProjectTab {
     pub fn from_str(s: &str) -> Self {
         match s {
-            | "vcs" | "merge" | "timeline" | "git" => ProjectTab::Vcs,
-            | "sharing" | "members" => ProjectTab::Sharing,
-            | _ => ProjectTab::Files,
+            | "vcs" | "merge" | "timeline" | "git" => Self::Vcs,
+            | "sharing" | "members" => Self::Sharing,
+            | _ => Self::Files,
         }
     }
 }
@@ -104,7 +104,7 @@ pub fn ProjectDetailPage(
 
     view! {
         <AppShell
-            user=user.clone()
+            user=user
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::Projects
             current_path=current_path
@@ -206,11 +206,11 @@ fn render_tab_bar(
             <a href=format!("/projects/{}?tab=vcs", project_id) class="tab-item" class:active=active == ProjectTab::Vcs>
                 "🌿 " {i18n.tab_vcs()}
                 {(conflicts_count > 0).then(|| view! { <span class="status-badge badge-warning" style="margin-left:4px;">{conflicts_count}</span> })}
-                {(snapshots_count > 0).then(|| format!(" ({})", snapshots_count))}
+                {(snapshots_count > 0).then(|| format!(" ({snapshots_count})"))}
             </a>
             <a href=format!("/projects/{}?tab=sharing", project_id) class="tab-item" class:active=active == ProjectTab::Sharing>
                 "👥 " {i18n.tab_sharing()}
-                {(members_count > 0).then(|| format!(" ({})", members_count))}
+                {(members_count > 0).then(|| format!(" ({members_count})"))}
             </a>
         </div>
     }
@@ -284,8 +284,8 @@ fn render_files_tab(
                     _ => view! { <span class="share-badge share-badge-private">"🔒 Private"</span> }.into_any(),
                 };
 
-                let mode = f.share_info.as_ref().map(|s| s.mode.clone()).unwrap_or_else(|| "private".to_string());
-                let role = f.share_info.as_ref().map(|s| s.role.clone()).unwrap_or_else(|| "read".to_string());
+                let mode = f.share_info.as_ref().map_or_else(|| "private".to_string(), |s| s.mode.clone());
+                let role = f.share_info.as_ref().map_or_else(|| "read".to_string(), |s| s.role.clone());
                 let users_csv = f.share_info.as_ref().map(|s| s.allowed_users.join(",")).unwrap_or_default();
                 let path = f.path.clone();
                 let open_url = f.open_url.clone();
@@ -299,7 +299,7 @@ fn render_files_tab(
                 // same-tab on purpose -- those aren't raw content, they're this SPA's own pages.
                 let open_target = if matches!(f.category.as_str(), "slide" | "typst" | "latex" | "script" | "table" | "note") { "_self" } else { "_blank" };
                 let share_detail = serde_json::json!({ "path": path, "mode": mode, "role": role, "users": users_csv }).to_string();
-                let onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {}}}))", share_detail);
+                let onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))");
 
                 view! {
                     <tr>
@@ -479,7 +479,7 @@ fn render_vcs_tab(
                                     <button type="submit" class="btn btn-secondary btn-sm">{i18n.accept_ours()}</button>
                                 </form>
                                 <form method="post" action=format!("/projects/{}/resolve-conflict", project_id) class="inline-form">
-                                    <input type="hidden" name="file" value=path.clone() />
+                                    <input type="hidden" name="file" value=path />
                                     <input type="hidden" name="choice" value="theirs" />
                                     <button type="submit" class="btn btn-primary btn-sm">{i18n.accept_theirs()}</button>
                                 </form>
@@ -720,7 +720,7 @@ fn render_vcs_tab(
                 </form>
                 <form method="post" action=format!("/projects/{}/git-push", project_id) class="inline-form">
                     <input type="hidden" name="remote" value="origin" />
-                    <input type="hidden" name="branch" value=curr.clone() />
+                    <input type="hidden" name="branch" value=curr />
                     <button type="submit" class="btn btn-secondary btn-sm">"⬆ Push"</button>
                 </form>
                 <form method="post" action=format!("/projects/{}/git-rebase", project_id) class="inline-form" style="display:flex; gap:0.4rem; align-items:center;">
@@ -756,7 +756,7 @@ fn render_ignore_section(
                 <div class="passkey-item">
                     <div class="passkey-info">
                         <span class="passkey-name">{label}</span>
-                        <span class="passkey-meta">{format!("{} smart-ignore patterns", id)}</span>
+                        <span class="passkey-meta">{format!("{id} smart-ignore patterns")}</span>
                     </div>
                     <span class=badge_class style="margin-right:0.6rem;">{badge_label}</span>
                     <form method="post" action=format!("/projects/{}/ignore/profile-toggle", project_id) class="inline-form">
@@ -848,7 +848,7 @@ fn render_sharing_tab(
         .unwrap_or("read_only")
         .to_string();
     let is_public = share_mode == "public";
-    let share_link = format!("/shared/{}", project_id);
+    let share_link = format!("/shared/{project_id}");
 
     let member_rows: Vec<_> = members
         .iter()
@@ -867,7 +867,7 @@ fn render_sharing_tab(
                             label=i18n.remove().to_string()
                             message="Remove collaborator?".to_string()
                             button_class="btn btn-danger btn-sm".to_string()
-                            button_style="".to_string()
+                            button_style=String::new()
                         />
                     </form>
                 }
@@ -963,7 +963,7 @@ fn render_sharing_tab(
                         label="Delete Project".to_string()
                         message=format!("Delete \"{}\"? This cannot be undone.", project.name)
                         button_class="btn btn-danger btn-sm".to_string()
-                        button_style="".to_string()
+                        button_style=String::new()
                     />
                 </form>
             </div>

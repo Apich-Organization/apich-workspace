@@ -85,7 +85,7 @@ async fn point_bare_head_at_working_branch(
         .arg(bare_path)
         .arg("symbolic-ref")
         .arg("HEAD")
-        .arg(format!("refs/heads/{}", branch))
+        .arg(format!("refs/heads/{branch}"))
         .output()
         .await?;
     Ok(())
@@ -150,7 +150,7 @@ pub async fn sync_working_from_mirror_and_snapshot(project_root: &Path) -> io::R
     }
 
     if let Ok(vcs) = apich_vcs::ProjectVcs::open_or_init(project_root) {
-        let _ = vcs.snapshot_if_changed(format!("Received git push (branch: {})", branch));
+        let _ = vcs.snapshot_if_changed(format!("Received git push (branch: {branch})"));
     }
     Ok(())
 }
@@ -187,7 +187,7 @@ pub async fn run_git_http_backend(
     cmd.env("GIT_PROJECT_ROOT", &apich_dir);
     cmd.env("GIT_HTTP_EXPORT_ALL", "1");
     cmd.env("REQUEST_METHOD", method);
-    cmd.env("PATH_INFO", format!("/{}/{}", bare_name, path_info));
+    cmd.env("PATH_INFO", format!("/{bare_name}/{path_info}"));
     cmd.env("QUERY_STRING", query_string);
     cmd.env("REMOTE_USER", remote_user);
     cmd.env("CONTENT_LENGTH", body.len().to_string());
