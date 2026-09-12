@@ -222,6 +222,8 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/demo/seed", post(seed_demo_files_action))
         // Project workspace & VCS merge operations
         .route("/projects/new", post(create_project_form))
+        .route("/projects/quick-start", post(quick_start_action))
+        .route("/projects/mine.json", get(my_projects_json_action))
         .route("/projects/:id", get(project_detail_page))
         .route("/projects/:id/files/new", post(create_file_action))
         .route("/projects/:id/files/delete", post(delete_file_action))
@@ -304,6 +306,7 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/script/run", post(run_script_action))
         .route("/projects/:id/files/share", post(share_file_action))
         .route("/projects/:id/delete", post(delete_project_action))
+        .route("/projects/:id/rename", post(rename_project_action))
         .route(
             "/projects/:id/vigilant-mode",
             post(set_vigilant_mode_action),
@@ -887,6 +890,7 @@ async fn project_detail_page(
         .unwrap_or_else(|| "files".to_string());
     let notice = params.get("notice").map(|s| {
         match s.as_str() {
+            | "project_renamed" => "Project renamed.",
             | "file_created" => "File created.",
             | "file_uploaded" => "File uploaded.",
             | "folder_created" => "Folder created.",
@@ -1038,32 +1042,7 @@ async fn create_project_form(
     State(state): State<AppState>,
     Form(payload): Form<NewProjectForm>,
 ) -> Result<Response, WebError> {
-    let repo = state.db.repository();
-    let orgs = repo.list_organizations_for_user(user.id).await?;
-    let org_id = if let Some(first_org) = orgs.first() {
-        first_org.id
-    } else {
-        let new_org = repo
-            .create_organization(
-                user.id,
-                apich_db::CreateOrganizationDto {
-                    name: format!("{}'s Workspace", user.display_name),
-                    slug: format!(
-                        "{}-ws-{}",
-                        user.username,
-                        &Uuid::new_v4().simple().to_string()[..6]
-                    ),
-                    description: Some("Personal workspace organization".to_string()),
-                    chat_url: None,
-                    meeting_url: None,
-                    drive_url: None,
-                    ai_agent_url: None,
-                    allow_team_override: Some(true),
-                },
-            )
-            .await?;
-        new_org.id
-    };
+    let org_id = ensure_user_org(&state, &user).await?;
 
     let proj = state
         .project_manager
@@ -1080,6 +1059,244 @@ async fn create_project_form(
         .await?;
 
     Ok(Redirect::to(&format!("/projects/{}", proj.id)).into_response())
+}
+
+/// The starter kinds the "quick start" shortcuts offer, as
+/// (url kind, `ProjectManager::create_file` template, starter file name, project name).
+///
+/// Deliberately mirrors `create_file`'s own template strings rather than inventing a parallel
+/// vocabulary -- a quick start is exactly "make a project, then create this one file in it",
+/// so it goes through the same file-creation path (and therefore the same
+/// `theme.typ`/`slide.typ` provisioning a slide deck needs, the same VCS snapshot, etc.).
+/// The trailing label is a *prefix*; the project's real name gets a creation timestamp appended
+/// (see `quick_start_action`), since a user who makes several in a row otherwise ends up with a
+/// dashboard of identically-named "Untitled" projects with nothing to tell them apart.
+const QUICK_START_KINDS: &[(&str, &str, &str, &str)] = &[
+    ("typst", "typst", "document.typ", "Typst Document"),
+    ("latex", "latex", "document.tex", "LaTeX Document"),
+    ("slide", "slide", "slides.typ", "Slide Deck"),
+    ("table", "table", "data.table", "Table"),
+    ("note", "note", "notes.anote", "Note"),
+    ("script", "script", "script.py", "Script"),
+];
+
+#[derive(Debug, Deserialize)]
+pub struct QuickStartForm {
+    pub kind: String,
+    /// "existing" adds the starter file to `project_id`; anything else (including absent) makes
+    /// a new project.
+    pub mode: Option<String>,
+    /// Name for the new project. Falls back to the kind's timestamped default when absent/blank.
+    pub name: Option<String>,
+    /// Target project when `mode` is "existing".
+    pub project_id: Option<String>,
+}
+
+/// The projects this user can add a quick-start file into, for the quick-start dialog's
+/// "existing project" picker. A small JSON endpoint fetched by `QuickStartMenuIsland` when the
+/// dialog opens, rather than a prop threaded through `AppShell` into every page that renders a
+/// sidebar -- the list is only ever needed once the dialog is actually opened.
+async fn my_projects_json_action(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+    let projects = state
+        .db
+        .repository()
+        .list_projects_for_user(user.id)
+        .await
+        .unwrap_or_default();
+    let items: Vec<_> = projects
+        .into_iter()
+        .map(|p| json!({ "id": p.id.to_string(), "name": p.name }))
+        .collect();
+    Json(json!({ "projects": items })).into_response()
+}
+
+/// Resolves the organization new projects should land in, creating a personal workspace
+/// organization the first time a user who has none creates anything.
+async fn ensure_user_org(
+    state: &AppState,
+    user: &apich_db::User,
+) -> Result<Uuid, WebError> {
+    let repo = state.db.repository();
+    let orgs = repo.list_organizations_for_user(user.id).await?;
+    if let Some(first_org) = orgs.first() {
+        return Ok(first_org.id);
+    }
+    let new_org = repo
+        .create_organization(
+            user.id,
+            apich_db::CreateOrganizationDto {
+                name: format!("{}'s Workspace", user.display_name),
+                slug: format!(
+                    "{}-ws-{}",
+                    user.username,
+                    &Uuid::new_v4().simple().to_string()[..6]
+                ),
+                description: Some("Personal workspace organization".to_string()),
+                chat_url: None,
+                meeting_url: None,
+                drive_url: None,
+                ai_agent_url: None,
+                allow_team_override: Some(true),
+            },
+        )
+        .await?;
+    Ok(new_org.id)
+}
+
+/// "Quick start": create a throwaway project pre-seeded with one starter file of the requested
+/// kind and drop the user straight into its editor -- the one-click path for "I just want to
+/// write a slide deck / a Typst paper", instead of the create-project -> open-project ->
+/// create-file -> pick-type sequence that was previously the only way in.
+///
+/// The sandbox container is deliberately *not* started here: it already auto-starts the first
+/// time something actually needs it (a build, a script run, a LaTeX compile -- see
+/// `ensure_agent_container`), so starting one now would spin up a container for every user who
+/// only ever wanted to type.
+async fn quick_start_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    body: axum::body::Bytes,
+) -> Result<Response, WebError> {
+    let Some(AuthUser(user)) = auth else {
+        return Ok((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response());
+    };
+    let payload: QuickStartForm = parse_payload(&headers, &body)
+        .map_err(|e| WebError::BadRequest(e.to_string()))?;
+
+    let Some((_, template, file_name, project_label)) = QUICK_START_KINDS
+        .iter()
+        .find(|(kind, ..)| *kind == payload.kind)
+    else {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Unknown quick start kind"})),
+        )
+            .into_response());
+    };
+
+    let target_project = if payload.mode.as_deref() == Some("existing") {
+        // Add the starter file to a project the user already has, rather than making a new one.
+        let Some(project_id) = payload
+            .project_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| Uuid::parse_str(s).ok())
+        else {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Pick a project to add this to"})),
+            )
+                .into_response());
+        };
+        let can_access =
+            IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project_id)
+                .await
+                .unwrap_or(false);
+        if !can_access {
+            return Ok((StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response());
+        }
+        state
+            .db
+            .repository()
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?
+    } else {
+        let org_id = ensure_user_org(&state, &user).await?;
+        // Creation timestamp rather than a bare "Untitled ...": these are made in one click, so
+        // a user can easily end up with several at once, and identically-named rows are
+        // impossible to tell apart on the dashboard. The dialog pre-fills this same default in
+        // an editable field, and the project's rename action can change it later either way.
+        let now = chrono::Utc::now();
+        let suffix = &Uuid::new_v4().simple().to_string()[..6];
+        let name = payload
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map_or_else(
+                || format!("{project_label} {}", now.format("%Y-%m-%d %H:%M")),
+                ToString::to_string,
+            );
+        state
+            .project_manager
+            .create_project(CreateProjectDto {
+                org_id,
+                team_id: None,
+                owner_id: user.id,
+                name,
+                slug: format!("{}-{}-{suffix}", payload.kind, now.format("%Y%m%d-%H%M")),
+                description: None,
+                storage_path: String::new(),
+                settings: None,
+            })
+            .await?
+    };
+
+    // Never clobber an existing file when adding into a project that already has one by this
+    // name (`slides.typ` in a project that already contains a deck, say) -- pick the next free
+    // `<stem>-2.<ext>` instead of failing or overwriting.
+    let file_name = next_free_file_name(&target_project.storage_path, file_name);
+
+    state
+        .project_manager
+        .create_file(target_project.id, user.id, &file_name, template)
+        .await?;
+
+    let ext = std::path::Path::new(&file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default();
+    let encoded = urlencoding::encode(&file_name);
+    let url = match ext {
+        | "table" => format!("/projects/{}/table?file={encoded}", target_project.id),
+        | "anote" => format!("/projects/{}/note?file={encoded}", target_project.id),
+        | _ => format!("/projects/{}/editor?file={encoded}", target_project.id),
+    };
+    Ok(Json(json!({ "url": url })).into_response())
+}
+
+/// `name` if nothing is at that path yet, else the first free `<stem>-<n>.<ext>`.
+fn next_free_file_name(
+    storage_path: &str,
+    name: &str,
+) -> String {
+    let root = std::path::Path::new(storage_path);
+    if !root.join(name).exists() {
+        return name.to_string();
+    }
+    let path = std::path::Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("untitled");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+    for n in 2..1000 {
+        let candidate = if ext.is_empty() {
+            format!("{stem}-{n}")
+        } else {
+            format!("{stem}-{n}.{ext}")
+        };
+        if !root.join(&candidate).exists() {
+            return candidate;
+        }
+    }
+    name.to_string()
 }
 
 /// Create showcase demo project populated with Typst, cargo-slide, LaTeX, SQLite Table, and Unified Note
@@ -1302,12 +1519,15 @@ async fn create_file_action(
         };
         if template.kind == "slides" {
             // Same "slide.typ isn't guaranteed to exist yet" gap as the plain "Cargo-Slide Deck"
-            // starter -- see `cargo_slide_helpers`'s own doc comment.
+            // starter -- see `cargo_slide_helpers`'s own doc comment. Provisioned next to the new
+            // file (not at the project root) for the same reason `ProjectManager::create_file`
+            // does: Typst resolves `#import "theme.typ"` against the importing file's own
+            // directory, so a deck created inside a subfolder needs its own copy there.
             if let Some(proj) = repo.get_project_by_id(id).await? {
-                let _ = crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(
-                    &proj.storage_path,
-                )
-                .await;
+                let helper_dir = std::path::Path::new(&proj.storage_path).join(&folder);
+                let _ =
+                    crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(&helper_dir)
+                        .await;
             }
         }
         state
@@ -1360,7 +1580,11 @@ async fn create_file_action(
 
 #[derive(Debug, Deserialize)]
 pub struct CreateFolderForm {
+    /// The new folder's own name (a single segment, typically -- a nested path still works).
     pub folder: String,
+    /// Existing folder to create it inside, picked from a `<select>` of what already exists
+    /// ("" = project root).
+    pub parent: Option<String>,
 }
 
 /// Creates an empty folder in the project's workspace (see `ProjectManager::create_folder`'s doc
@@ -1372,13 +1596,25 @@ async fn create_folder_action(
     State(state): State<AppState>,
     Form(payload): Form<CreateFolderForm>,
 ) -> Result<Response, WebError> {
-    let folder = payload.folder.trim();
-    if folder.is_empty() {
+    let name = payload.folder.trim().trim_matches('/');
+    if name.is_empty() {
         return Ok(Redirect::to(&format!(
             "/projects/{id}?tab=files&error=Folder+name+cannot+be+empty"
         ))
         .into_response());
     }
+    let parent = payload
+        .parent
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches('/');
+    let folder_owned = if parent.is_empty() {
+        name.to_string()
+    } else {
+        format!("{parent}/{name}")
+    };
+    let folder = folder_owned.as_str();
     state.project_manager.create_folder(id, user.id, folder).await?;
     // Drop the user straight into the folder they just made -- it's empty, and the next thing
     // they want is almost always to put something in it.
@@ -6152,6 +6388,49 @@ async fn delete_project_action(
 
     let _ = state.project_manager.delete_project(project.id).await;
     Redirect::to("/?notice=project_deleted").into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameProjectForm {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+/// Renames a project (display name/description only -- see `ProjectManager::rename_project` on
+/// why the slug and storage directory deliberately stay put). Owner-only, same as deletion.
+async fn rename_project_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<RenameProjectForm>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
+    };
+    let is_owner = project.owner_id == user.id || user.is_platform_admin;
+    if !is_owner {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let description = payload
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty());
+    match state
+        .project_manager
+        .rename_project(project.id, &payload.name, description)
+        .await
+    {
+        | Ok(()) => {
+            Redirect::to(&format!("/projects/{}?notice=project_renamed", project.id))
+                .into_response()
+        },
+        | Err(e) => redirect_error(&format!("/projects/{}", project.id), e),
+    }
 }
 
 #[derive(Debug, Deserialize)]

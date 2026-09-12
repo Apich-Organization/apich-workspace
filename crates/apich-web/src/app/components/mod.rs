@@ -93,6 +93,7 @@ fn IslandScript() -> impl IntoView {
 
 const ISLAND_BOOTSTRAP_JS: &str = include_str!("island_script.js");
 
+
 /// Which sidebar section is currently active, driving highlight + admin tier logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveNav {
@@ -200,6 +201,18 @@ pub fn AppShell(
             <body>
                 <div id="app">
                     <div class="app-layout">
+                        // Outside the <aside> on purpose: the collapsed state slides the sidebar
+                        // away with `transform`, which moves its descendants with it (and makes
+                        // it the containing block for any `position: fixed` child), so a toggle
+                        // button living inside it went off-screen along with the sidebar --
+                        // leaving no way to bring it back. As a sibling it stays put.
+                        <button
+                            type="button"
+                            id="sidebar-toggle"
+                            class="sidebar-toggle"
+                            title="Collapse/expand sidebar (Ctrl+B)"
+                            aria-label="Toggle sidebar"
+                        >"«"</button>
                         <aside class="app-sidebar">
                             <div class="sidebar-brand">
                                 <a href="/" class="brand-link">
@@ -219,6 +232,10 @@ pub fn AppShell(
                                         <span>{i18n.nav_templates()}</span>
                                     </a>
                                 </div>
+                                // One-click "start writing X" shortcuts. The island asks where
+                                // the new document should go (a new project, or an existing one)
+                                // rather than creating a project the instant a button is pressed.
+                                <apich_islands::QuickStartMenuIsland variant=apich_islands::QuickStartVariant::Sidebar />
                                 {admin_section}
                                 <div class="sidebar-section">
                                     <span class="sidebar-heading">"Account"</span>
@@ -256,10 +273,62 @@ pub fn AppShell(
                     </div>
                 </div>
                 <script>{ALERT_AUTO_DISMISS_JS}</script>
+                <script>{SIDEBAR_TOGGLE_JS}</script>
             </body>
         </html>
     }
 }
+
+/// Collapses/expands the left sidebar, remembering the choice across navigations.
+///
+/// Plain JS rather than an island on purpose: the toggle has to apply the *stored* state before
+/// first paint, and an island only hydrates after its WASM bundle downloads -- an expanded
+/// sidebar would visibly flash and re-collapse on every page load for a user who'd chosen
+/// collapsed. This script runs inline at parse time, so the layout is already correct when the
+/// page first renders. `localStorage` access is wrapped because it throws outright in some
+/// privacy modes rather than just returning null.
+const SIDEBAR_TOGGLE_JS: &str = r"
+(function(){
+    var KEY = 'apich-sidebar-collapsed';
+    function stored(){
+        try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+    }
+    function save(v){
+        try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {}
+    }
+    function apply(collapsed){
+        var layout = document.querySelector('.app-layout');
+        if (layout) { layout.classList.toggle('sidebar-collapsed', collapsed); }
+        var btn = document.getElementById('sidebar-toggle');
+        if (btn) { btn.textContent = collapsed ? '»' : '«'; }
+    }
+    function init(){
+        apply(stored());
+        var btn = document.getElementById('sidebar-toggle');
+        if (btn && !btn.__apichWired) {
+            btn.__apichWired = true;
+            btn.addEventListener('click', function(){
+                var next = !stored();
+                save(next);
+                apply(next);
+            });
+        }
+    }
+    document.addEventListener('keydown', function(ev){
+        if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'b' || ev.key === 'B')) {
+            ev.preventDefault();
+            var next = !stored();
+            save(next);
+            apply(next);
+        }
+    });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+";
 
 /// A server-rendered `.alert-success`/`.alert-danger` (a "File created", "Saved", etc. notice
 /// from a `?notice=`/`?error=` query param baked into the initial HTML -- see `project_detail.rs`

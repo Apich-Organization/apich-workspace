@@ -1338,6 +1338,29 @@ impl<'a> Repository<'a> {
         Ok(())
     }
 
+    /// Rename a project (display name and description only -- the slug and storage path stay
+    /// put, so existing links and the on-disk workspace directory keep working).
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn update_project_name(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE projects SET name = $1, description = $2, updated_at = CURRENT_TIMESTAMP \
+             WHERE id = $3",
+        )
+        .bind(name)
+        .bind(description)
+        .bind(id)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Update project settings.
     ///
     /// # Errors

@@ -270,6 +270,135 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     padding: 2.25rem 3rem;
     display: flex;
     flex-direction: column;
+    transition: margin-left 0.2s var(--ease-out-cubic);
+}
+
+/* Collapsed sidebar: the whole aside slides out of view and the main column reclaims its
+   260px, leaving only the toggle button pinned at the screen edge to bring it back. Driven by
+   a class on `.app-layout` (set by SIDEBAR_TOGGLE_JS from localStorage before first paint, so
+   a collapsed sidebar never flashes open on navigation). */
+.app-layout.sidebar-collapsed .app-sidebar {
+    transform: translateX(-260px);
+}
+.app-layout.sidebar-collapsed .app-main {
+    margin-left: 0;
+}
+.app-sidebar {
+    transition: transform 0.2s var(--ease-out-cubic);
+}
+.sidebar-toggle {
+    position: fixed;
+    top: 20px;
+    left: 234px;
+    z-index: 95;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.95);
+    color: var(--text-sub);
+    font-size: 0.8rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-sm);
+    transition: left 0.2s var(--ease-out-cubic), color 0.15s ease;
+}
+.sidebar-toggle:hover {
+    color: var(--primary);
+}
+/* Collapsed, this button is the *only* way back to the sidebar, so it gets a solid accent
+   treatment rather than the subtle edge-of-sidebar look it has when expanded -- it has to read
+   as an obvious control on an otherwise empty left edge. */
+.app-layout.sidebar-collapsed .sidebar-toggle {
+    left: 12px;
+    width: 30px;
+    height: 30px;
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-size: 0.9rem;
+    box-shadow: var(--shadow-md);
+}
+.app-layout.sidebar-collapsed .sidebar-toggle:hover {
+    color: #fff;
+    filter: brightness(1.08);
+}
+
+/* Quick-start shortcuts: real <form> POSTs styled to sit flush with the nav links around them
+   (a button, not a link, because each one creates a project -- a state change that must not be
+   a GET). */
+.sidebar-quick-form {
+    margin: 0;
+}
+.sidebar-quick-btn {
+    width: 100%;
+    background: none;
+    border: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+/* Dashboard "Quick Start" dropdown. Opens on hover and on keyboard focus (`:focus-within`),
+   with no JS at all, so it works identically before and after hydration. The padding-top on the
+   dropdown keeps a hover bridge across the gap to the trigger -- without it the menu closes the
+   moment the pointer leaves the button. */
+.quick-start-menu {
+    position: relative;
+    display: inline-block;
+}
+.quick-start-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    padding-top: 6px;
+    z-index: 80;
+    min-width: 210px;
+}
+.quick-start-menu:hover .quick-start-dropdown,
+.quick-start-menu:focus-within .quick-start-dropdown {
+    display: block;
+}
+.quick-start-dropdown form {
+    margin: 0;
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-left: 1px solid var(--border-subtle);
+    border-right: 1px solid var(--border-subtle);
+}
+.quick-start-dropdown form:first-child {
+    border-top: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    padding-top: 4px;
+}
+.quick-start-dropdown form:last-child {
+    border-bottom: 1px solid var(--border-subtle);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    padding-bottom: 4px;
+    box-shadow: var(--shadow-md);
+}
+.quick-start-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.5rem 0.9rem;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 0.875rem;
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+}
+.quick-start-item:hover {
+    background: var(--bg-muted);
+    color: var(--primary);
 }
 
 /* Language Switcher Pill */
@@ -793,6 +922,11 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     padding: 2rem;
     width: 100%;
     max-width: 520px;
+    /* A dialog taller than the viewport (the "+ New File" form, with its name/folder/type/
+       template fields, gets close on a short window) scrolls within itself rather than
+       overflowing past the top and bottom edges with no way to reach either end. */
+    max-height: 90vh;
+    overflow-y: auto;
     box-shadow: var(--shadow-lg);
     animation: subtle-fade-in 0.2s var(--ease-out-cubic);
 }

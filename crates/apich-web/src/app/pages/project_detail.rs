@@ -67,6 +67,9 @@ pub fn ProjectDetailPage(
     let is_owner = project.owner_id == user.id || user.is_platform_admin;
     let project_id = project.id;
 
+    let project_name_for_rename = project.name.clone();
+    let project_desc_for_rename = project.description.clone().unwrap_or_default();
+
     let notice_alert = notice.map(
         |n| view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> },
     );
@@ -141,6 +144,28 @@ pub fn ProjectDetailPage(
                     <p class="page-subtitle">{project.description.clone().unwrap_or_default()}</p>
                 </div>
                 <div class="header-actions">
+                    // Renaming matters most for quick-start projects, which are created in one
+                    // click with an auto-generated timestamped name the user will want to
+                    // replace. Owner-only server side (`rename_project_action`); the slug and
+                    // storage directory stay put, so existing links keep working.
+                    <apich_islands::ModalIsland trigger_label="✏️ Rename".to_string() trigger_class="btn btn-secondary".to_string() title="Rename Project".to_string()>
+                        <form method="post" action=format!("/projects/{}/rename", project_id)>
+                            <div class="form-group">
+                                <label>"Project Name"</label>
+                                <input type="text" name="name" required=true value=project_name_for_rename class="form-control" />
+                            </div>
+                            <div class="form-group">
+                                <label>"Description (optional)"</label>
+                                <textarea name="description" rows="3" class="form-control">{project_desc_for_rename}</textarea>
+                            </div>
+                            <p style="font-size:0.78rem; color:var(--text-sub); margin:0.25rem 0 0;">
+                                "The project's URL and workspace folder stay the same, so existing links keep working."
+                            </p>
+                            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
+                                <button type="submit" class="btn btn-primary">"Save"</button>
+                            </div>
+                        </form>
+                    </apich_islands::ModalIsland>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 AI Copilot"</label>
                     <a href=format!("/projects/{}/note", project.id) class="btn btn-secondary">"📔 Notes & Wiki"</a>
                     // A real, working route (`/projects/:id/terminal`, `TerminalPage`/`TerminalIsland`)
@@ -239,6 +264,31 @@ fn render_tab_bar(
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+/// `<option>` list for a destination-folder `<select>`: the project root plus every existing
+/// folder, with `selected` on whichever directory is currently being browsed so the dialog
+/// defaults to "right here" rather than always the root.
+///
+/// Built as owned `AnyView`s (one call per dialog) because each dialog is an island whose
+/// children must be `'static` -- a closure borrowing `folders`/`cur_dir` inline in the middle of
+/// a modal's `view!` tree would try to carry those borrows past the caller's return.
+fn folder_select_options(
+    folders: &[String],
+    cur_dir: &str,
+) -> Vec<AnyView> {
+    std::iter::once(&String::new())
+        .chain(folders.iter())
+        .map(|folder| {
+            let label = if folder.is_empty() {
+                "/ (project root)".to_string()
+            } else {
+                folder.clone()
+            };
+            let selected = folder == cur_dir;
+            view! { <option value=folder.clone() selected=selected>{label}</option> }.into_any()
+        })
+        .collect()
+}
+
 fn render_files_tab(
     project: &Project,
     files: Vec<ProjectFileItem>,
@@ -253,6 +303,37 @@ fn render_files_tab(
     let cur_dir = files_dir.trim_matches('/').to_string();
     drop(files_view);
     drop(files_dir);
+
+    // Every folder that exists anywhere in the project, for the destination pickers in the
+    // "+ New File"/"Upload File" dialogs -- a real `<select>` of what's actually there beats a
+    // free-text field that silently creates a new folder (or fails) on a typo, and saves the user
+    // having to remember exact paths. Derived from the full file list *before* it's narrowed to
+    // the browsed directory below, since the picker should offer every folder, not just the ones
+    // visible at the current level. Includes each ancestor of a nested path, so `assets/videos`
+    // contributes both `assets` and `assets/videos`.
+    let mut all_folders: Vec<String> = Vec::new();
+    for f in &files {
+        let dir_path = if f.is_dir {
+            f.path.as_str()
+        } else {
+            match f.path.rsplit_once('/') {
+                | Some((parent, _)) => parent,
+                | None => continue,
+            }
+        };
+        let mut walked = String::new();
+        for seg in dir_path.split('/').filter(|s| !s.is_empty()) {
+            if walked.is_empty() {
+                walked = seg.to_string();
+            } else {
+                walked = format!("{walked}/{seg}");
+            }
+            if !all_folders.contains(&walked) {
+                all_folders.push(walked.clone());
+            }
+        }
+    }
+    all_folders.sort();
 
     // In tree view, `files` (a flat list of every file in the project, at every depth -- see
     // `ProjectManager::list_files`) is collapsed to just what lives *directly* in `cur_dir`:
@@ -359,16 +440,9 @@ fn render_files_tab(
 
     // Each modal below is an island whose children must be `'static`, so every one that
     // pre-fills the browsed directory needs its own owned copy.
-    let cur_dir_for_new_file = cur_dir.clone();
-    let cur_dir_for_upload = cur_dir.clone();
-
-    // Creating a folder while browsing inside one should default to nesting under where you
-    // already are, not silently creating a sibling at the project root.
-    let new_folder_prefill = if cur_dir.is_empty() {
-        String::new()
-    } else {
-        format!("{cur_dir}/")
-    };
+    let folder_options_for_new_file = folder_select_options(&all_folders, &cur_dir);
+    let folder_options_for_upload = folder_select_options(&all_folders, &cur_dir);
+    let folder_options_for_new_folder = folder_select_options(&all_folders, &cur_dir);
 
     // "Browsing: root / assets / videos" -- each ancestor clickable to jump back up. Only
     // meaningful in tree view (flat view isn't scoped to a directory at all).
@@ -585,8 +659,8 @@ fn render_files_tab(
                                 <input type="text" name="filename" required=true placeholder="e.g. paper, slides.md, script.py" class="form-control" />
                             </div>
                             <div class="form-group">
-                                <label>"Destination Folder (optional -- leave blank for the project root)"</label>
-                                <input type="text" name="folder" value=cur_dir_for_new_file placeholder="e.g. assets, assets/videos" class="form-control" />
+                                <label>"Destination Folder"</label>
+                                <select name="folder" class="form-control">{folder_options_for_new_file}</select>
                             </div>
                             <div class="form-group">
                                 <label>"Initial Content / Starter Template"</label>
@@ -615,8 +689,12 @@ fn render_files_tab(
                     <apich_islands::ModalIsland trigger_label="+ New Folder".to_string() trigger_class="btn btn-secondary".to_string() title="Create New Folder".to_string()>
                         <form method="post" action=format!("/projects/{}/folders/new", project_id)>
                             <div class="form-group">
-                                <label>"Folder Path (nested paths allowed, e.g. assets/videos)"</label>
-                                <input type="text" name="folder" required=true value=new_folder_prefill placeholder="e.g. assets, assets/videos" class="form-control" />
+                                <label>"Create Inside"</label>
+                                <select name="parent" class="form-control">{folder_options_for_new_folder}</select>
+                            </div>
+                            <div class="form-group">
+                                <label>"Folder Name"</label>
+                                <input type="text" name="folder" required=true placeholder="e.g. assets, videos" class="form-control" />
                             </div>
                             <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
                                 <button type="submit" class="btn btn-primary">"Create Folder"</button>
@@ -630,8 +708,8 @@ fn render_files_tab(
                                 <input type="file" name="file" required=true class="form-control" />
                             </div>
                             <div class="form-group">
-                                <label>"Destination Folder (optional -- leave blank for the project root)"</label>
-                                <input type="text" name="folder" value=cur_dir_for_upload placeholder="e.g. assets, assets/videos" class="form-control" />
+                                <label>"Destination Folder"</label>
+                                <select name="folder" class="form-control">{folder_options_for_upload}</select>
                             </div>
                             <p style="font-size:0.78rem; color:var(--text-sub); margin:0.25rem 0 0;">
                                 "Any file type -- video, audio, images, etc. Max 200MB per file."
@@ -1194,7 +1272,11 @@ fn render_sharing_tab(
                 <p style="font-size:0.85rem; color:var(--text-sub); margin:0.25rem 0 0.75rem;">
                     "Anyone with this link can view the project at the selected permission level, without signing in."
                 </p>
-                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: auto 200px 1fr; gap:0.75rem; align-items:center;">
+                // The button's column used to be `1fr`, which stretched it across the whole
+                // remaining width of the card -- a Save button several times wider than the
+                // controls it applies to. Sized to its own content instead, with the `1fr`
+                // moved to a trailing spacer column so the row still fills the card.
+                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: auto 200px auto 1fr; gap:0.75rem; align-items:center;">
                     <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; font-weight:600;">
                         <input type="checkbox" name="is_public" value="true" checked=is_public />
                         "Enabled"
@@ -1204,7 +1286,7 @@ fn render_sharing_tab(
                         <option value="read_and_review" selected=share_role == "read_and_review">{i18n.role_read_and_review()}</option>
                         <option value="read_write_and_review" selected=share_role == "read_write_and_review">{i18n.role_read_write_and_review()}</option>
                     </select>
-                    <button type="submit" class="btn btn-primary">{i18n.save()}</button>
+                    <button type="submit" class="btn btn-primary btn-sm">{i18n.save()}</button>
                 </form>
                 <div style="margin-top:0.85rem; display:flex; gap:0.5rem; align-items:center;">
                     <apich_islands::CopyLinkIsland link=share_link.clone() button_label=i18n.copy_link().to_string() />

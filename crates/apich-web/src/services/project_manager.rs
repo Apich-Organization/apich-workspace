@@ -11,6 +11,7 @@ use apich_sandbox::SandboxManager;
 use apich_vcs::api::ProjectVcs;
 use apich_vcs::IgnoreFilter;
 use apich_vcs::Snapshot;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
@@ -1957,6 +1958,32 @@ impl ProjectManager {
     }
 
     /// Update project-level sharing configuration (mode: public/specific/private, role: `read_only/read_and_review/read_write_and_review`)
+    /// Renames a project. Only the display name and description change -- the slug (and with it
+    /// every existing `/projects/<slug>` link) and the on-disk workspace directory deliberately
+    /// stay as they are, so renaming can never strand a bookmark or orphan a project's files.
+    /// Mainly for the quick-start projects, which get an auto-generated timestamped name the
+    /// user will usually want to replace with something meaningful.
+    pub async fn rename_project(
+        &self,
+        project_id: Uuid,
+        name: &str,
+        description: Option<&str>,
+    ) -> WebResult<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(WebError::BadRequest(
+                "Project name cannot be empty".to_string(),
+            ));
+        }
+        let repo = self.db.repository();
+        repo.get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        repo.update_project_name(project_id, name, description)
+            .await?;
+        Ok(())
+    }
+
     pub async fn update_project_share_settings(
         &self,
         project_id: Uuid,
@@ -2135,17 +2162,25 @@ INSERT INTO records (item_name, category, value, status, notes) VALUES
             .map_err(|e| WebError::Internal(format!("Failed to seed table: {e}")))?;
         } else {
             // A new "slide" (cargo-slide) file imports `theme.typ`/`slide.typ` -- provision them
-            // into this project if they're not already there (previously only ever written by
-            // the demo seeder), or the file this same match arm is about to create would fail its
-            // very first compile.
+            // if they're not already there (previously only ever written by the demo seeder), or
+            // the file this same match arm is about to create would fail its very first compile.
+            //
+            // Provisioned next to the new file itself, NOT at the project root: Typst resolves a
+            // bare relative import like `#import "theme.typ"` against the *importing file's own*
+            // directory (the same resolution rule `DocumentRenderer::compile_typst` documents for
+            // its annotated-copy placement). Creating a slide inside a subfolder therefore used
+            // to fail its first compile with "file not found ... /<subfolder>/theme.typ" -- the
+            // helpers existed, just one directory up where this file's import could never see
+            // them.
             if template == "slide" {
-                crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(
-                    &proj.storage_path,
-                )
-                .await
-                .map_err(|e| {
-                    WebError::Internal(format!("Failed to provision slide.typ/theme.typ: {e}"))
-                })?;
+                let helper_dir = full_path
+                    .parent()
+                    .map_or_else(|| PathBuf::from(&proj.storage_path), Path::to_path_buf);
+                crate::services::cargo_slide_helpers::ensure_cargo_slide_helpers(&helper_dir)
+                    .await
+                    .map_err(|e| {
+                        WebError::Internal(format!("Failed to provision slide.typ/theme.typ: {e}"))
+                    })?;
             }
             let initial_content = match template {
                 | "empty" => "",
@@ -2212,6 +2247,30 @@ Begin drafting your LaTeX manuscript here.
 
 \end{document}
 "
+                },
+                | "script" => {
+                    r#"#!/usr/bin/env python3
+"""New analysis script.
+
+Runs inside this project's sandbox container (which has Python, R, and Rust
+installed) via the editor's Run Script console, not on the web server itself.
+Any file this writes -- a saved plot, a generated CSV -- lands in the project
+workspace and shows up in the Files tab.
+"""
+
+import numpy as np
+
+
+def main() -> None:
+    data = np.array([94.2, 88.5, 102.3, 79.8, 91.4, 86.2])
+    print(f"n       = {data.size}")
+    print(f"mean    = {data.mean():.2f}")
+    print(f"std dev = {data.std(ddof=1):.2f}")
+
+
+if __name__ == "__main__":
+    main()
+"#
                 },
                 | "note" => {
                     r#"---

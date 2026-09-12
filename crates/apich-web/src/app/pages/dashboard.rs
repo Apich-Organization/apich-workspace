@@ -86,6 +86,10 @@ pub fn DashboardPage(
                     <form method="post" action="/projects/demo/create" class="inline-form">
                         <button type="submit" class="btn btn-secondary">"✨ " {i18n.load_demo_project()}</button>
                     </form>
+                    // One-click starters. The island asks where the new document should go
+                    // (a new project, or an existing one) rather than creating a project the
+                    // instant a button is pressed.
+                    <apich_islands::QuickStartMenuIsland variant=apich_islands::QuickStartVariant::Dashboard />
                     <apich_islands::ModalIsland trigger_label=format!("+ {}", i18n.new_project()) trigger_class="btn btn-primary".to_string() title=i18n.new_project().to_string()>
                         <form method="post" action="/projects/new">
                             <apich_islands::NameSlugFieldsIsland
