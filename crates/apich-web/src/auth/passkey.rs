@@ -116,7 +116,10 @@ impl PasskeyManager {
         rand::thread_rng().fill_bytes(&mut bytes);
         let challenge = BASE64_URL_SAFE_NO_PAD.encode(bytes);
 
-        let mut lock = self.challenges.lock().unwrap();
+        let mut lock = self
+            .challenges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Prune expired challenges (> 5 mins)
         lock.retain(|_, v| v.created_at.elapsed() < Duration::from_secs(300));
         lock.insert(
@@ -130,12 +133,19 @@ impl PasskeyManager {
         challenge
     }
 
-    /// Verify and consume a challenge
+    /// Verify and consume a challenge.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the challenge has expired or is invalid.
     pub fn verify_and_consume_challenge(
         &self,
         challenge: &str,
     ) -> WebResult<Option<Uuid>> {
-        let mut lock = self.challenges.lock().unwrap();
+        let mut lock = self
+            .challenges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match lock.remove(challenge) {
             | Some(entry) => {
                 if entry.created_at.elapsed() > Duration::from_secs(300) {
@@ -151,7 +161,11 @@ impl PasskeyManager {
         }
     }
 
-    /// Verify `WebAuthn` Assertion ECDSA P-256 signature over (`auth_data` || `sha256(client_data_json)`)
+    /// Verify `WebAuthn` Assertion ECDSA P-256 signature over (`auth_data` || `sha256(client_data_json)`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if client data JSON, challenge, public key, or signature format verification fails.
     pub fn verify_assertion(
         &self,
         public_key_bytes: &[u8],
@@ -170,7 +184,7 @@ impl PasskeyManager {
 
         // 2. Compute signature payload: auth_data || sha256(client_data_json)
         let client_data_hash = Sha256::digest(client_data_json);
-        let mut signed_data = Vec::with_capacity(auth_data_bytes.len() + 32);
+        let mut signed_data = Vec::with_capacity(auth_data_bytes.len().saturating_add(32));
         signed_data.extend_from_slice(auth_data_bytes);
         signed_data.extend_from_slice(&client_data_hash);
 

@@ -46,12 +46,18 @@ impl MailerService {
 
     /// Retrieve sent emails (especially useful for tests and audit inspections)
     pub fn get_sent_emails(&self) -> Vec<SentEmail> {
-        self.sent_emails.lock().unwrap().clone()
+        self.sent_emails
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Clear recorded sent emails
     pub fn clear_sent_emails(&self) {
-        self.sent_emails.lock().unwrap().clear();
+        self.sent_emails
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
     }
 
     /// Send an invitation email to a user
@@ -89,11 +95,14 @@ impl MailerService {
         info!(to = %to, subject = %subject, "Dispatching email notification");
 
         // Always record in sent log for testing & audit
-        self.sent_emails.lock().unwrap().push(SentEmail {
-            to: to.to_string(),
-            subject: subject.to_string(),
-            body: body.to_string(),
-        });
+        self.sent_emails
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(SentEmail {
+                to: to.to_string(),
+                subject: subject.to_string(),
+                body: body.to_string(),
+            });
 
         // If SMTP is enabled and configured, send via Lettre
         if settings.smtp_enabled {
@@ -222,11 +231,14 @@ impl MailerService {
         }
 
         // Always record in sent log for test assertions & auditing
-        self.sent_emails.lock().unwrap().push(SentEmail {
-            to: recipient.to_string(),
-            subject: subject.to_string(),
-            body,
-        });
+        self.sent_emails
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(SentEmail {
+                to: recipient.to_string(),
+                subject: subject.to_string(),
+                body,
+            });
 
         Ok(())
     }

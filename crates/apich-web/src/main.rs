@@ -203,8 +203,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Check on a cadence proportional to the timeout (never less than 1 minute, never more
         // than 10) rather than a fixed interval, so a short dev-testing timeout isn't stuck
         // waiting on a check cadence built for the 60-minute default.
-        let check_every =
-            std::time::Duration::from_secs(((idle_timeout_minutes / 6).clamp(1, 10) * 60) as u64);
+        let cadence_minutes = idle_timeout_minutes.saturating_div(6).clamp(1, 10);
+        let check_every = std::time::Duration::from_secs(
+            u64::try_from(cadence_minutes.saturating_mul(60)).unwrap_or(60),
+        );
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(check_every);
             loop {

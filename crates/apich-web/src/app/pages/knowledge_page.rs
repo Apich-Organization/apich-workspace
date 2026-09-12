@@ -1,9 +1,10 @@
-//! Kanban/Wiki/Calendar render helpers, shared by the unified note page
-//! (`app::pages::note_page::NotePage`). These used to back a standalone `/projects/:id/knowledge`
-//! page, but nothing in the UI ever linked to it -- a real orphaned-page bug, not a deliberate
-//! design. plan.md calls for one integrated space ("一体化空间") aggregating notes, wiki,
-//! whiteboard, calendar, and kanban, so these are tabs on the note page now; the old page route
-//! redirects there for any bookmarked links (see `ui::handlers::project_knowledge_page`).
+//! Kanban, wiki, and calendar render helpers for notes.
+//!
+//! Shared by the unified note page (`app::pages::note_page::NotePage`). These used to back a
+//! standalone `/projects/:id/knowledge` page, but nothing in the UI ever linked to it -- a real
+//! orphaned-page bug, not a deliberate design. plan.md calls for one integrated space ("一体化空间")
+//! aggregating notes, wiki, whiteboard, calendar, and kanban, so these are tabs on the note page
+//! now; the old page route redirects there for any bookmarked links (see `ui::handlers::project_knowledge_page`).
 
 use crate::services::knowledge_sync::CalendarEvent;
 use crate::services::knowledge_sync::KanbanBoard;
@@ -14,18 +15,17 @@ use apich_db::Project;
 use leptos::prelude::*;
 
 pub fn render_kanban(
-    project: &Project,
+    project_id: uuid::Uuid,
     kanban: &KanbanBoard,
-    own_kanban_templates: &[apich_db::Template],
-    visible_kanban_templates: &[apich_db::TemplateWithLatestVersion],
+    own_kanban_templates: Vec<apich_db::Template>,
+    visible_kanban_templates: Vec<apich_db::TemplateWithLatestVersion>,
     i18n: I18n,
 ) -> impl IntoView {
-    let project_id = project.id;
-    let percent = if kanban.total_tasks > 0 {
-        kanban.completed_tasks * 100 / kanban.total_tasks
-    } else {
-        0
-    };
+    let percent = kanban
+        .completed_tasks
+        .saturating_mul(100)
+        .checked_div(kanban.total_tasks)
+        .unwrap_or(0);
 
     // Cycling only ever walks the board's own *real* configured columns (never lands a card back
     // in the synthetic Unsorted bucket) -- a card sitting in Unsorted, when clicked, "claims" it
@@ -53,7 +53,11 @@ pub fn render_kanban(
                         // next step.
                         let cur_idx = real_columns.iter().position(|c| c.id == t.status);
                         let next_idx = match cur_idx {
-                            Some(i) if !real_columns.is_empty() => (i + 1) % real_columns.len(),
+                            Some(i) if !real_columns.is_empty() => {
+                                (i.saturating_add(1))
+                                    .checked_rem(real_columns.len())
+                                    .unwrap_or(0)
+                            }
                             _ => 0,
                         };
                         let next_col = real_columns.get(next_idx);
@@ -137,7 +141,7 @@ fn render_kanban_column_settings(
         .enumerate()
         .map(|(idx, col)| {
             let is_first = idx == 0;
-            let is_last = idx == columns.len() - 1;
+            let is_last = idx == columns.len().saturating_sub(1);
             let only_column = columns.len() == 1;
             view! {
                 <div style="display:flex; align-items:center; gap:0.4rem; padding:0.4rem 0; border-bottom:1px solid var(--border-subtle);">
@@ -191,18 +195,18 @@ fn render_kanban_column_settings(
 /// drift from what's really on screen.
 fn render_kanban_template_panel(
     project_id: uuid::Uuid,
-    own_templates: &[apich_db::Template],
-    visible_templates: &[apich_db::TemplateWithLatestVersion],
+    own_templates: Vec<apich_db::Template>,
+    visible_templates: Vec<apich_db::TemplateWithLatestVersion>,
     i18n: I18n,
 ) -> impl IntoView {
     let publish_existing = (!own_templates.is_empty()).then(|| {
         let rows: Vec<_> = own_templates
-            .iter()
+            .into_iter()
             .map(|t| {
                 view! {
                     <form method="post" action=format!("/templates/{}/publish-version-kanban", t.id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.3rem; align-items:center;">
                         <input type="hidden" name="project_id" value=project_id.to_string() />
-                        <span style="font-size:0.8rem; min-width:120px;">{t.name.clone()}</span>
+                        <span style="font-size:0.8rem; min-width:120px;">{t.name}</span>
                         <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:140px;" required=true />
                         <input type="text" name="changelog" placeholder=i18n.template_changelog_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:220px;" />
                         <button type="submit" class="btn btn-secondary btn-sm">{i18n.template_publish()}</button>
@@ -219,9 +223,9 @@ fn render_kanban_template_panel(
     });
 
     let apply_options: Vec<_> = visible_templates
-        .iter()
+        .into_iter()
         .filter_map(|t| t.latest_version_id.map(|vid| (t, vid)))
-        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name.clone()}" ("{t.latest_version_label.clone().unwrap_or_default()}")"</option> })
+        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name}" ("{t.latest_version_label.unwrap_or_default()}")"</option> })
         .collect();
     let apply_panel = (!apply_options.is_empty()).then(|| {
         view! {
@@ -283,12 +287,13 @@ pub fn render_wiki(
                     </div>
                 }.into_any()
             };
-            let title_view = if let Some(path) = &n.file_path {
-                let href = format!("/projects/{}/note?file={}&view=editor", project_id, urlencoding::encode(path));
-                view! { <a href=href class="wiki-link-title" style="text-decoration:none;">"[[" {n.label.clone()} "]]"</a> }.into_any()
-            } else {
-                view! { <span class="wiki-link-title">"[[" {n.label.clone()} "]]"</span> }.into_any()
-            };
+            let title_view = n.file_path.as_ref().map_or_else(
+                || view! { <span class="wiki-link-title">"[[" {n.label.clone()} "]]"</span> }.into_any(),
+                |path| {
+                    let href = format!("/projects/{}/note?file={}&view=editor", project_id, urlencoding::encode(path));
+                    view! { <a href=href class="wiki-link-title" style="text-decoration:none;">"[[" {n.label.clone()} "]]"</a> }.into_any()
+                },
+            );
             let path_info = n.file_path.clone().map(|p| view! { <code style="font-size:0.7rem;">{p}</code> });
             view! {
                 <div class="wiki-node-item">

@@ -15,11 +15,10 @@ pub fn DashboardPage(
     notice: Option<String>,
     error: Option<String>,
 ) -> impl IntoView {
-    let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success">{n}</div> }.into_any())
-    } else {
-        error.map(|e| view! { <div class="alert alert-danger">{e}</div> }.into_any())
-    };
+    let alert = notice.map_or_else(
+        || error.map(|e| view! { <div class="alert alert-danger">{e}</div> }.into_any()),
+        |n| Some(view! { <div class="alert alert-success">{n}</div> }.into_any()),
+    );
 
     let projects_body = if projects.is_empty() {
         view! {

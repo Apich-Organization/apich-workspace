@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -212,10 +213,10 @@ impl KnowledgeSyncService {
             slug.push_str("-col");
         }
         let base = slug.clone();
-        let mut n = 2;
+        let mut n: usize = 2;
         while existing.iter().any(|c| c.id == slug) {
             slug = format!("{base}-{n}");
-            n += 1;
+            n = n.saturating_add(1);
         }
         slug
     }
@@ -247,7 +248,38 @@ impl KnowledgeSyncService {
             slug
         }
     }
+}
 
+fn walk_markdown_dir(
+    dir: &Path,
+    acc: &mut Vec<PathBuf>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+
+        if path.is_dir() {
+            if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" {
+                continue;
+            }
+            walk_markdown_dir(&path, acc);
+        } else if path.is_file() {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext.eq_ignore_ascii_case("md")
+                || ext.eq_ignore_ascii_case("anote")
+                || ext.eq_ignore_ascii_case("note")
+            {
+                acc.push(path);
+            }
+        }
+    }
+}
+
+impl KnowledgeSyncService {
     /// Discover all Markdown and Unified Note (.anote, .note, .md) files in a workspace directory
     pub fn discover_markdown_files<P: AsRef<Path>>(project_dir: P) -> Vec<PathBuf> {
         let mut md_files = Vec::new();
@@ -257,41 +289,7 @@ impl KnowledgeSyncService {
             return md_files;
         }
 
-        fn walk(
-            dir: &Path,
-            acc: &mut Vec<PathBuf>,
-        ) {
-            let entries = match std::fs::read_dir(dir) {
-                | Ok(e) => e,
-                | Err(_) => return,
-            };
-
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let file_name = entry.file_name().to_string_lossy().to_string();
-
-                if path.is_dir() {
-                    if file_name.starts_with('.')
-                        || file_name == "target"
-                        || file_name == "node_modules"
-                    {
-                        continue;
-                    }
-                    walk(&path, acc);
-                } else if path.is_file() {
-                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext.eq_ignore_ascii_case("md")
-                        || ext.eq_ignore_ascii_case("markdown")
-                        || ext.eq_ignore_ascii_case("anote")
-                        || ext.eq_ignore_ascii_case("note")
-                    {
-                        acc.push(path);
-                    }
-                }
-            }
-        }
-
-        walk(project_dir, &mut md_files);
+        walk_markdown_dir(project_dir, &mut md_files);
         md_files.sort();
         md_files
     }
@@ -326,13 +324,12 @@ impl KnowledgeSyncService {
                 .to_string_lossy()
                 .replace('\\', "/");
 
-            let content = match std::fs::read_to_string(&file) {
-                | Ok(c) => c,
-                | Err(_) => continue,
+            let Ok(content) = std::fs::read_to_string(&file) else {
+                continue;
             };
 
             for (idx, line) in content.lines().enumerate() {
-                let line_number = idx + 1;
+                let line_number = idx.saturating_add(1);
                 if let Some(caps) = task_regex.captures(line) {
                     let mark = caps.get(1).map_or(" ", |m| m.as_str());
                     let raw_body = caps.get(2).map_or("", |m| m.as_str()).trim();
@@ -486,27 +483,23 @@ impl KnowledgeSyncService {
             .map_err(|e| WebError::Internal(e.to_string()))?;
 
         // 1. Direct file line match
-        let mut target_idx = if line_number > 0
-            && line_number <= lines.len()
-            && task_regex.is_match(&lines[line_number - 1])
-        {
-            Some(line_number - 1)
-        } else {
-            None
-        };
+        let mut target_idx = line_number
+            .checked_sub(1)
+            .and_then(|i| lines.get(i).map(|l| (i, l)))
+            .filter(|(_, l)| task_regex.is_match(l))
+            .map(|(i, _)| i);
 
         // 2. If not matched, try body-relative line offset (e.g. for .anote with frontmatter)
         if target_idx.is_none() {
             let (_, body) = Self::parse_unified_note(&content);
             if !body.is_empty() {
                 if let Some(body_start) = content.find(&body) {
-                    let prefix_lines = content[..body_start].lines().count();
-                    let candidate = line_number + prefix_lines;
-                    if candidate > 0
-                        && candidate <= lines.len()
-                        && task_regex.is_match(&lines[candidate - 1])
-                    {
-                        target_idx = Some(candidate - 1);
+                    let prefix_lines = content.get(..body_start).map_or(0, |s| s.lines().count());
+                    let candidate = line_number.saturating_add(prefix_lines);
+                    if let Some(c_idx) = candidate.checked_sub(1) {
+                        if lines.get(c_idx).is_some_and(|l| task_regex.is_match(l)) {
+                            target_idx = Some(c_idx);
+                        }
                     }
                 }
             }
@@ -515,62 +508,63 @@ impl KnowledgeSyncService {
         // 3. If still not matched, check nearby lines (+/- 1, 2)
         if target_idx.is_none() {
             for delta in [-1isize, 1, -2, 2] {
-                let test_idx = (line_number as isize - 1) + delta;
-                if test_idx >= 0
-                    && (test_idx as usize) < lines.len()
-                    && task_regex.is_match(&lines[test_idx as usize])
-                {
-                    target_idx = Some(test_idx as usize);
-                    break;
+                let test_idx = (isize::try_from(line_number).unwrap_or(0).saturating_sub(1))
+                    .saturating_add(delta);
+                if let Ok(u_idx) = usize::try_from(test_idx) {
+                    if lines.get(u_idx).is_some_and(|l| task_regex.is_match(l)) {
+                        target_idx = Some(u_idx);
+                        break;
+                    }
                 }
             }
         }
 
-        let idx = match target_idx {
-            | Some(i) => i,
-            | None => {
-                if line_number == 0 || line_number > lines.len() {
-                    return Err(WebError::BadRequest(format!(
-                        "Line number {} out of bounds (file has {} lines)",
-                        line_number,
-                        lines.len()
-                    )));
-                }
+        let Some(idx) = target_idx else {
+            if line_number == 0 || line_number > lines.len() {
                 return Err(WebError::BadRequest(format!(
-                    "Line {} is not a recognized markdown task: {}",
-                    line_number,
-                    lines[line_number - 1]
+                    "Line number {line_number} out of bounds (file has {} lines)",
+                    lines.len()
                 )));
-            },
+            }
+            let line_preview = line_number
+                .checked_sub(1)
+                .and_then(|i| lines.get(i))
+                .map_or("", String::as_str);
+            return Err(WebError::BadRequest(format!(
+                "Line {line_number} is not a recognized markdown task: {line_preview}"
+            )));
         };
 
-        let line = &lines[idx];
-        if let Some(caps) = task_regex.captures(line) {
-            let prefix = caps.get(1).map_or("- ", |m| m.as_str()).to_string();
-            let suffix = caps.get(3).map_or("", |m| m.as_str());
+        if let Some(line) = lines.get(idx).cloned() {
+            if let Some(caps) = task_regex.captures(&line) {
+                let prefix = caps.get(1).map_or("- ", |m| m.as_str()).to_string();
+                let suffix = caps.get(3).map_or("", |m| m.as_str());
 
-            let mark = if is_done_column {
-                "x"
-            } else if new_status == "todo" {
-                " "
-            } else {
-                "/"
-            };
+                let mark = if is_done_column {
+                    "x"
+                } else if new_status == "todo" {
+                    " "
+                } else {
+                    "/"
+                };
 
-            // Built-in status ids stay bracket-only (no `#status:` tag) for a clean, unmodified
-            // representation on boards that were never customized; any other id needs the tag so
-            // `extract_all_tasks` can tell which custom column this task belongs to, since the
-            // 3-state checkbox alone can't encode more than 3 positions.
-            let status_tag_regex = Regex::new(r"\s*#status:[a-zA-Z0-9_\-]+")
-                .map_err(|e| WebError::Internal(e.to_string()))?;
-            let stripped_suffix = status_tag_regex.replace_all(suffix, "").to_string();
-            let new_suffix = if matches!(new_status, "todo" | "in_progress" | "done") {
-                stripped_suffix
-            } else {
-                format!("{stripped_suffix} #status:{new_status}")
-            };
+                // Built-in status ids stay bracket-only (no `#status:` tag) for a clean, unmodified
+                // representation on boards that were never customized; any other id needs the tag so
+                // `extract_all_tasks` can tell which custom column this task belongs to, since the
+                // 3-state checkbox alone can't encode more than 3 positions.
+                let status_tag_regex = Regex::new(r"\s*#status:[a-zA-Z0-9_\-]+")
+                    .map_err(|e| WebError::Internal(e.to_string()))?;
+                let stripped_suffix = status_tag_regex.replace_all(suffix, "").to_string();
+                let new_suffix = if matches!(new_status, "todo" | "in_progress" | "done") {
+                    stripped_suffix
+                } else {
+                    format!("{stripped_suffix} #status:{new_status}")
+                };
 
-            lines[idx] = format!("{prefix}[{mark}]{new_suffix}");
+                if let Some(slot) = lines.get_mut(idx) {
+                    *slot = format!("{prefix}[{mark}]{new_suffix}");
+                }
+            }
         }
 
         let new_content = lines.join("\n")
@@ -638,9 +632,8 @@ impl KnowledgeSyncService {
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
 
-            let content = match std::fs::read_to_string(file) {
-                | Ok(c) => c,
-                | Err(_) => continue,
+            let Ok(content) = std::fs::read_to_string(file) else {
+                continue;
             };
 
             for caps in wiki_regex.captures_iter(&content) {
@@ -768,7 +761,11 @@ impl KnowledgeSyncService {
         if let Some(rest) = trimmed.strip_prefix("---") {
             if let Some(end_idx) = rest.find("\n---") {
                 let frontmatter = &rest[..end_idx];
-                let body = rest[end_idx + 4..].trim_start_matches('\n').to_string();
+                let body_start = end_idx.saturating_add(4);
+                let body = rest
+                    .get(body_start..)
+                    .map_or("", |s| s.trim_start_matches('\n'))
+                    .to_string();
 
                 let mut meta = UnifiedNoteMeta::default();
                 for line in frontmatter.lines() {
@@ -848,22 +845,22 @@ impl KnowledgeSyncService {
             .collect::<Vec<_>>()
             .join(", ");
         let mut out = String::from("---\n");
-        out.push_str(&format!("title: \"{}\"\n", meta.title.replace('"', "\\\"")));
+        let _ = writeln!(out, "title: \"{}\"", meta.title.replace('"', "\\\""));
         if let Some(ref c) = meta.created_at {
-            out.push_str(&format!("created_at: \"{c}\"\n"));
+            let _ = writeln!(out, "created_at: \"{c}\"");
         }
         if let Some(ref u) = meta.updated_at {
-            out.push_str(&format!("updated_at: \"{u}\"\n"));
+            let _ = writeln!(out, "updated_at: \"{u}\"");
         }
         if let Some(ref a) = meta.author {
-            out.push_str(&format!("author: \"{}\"\n", a.replace('"', "\\\"")));
+            let _ = writeln!(out, "author: \"{}\"", a.replace('"', "\\\""));
         }
-        out.push_str(&format!("tags: [{tags_str}]\n"));
+        let _ = writeln!(out, "tags: [{tags_str}]");
         if let Some(ref wb) = meta.whiteboard {
             let json = serde_json::to_string(wb).unwrap_or_default();
             let b64 =
                 base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes());
-            out.push_str(&format!("whiteboard: \"{b64}\"\n"));
+            let _ = writeln!(out, "whiteboard: \"{b64}\"");
         }
         out.push_str("---\n\n");
         out.push_str(body);
@@ -883,7 +880,7 @@ impl KnowledgeSyncService {
                         headings.push(NoteHeading {
                             level,
                             text,
-                            line: i + 1,
+                            line: i.saturating_add(1),
                         });
                     }
                 }
@@ -898,9 +895,14 @@ impl KnowledgeSyncService {
     /// specifically, the more useful outline is one entry per slide, so this also picks up each
     /// `#slide(title: "...")` / `#title-slide(title: "...")` call's title.
     pub fn extract_headings_typst(content: &str) -> Vec<NoteHeading> {
-        let heading_re = Regex::new(r"^(=+)\s+(.+)$").unwrap();
-        let slide_title_re =
-            Regex::new(r#"^#(?:title-slide|slide)\s*\([^)]*?title:\s*"([^"]+)""#).unwrap();
+        let Ok(heading_re) = Regex::new(r"^(=+)\s+(.+)$") else {
+            return Vec::new();
+        };
+        let Ok(slide_title_re) =
+            Regex::new(r#"^#(?:title-slide|slide)\s*\([^)]*?title:\s*"([^"]+)""#)
+        else {
+            return Vec::new();
+        };
 
         let mut headings = Vec::new();
         for (i, line) in content.lines().enumerate() {
@@ -915,7 +917,7 @@ impl KnowledgeSyncService {
                     headings.push(NoteHeading {
                         level,
                         text,
-                        line: i + 1,
+                        line: i.saturating_add(1),
                     });
                 }
             } else if let Some(caps) = slide_title_re.captures(trimmed) {
@@ -927,7 +929,7 @@ impl KnowledgeSyncService {
                     headings.push(NoteHeading {
                         level: 1,
                         text,
-                        line: i + 1,
+                        line: i.saturating_add(1),
                     });
                 }
             }
@@ -940,16 +942,18 @@ impl KnowledgeSyncService {
     /// broader than `\subsection`, etc.) -- `extract_headings`'s `#`-based logic finds nothing at
     /// all in a `.tex` file, since LaTeX commands start with `\`, not `#`.
     pub fn extract_headings_latex(content: &str) -> Vec<NoteHeading> {
-        let re = Regex::new(r"^\\(part|chapter|section|subsection|subsubsection)\*?\{([^}]*)\}")
-            .unwrap();
+        let Ok(re) =
+            Regex::new(r"^\\(part|chapter|section|subsection|subsubsection)\*?\{([^}]*)\}")
+        else {
+            return Vec::new();
+        };
         let mut headings = Vec::new();
         for (i, line) in content.lines().enumerate() {
             let trimmed = line.trim();
             if let Some(caps) = re.captures(trimmed) {
                 let kind = caps.get(1).map_or("section", |m| m.as_str());
                 let level = match kind {
-                    | "part" => 1,
-                    | "chapter" => 1,
+                    | "part" | "chapter" => 1,
                     | "section" => 2,
                     | "subsection" => 3,
                     | _ => 4,
@@ -962,7 +966,7 @@ impl KnowledgeSyncService {
                     headings.push(NoteHeading {
                         level,
                         text,
-                        line: i + 1,
+                        line: i.saturating_add(1),
                     });
                 }
             }
@@ -978,15 +982,15 @@ impl KnowledgeSyncService {
         content: &str,
         ext: &str,
     ) -> Vec<NoteHeading> {
-        let re = match ext {
-            | "py" => Regex::new(r"^(def|class)\s+(\w+)").unwrap(),
-            | "r" => Regex::new(r"^(\w+)\s*(?:<-|=)\s*function\s*\(").unwrap(),
-            | "rs" => Regex::new(r"^(?:pub\s+)?(fn|struct|enum|trait|impl)\s+(\w+)").unwrap(),
-            | "js" | "ts" => {
-                Regex::new(r"^(?:export\s+)?(?:async\s+)?(function|class)\s+(\w+)").unwrap()
-            },
-            | "sh" | "bash" => Regex::new(r"^(?:function\s+)?(\w+)\s*\(\)\s*\{?").unwrap(),
+        let Ok(re) = (match ext {
+            | "py" => Regex::new(r"^(def|class)\s+(\w+)"),
+            | "r" => Regex::new(r"^(\w+)\s*(?:<-|=)\s*function\s*\("),
+            | "rs" => Regex::new(r"^(?:pub\s+)?(fn|struct|enum|trait|impl)\s+(\w+)"),
+            | "js" | "ts" => Regex::new(r"^(?:export\s+)?(?:async\s+)?(function|class)\s+(\w+)"),
+            | "sh" | "bash" => Regex::new(r"^(?:function\s+)?(\w+)\s*\(\)\s*\{?"),
             | _ => return Vec::new(),
+        }) else {
+            return Vec::new();
         };
 
         let mut headings = Vec::new();
@@ -1004,7 +1008,7 @@ impl KnowledgeSyncService {
                     headings.push(NoteHeading {
                         level: 1,
                         text,
-                        line: i + 1,
+                        line: i.saturating_add(1),
                     });
                 }
             }

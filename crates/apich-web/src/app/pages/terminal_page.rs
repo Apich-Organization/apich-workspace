@@ -6,6 +6,8 @@ use apich_db::User;
 use apich_islands::TerminalIsland;
 use leptos::prelude::*;
 
+/// Project terminal page.
+///
 /// No manual "start" button here: the underlying environment starts automatically on the first
 /// command (see `ProjectManager::exec_in_sandbox`), matching plan.md's requirement that it's
 /// never something the user has to turn on themselves -- and, per direct user feedback, the page
@@ -17,28 +19,34 @@ pub fn TerminalPage(
     user: User,
     is_org_or_team_admin: bool,
     project: Project,
-    sandbox_status: String,
+    sandbox_is_running: bool,
     notice: Option<String>,
     error: Option<String>,
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let project_id = project.id;
-    let is_running = sandbox_status == "running";
+    let Project {
+        id: project_id,
+        slug: project_slug,
+        ..
+    } = project;
 
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
-    let status_pill = if is_running {
+    let status_pill = if sandbox_is_running {
         view! { <span class="status-badge badge-active"><span class="status-dot"></span>{i18n.sandbox_running()}</span> }.into_any()
     } else {
         view! { <span class="status-badge badge-idle"><span class="status-dot"></span>{i18n.terminal_idle_status()}</span> }.into_any()
@@ -52,7 +60,7 @@ pub fn TerminalPage(
     let initial_screen = format!(
         "{} / {}\n\n{}\n",
         user.username,
-        project.slug,
+        project_slug,
         i18n.terminal_hint()
     );
 

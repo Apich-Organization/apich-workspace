@@ -346,7 +346,6 @@ impl ProjectManager {
         let rust_bin_path = format!("/tmp/apich_run_{run_id}");
         let cmd: Vec<String> = match ext.as_str() {
             | "py" => vec!["python3".to_string(), rel_path.to_string()],
-            | "sh" | "bash" => vec!["bash".to_string(), rel_path.to_string()],
             | "r" => vec!["Rscript".to_string(), rel_path.to_string()],
             | "rs" => {
                 vec![
@@ -882,14 +881,16 @@ impl ProjectManager {
         idle_timeout: chrono::Duration,
     ) -> WebResult<usize> {
         let repo = self.db.repository();
-        let idle_since = chrono::Utc::now() - idle_timeout;
+        let idle_since = chrono::Utc::now()
+            .checked_sub_signed(idle_timeout)
+            .unwrap_or_else(chrono::Utc::now);
         let idle = repo.list_idle_running_sandboxes(idle_since).await?;
 
-        let mut stopped = 0;
+        let mut stopped: usize = 0;
         for sandbox in idle {
             match self.stop_sandbox(sandbox.project_id, sandbox.user_id).await {
                 | Ok(_) => {
-                    stopped += 1;
+                    stopped = stopped.saturating_add(1);
                     info!(
                         project_id = %sandbox.project_id,
                         user_id = %sandbox.user_id,
@@ -910,6 +911,8 @@ impl ProjectManager {
         Ok(stopped)
     }
 
+    /// Reaps stopped sandbox containers exceeding grace period.
+    ///
     /// Actually removes (`podman rm`, not just stops) every sandbox container that has sat
     /// `stopped` for longer than `grace_period`, and drops its tracking row once the container is
     /// gone. `reap_idle_sandboxes` only ever stops a running container -- nothing previously
@@ -924,10 +927,12 @@ impl ProjectManager {
         grace_period: chrono::Duration,
     ) -> WebResult<usize> {
         let repo = self.db.repository();
-        let stopped_since = chrono::Utc::now() - grace_period;
+        let stopped_since = chrono::Utc::now()
+            .checked_sub_signed(grace_period)
+            .unwrap_or_else(chrono::Utc::now);
         let stale = repo.list_stale_stopped_sandboxes(stopped_since).await?;
 
-        let mut removed = 0;
+        let mut removed: usize = 0;
         for sandbox in stale {
             match self
                 .sandbox_manager
@@ -939,7 +944,7 @@ impl ProjectManager {
                     let _ = repo
                         .delete_project_sandbox(sandbox.project_id, sandbox.user_id)
                         .await;
-                    removed += 1;
+                    removed = removed.saturating_add(1);
                     info!(
                         project_id = %sandbox.project_id,
                         user_id = %sandbox.user_id,
@@ -961,6 +966,8 @@ impl ProjectManager {
         Ok(removed)
     }
 
+    /// Reaps orphaned sandbox containers with no DB tracking row.
+    ///
     /// Removes any `apich.managed=true` container that exists on the host but has no tracking row
     /// in this app's own database at all -- a container this app itself started but subsequently
     /// lost track of (its row was deleted, e.g. by `reap_stopped_sandboxes` running concurrently
@@ -977,14 +984,14 @@ impl ProjectManager {
             .into_iter()
             .collect();
 
-        let mut removed = 0;
+        let mut removed: usize = 0;
         for name in managed {
             if tracked.contains(&name) {
                 continue;
             }
             match self.sandbox_manager.driver().remove(&name, true).await {
                 | Ok(()) => {
-                    removed += 1;
+                    removed = removed.saturating_add(1);
                     info!(container = %name, "Removed orphaned sandbox container with no tracking row");
                 },
                 | Err(e) => {
@@ -1265,9 +1272,8 @@ impl ProjectManager {
 
         let mut dirs = vec![proj_root.clone()];
         while let Some(dir) = dirs.pop() {
-            let mut entries = match tokio::fs::read_dir(&dir).await {
-                | Ok(e) => e,
-                | Err(_) => continue,
+            let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+                continue;
             };
 
             while let Ok(Some(entry)) = entries.next_entry().await {
@@ -1666,9 +1672,8 @@ impl ProjectManager {
         let mut dirs = vec![proj_root.clone()];
 
         while let Some(dir) = dirs.pop() {
-            let mut entries = match tokio::fs::read_dir(&dir).await {
-                | Ok(e) => e,
-                | Err(_) => continue,
+            let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+                continue;
             };
 
             while let Ok(Some(entry)) = entries.next_entry().await {
@@ -1753,14 +1758,7 @@ impl ProjectManager {
                             };
 
                         let open_url = match category.as_str() {
-                            | "slide" | "typst" | "latex" => {
-                                format!(
-                                    "/projects/{}/editor?file={}",
-                                    project_id,
-                                    urlencoding::encode(&rel)
-                                )
-                            },
-                            | "script" => {
+                            | "slide" | "typst" | "latex" | "script" => {
                                 format!(
                                     "/projects/{}/editor?file={}",
                                     project_id,
@@ -1855,10 +1853,9 @@ impl ProjectManager {
             token,
         };
 
-        file_shares.insert(
-            file_path.to_string(),
-            serde_json::to_value(&share_info).unwrap(),
-        );
+        let share_value = serde_json::to_value(&share_info)
+            .map_err(|e| WebError::Internal(format!("Failed to serialize share info: {e}")))?;
+        file_shares.insert(file_path.to_string(), share_value);
         settings.insert(
             "file_shares".to_string(),
             serde_json::Value::Object(file_shares),
@@ -2040,11 +2037,16 @@ impl ProjectManager {
             })?;
         }
 
-        if template == "table"
-            || clean.ends_with(".table")
-            || clean.ends_with(".sqlite")
-            || clean.ends_with(".db")
-        {
+        let ext = std::path::Path::new(clean)
+            .extension()
+            .and_then(|e| e.to_str());
+        let is_table_ext = ext.is_some_and(|e| {
+            e.eq_ignore_ascii_case("table")
+                || e.eq_ignore_ascii_case("sqlite")
+                || e.eq_ignore_ascii_case("db")
+        });
+
+        if template == "table" || is_table_ext {
             let conn = rusqlite::Connection::open(&full_path).map_err(|e| {
                 WebError::Internal(format!("Failed to initialize SQLite table: {e}"))
             })?;

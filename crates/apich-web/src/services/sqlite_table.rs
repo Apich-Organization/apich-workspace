@@ -178,73 +178,69 @@ pub struct SqlExecutionResult {
 
 pub struct SqliteTableService;
 
+fn walk_dir(
+    dir: &Path,
+    root: &Path,
+    dbs: &mut Vec<DatabaseFileInfo>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+
+        if path.is_dir() {
+            // Skip hidden dirs, VCS metadata dirs
+            if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" {
+                continue;
+            }
+            walk_dir(&path, root, dbs);
+        } else if path.is_file() {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            // Skip the auto-materialized `<name>.csv.table` sibling `resolve_db_path`
+            // creates behind a `.csv` file -- an implementation detail, not a file the
+            // user should see as a separate entry alongside the CSV it was made from.
+            let is_csv_backing_table = file_name.to_lowercase().ends_with(".csv.table");
+            if !is_csv_backing_table
+                && (ext.eq_ignore_ascii_case("db")
+                    || ext.eq_ignore_ascii_case("sqlite")
+                    || ext.eq_ignore_ascii_case("sqlite3")
+                    || ext.eq_ignore_ascii_case("table")
+                    || ext.eq_ignore_ascii_case("csv"))
+            {
+                let meta = entry.metadata().ok();
+                let size_bytes = meta.as_ref().map_or(0, std::fs::Metadata::len);
+                let modified_rfc3339 = meta
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+
+                if let Ok(rel) = path.strip_prefix(root) {
+                    dbs.push(DatabaseFileInfo {
+                        relative_path: rel.to_string_lossy().replace('\\', "/"),
+                        size_bytes,
+                        modified_rfc3339,
+                    });
+                }
+            }
+        }
+    }
+}
+
 impl SqliteTableService {
     /// Discover all SQLite database files (.db, .sqlite, .sqlite3) within a project directory
-    pub fn discover_databases<P: AsRef<Path>>(project_dir: P) -> WebResult<Vec<DatabaseFileInfo>> {
+    pub fn discover_databases<P: AsRef<Path>>(project_dir: P) -> Vec<DatabaseFileInfo> {
         let mut dbs = Vec::new();
         let project_dir = project_dir.as_ref();
 
         if !project_dir.exists() {
-            return Ok(dbs);
-        }
-
-        fn walk_dir(
-            dir: &Path,
-            root: &Path,
-            dbs: &mut Vec<DatabaseFileInfo>,
-        ) {
-            let entries = match std::fs::read_dir(dir) {
-                | Ok(e) => e,
-                | Err(_) => return,
-            };
-
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let file_name = entry.file_name().to_string_lossy().to_string();
-
-                if path.is_dir() {
-                    // Skip hidden dirs, VCS metadata dirs
-                    if file_name.starts_with('.')
-                        || file_name == "target"
-                        || file_name == "node_modules"
-                    {
-                        continue;
-                    }
-                    walk_dir(&path, root, dbs);
-                } else if path.is_file() {
-                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    // Skip the auto-materialized `<name>.csv.table` sibling `resolve_db_path`
-                    // creates behind a `.csv` file -- an implementation detail, not a file the
-                    // user should see as a separate entry alongside the CSV it was made from.
-                    let is_csv_backing_table = file_name.to_lowercase().ends_with(".csv.table");
-                    if !is_csv_backing_table
-                        && (ext.eq_ignore_ascii_case("db")
-                            || ext.eq_ignore_ascii_case("sqlite")
-                            || ext.eq_ignore_ascii_case("sqlite3")
-                            || ext.eq_ignore_ascii_case("table")
-                            || ext.eq_ignore_ascii_case("csv"))
-                    {
-                        let meta = entry.metadata().ok();
-                        let size_bytes = meta.as_ref().map_or(0, std::fs::Metadata::len);
-                        let modified_rfc3339 = meta
-                            .and_then(|m| m.modified().ok())
-                            .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
-
-                        if let Ok(rel) = path.strip_prefix(root) {
-                            dbs.push(DatabaseFileInfo {
-                                relative_path: rel.to_string_lossy().replace('\\', "/"),
-                                size_bytes,
-                                modified_rfc3339,
-                            });
-                        }
-                    }
-                }
-            }
+            return dbs;
         }
 
         walk_dir(project_dir, project_dir, &mut dbs);
         dbs.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
-        Ok(dbs)
+        dbs
     }
 
     /// Resolve safe path to a database file within project directory.
@@ -326,16 +322,14 @@ impl SqliteTableService {
         let mut tables = Vec::new();
 
         for item in table_iter {
-            let (table_name, is_view) = match item {
-                | Ok(val) => val,
-                | Err(_) => continue,
+            let Ok((table_name, is_view)) = item else {
+                continue;
             };
 
             // Query columns
             let pragma_sql = format!("PRAGMA table_info(\"{}\")", table_name.replace('"', "\"\""));
-            let mut pragma_stmt = match conn.prepare(&pragma_sql) {
-                | Ok(s) => s,
-                | Err(_) => continue,
+            let Ok(mut pragma_stmt) = conn.prepare(&pragma_sql) else {
+                continue;
             };
 
             let cols = pragma_stmt
@@ -433,7 +427,7 @@ impl SqliteTableService {
         };
 
         // Validate sort column
-        let sort_sql = if let Some(col) = sort_by {
+        let sort_sql = sort_by.map_or_else(String::new, |col| {
             if column_names.iter().any(|c| c == col) {
                 let order = match sort_order.map(str::to_uppercase).as_deref() {
                     | Some("DESC") => "DESC",
@@ -443,9 +437,7 @@ impl SqliteTableService {
             } else {
                 String::new()
             }
-        } else {
-            String::new()
-        };
+        });
 
         let current_page = if page == 0 { 1 } else { page };
         let page_limit = if page_size == 0 || page_size > 500 {
@@ -453,7 +445,7 @@ impl SqliteTableService {
         } else {
             page_size
         };
-        let offset = (current_page - 1) * page_limit;
+        let offset = current_page.saturating_sub(1).saturating_mul(page_limit);
 
         let query_sql = format!(
             "SELECT rowid, * FROM \"{clean_table}\" {where_clause} {sort_sql} LIMIT {page_limit} OFFSET {offset}"
@@ -482,7 +474,7 @@ impl SqliteTableService {
             for i in 0..column_names.len() {
                 // Declared columns start at index 1 (index 0 is the leading `rowid`).
                 let val = r
-                    .get_ref(i + 1)
+                    .get_ref(i.saturating_add(1))
                     .map_err(|e| WebError::Internal(e.to_string()))?;
                 row_vals.push(sqlite_val_to_json(val));
             }
@@ -542,11 +534,10 @@ impl SqliteTableService {
         // A read-only connection can still SELECT from a table that doesn't exist yet -- that's
         // just an empty result via `query_map`'s error path here, handled as "no styles" rather
         // than propagated, since callers treat this as optional metadata (see `get_table_data`).
-        let mut stmt = match conn.prepare(
+        let Ok(mut stmt) = conn.prepare(
             "SELECT row_id, col_name, bold, italic, color, bg_color FROM _apich_cell_styles WHERE table_name = ?1",
-        ) {
-            Ok(s) => s,
-            Err(_) => return Ok(HashMap::new()),
+        ) else {
+            return Ok(HashMap::new());
         };
 
         let rows = stmt
@@ -706,11 +697,10 @@ impl SqliteTableService {
     pub fn list_query_history<P: AsRef<Path>>(db_path: P) -> WebResult<Vec<String>> {
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
-        let mut stmt = match conn
-            .prepare("SELECT sql_text FROM _apich_query_history ORDER BY id DESC LIMIT 10")
-        {
-            | Ok(s) => s,
-            | Err(_) => return Ok(Vec::new()),
+        let Ok(mut stmt) =
+            conn.prepare("SELECT sql_text FROM _apich_query_history ORDER BY id DESC LIMIT 10")
+        else {
+            return Ok(Vec::new());
         };
         let rows = stmt
             .query_map([], |r| r.get::<_, String>(0))
@@ -748,11 +738,10 @@ impl SqliteTableService {
     ) -> WebResult<Vec<NotebookCell>> {
         let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|e| WebError::Internal(format!("Failed to open SQLite database: {e}")))?;
-        let mut stmt = match conn.prepare(
+        let Ok(mut stmt) = conn.prepare(
             "SELECT id, position, language, code, output, output_images FROM _apich_notebook_cells WHERE table_name = ?1 ORDER BY position ASC",
-        ) {
-            Ok(s) => s,
-            Err(_) => return Ok(Vec::new()),
+        ) else {
+            return Ok(Vec::new());
         };
         let rows = stmt
             .query_map([table_name], |r| {
@@ -1199,7 +1188,7 @@ impl SqliteTableService {
             .prepare(&insert_sql)
             .map_err(|e| WebError::Internal(format!("Failed to prepare insert statement: {e}")))?;
 
-        let mut count = 0;
+        let mut count: usize = 0;
         for line in lines {
             let trimmed = line.trim();
             if trimmed.is_empty() {
@@ -1216,7 +1205,7 @@ impl SqliteTableService {
             insert_stmt
                 .execute(rusqlite::params_from_iter(params_vec))
                 .map_err(|e| WebError::Internal(format!("Failed to insert row: {e}")))?;
-            count += 1;
+            count = count.saturating_add(1);
         }
 
         Ok(count)
@@ -1370,10 +1359,11 @@ fn sqlite_val_to_json(val: ValueRef<'_>) -> serde_json::Value {
             serde_json::Value::String(s.into_owned())
         },
         | ValueRef::Blob(b) => {
+            let slice = b.get(..b.len().min(16)).unwrap_or(&[]);
             serde_json::Value::String(format!(
                 "<BLOB {} bytes: 0x{}>",
                 b.len(),
-                hex::encode(&b[..b.len().min(16)])
+                hex::encode(slice)
             ))
         },
     }
@@ -1394,7 +1384,7 @@ mod tests {
         assert!(db_path.exists());
 
         // 2. Discover databases
-        let dbs = SqliteTableService::discover_databases(dir.path()).unwrap();
+        let dbs = SqliteTableService::discover_databases(dir.path());
         assert_eq!(dbs.len(), 1);
         assert_eq!(dbs[0].relative_path, "experiment_data.sqlite");
 
@@ -1587,7 +1577,7 @@ mod tests {
         assert_eq!(data_again.total_rows, 2);
 
         // The auto-materialized sibling shouldn't show up as its own separate entry.
-        let dbs = SqliteTableService::discover_databases(dir.path()).unwrap();
+        let dbs = SqliteTableService::discover_databases(dir.path());
         assert_eq!(
             dbs.iter()
                 .map(|d| d.relative_path.as_str())

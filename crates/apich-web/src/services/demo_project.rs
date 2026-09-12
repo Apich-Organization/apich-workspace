@@ -150,7 +150,7 @@ impl DemoProjectService {
         // everything else that provisions a slide deck, see `cargo_slide_helpers`'s own doc
         // comment for why this used to be a copy living only here.
         let theme_typ = crate::services::cargo_slide_helpers::THEME_TYP;
-        let slide_typ = crate::services::cargo_slide_helpers::SLIDE_TYP;
+        let slide_macro_typ = crate::services::cargo_slide_helpers::SLIDE_TYP;
 
         // 4. Sample CSV dataset: assets/data.csv
         let data_csv = "qubit,frequency_ghz,t1_us,t2_us,readout_fidelity\nQ0,4.852,94.2,76.8,0.988\nQ1,5.014,88.5,64.2,0.982\nQ2,5.180,102.3,85.1,0.991\nQ3,4.920,79.8,58.4,0.979\nQ4,5.250,91.4,71.0,0.985\nQ5,5.105,86.2,63.9,0.983\n";
@@ -287,7 +287,7 @@ def calculate_average_t1(csv_path):
 
 if __name__ == '__main__':
     avg = calculate_average_t1('assets/data.csv')
-    print(f"Average T1 relaxation time: {avg:.2f} us")
+    print("Average T1 relaxation time: %.2f us" % avg)
 "#;
 
         // 9. README.md
@@ -430,7 +430,7 @@ Target readout fidelity for the distance-3 surface code prototype is 99.5%; curr
         tokio::fs::write(root.join("theme.typ"), theme_typ)
             .await
             .ok();
-        tokio::fs::write(root.join("slide.typ"), slide_typ)
+        tokio::fs::write(root.join("slide.typ"), slide_macro_typ)
             .await
             .ok();
         tokio::fs::write(root.join("assets").join("data.csv"), data_csv)

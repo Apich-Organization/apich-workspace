@@ -1,7 +1,7 @@
-//! Tracks in-flight CLI agent account-login sessions (`claude auth login`, `codex login
-//! --device-auth`, ...) so their output can be polled and, for flows that need it, a
-//! pasted-back code can be submitted -- across several separate HTTP requests, since a login
-//! session waits on a human to finish something in their own browser tab.
+//! Tracks in-flight CLI agent account-login sessions.
+//!
+//! Sessions (`claude auth login`, `codex login --device-auth`, ...) can be polled
+//! and have pasted-back codes submitted across several separate HTTP requests.
 //!
 //! This is real account login, not another shape of API-key entry: once a session in here
 //! succeeds, the agent's credentials live in the container's home directory and subsequent
@@ -124,10 +124,13 @@ impl AgentLoginRegistry {
         line: &str,
     ) -> Result<(), &'static str> {
         let session = self.get(id).await.ok_or("Login session not found")?;
-        let guard = session.stdin_tx.lock().await;
-        let Some(tx) = guard.as_ref() else {
-            return Err("This login session is no longer accepting input");
-        };
+        let tx = session
+            .stdin_tx
+            .lock()
+            .await
+            .as_ref()
+            .cloned()
+            .ok_or("This login session is no longer accepting input")?;
         let mut bytes = line.as_bytes().to_vec();
         bytes.push(b'\n');
         tx.send(bytes)

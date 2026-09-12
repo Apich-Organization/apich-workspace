@@ -67,8 +67,9 @@ pub enum WebError {
 impl IntoResponse for WebError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
-            | Self::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
-            | Self::InvalidCredentials => (StatusCode::UNAUTHORIZED, self.to_string()),
+            | Self::Unauthorized | Self::InvalidCredentials => {
+                (StatusCode::UNAUTHORIZED, self.to_string())
+            },
             | Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             | Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             | Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),

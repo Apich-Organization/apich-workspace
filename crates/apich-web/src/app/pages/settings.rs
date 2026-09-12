@@ -24,11 +24,10 @@ pub fn SettingsPage(
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let alert = if let Some(n) = notice {
-        Some(view! { <div class="alert alert-success">{n}</div> }.into_any())
-    } else {
-        error.map(|e| view! { <div class="alert alert-danger">{e}</div> }.into_any())
-    };
+    let alert = notice.map_or_else(
+        || error.map(|e| view! { <div class="alert alert-danger">{e}</div> }.into_any()),
+        |n| Some(view! { <div class="alert alert-success">{n}</div> }.into_any()),
+    );
 
     let role_display = if user.is_platform_admin {
         i18n.platform_admin().to_string()

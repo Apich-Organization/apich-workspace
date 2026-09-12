@@ -1,9 +1,9 @@
-//! Seeds a starter set of ready-to-use, `public`-visibility Template Library entries so the
-//! library isn't an empty shelf someone has to fill themselves before it's useful -- publishing
-//! your own template still works exactly the same way alongside these. Idempotent: each template
-//! below has a fixed, reserved slug under `owner_user_id`; if a template with that slug already
-//! exists, seeding it is skipped, so calling this on every server start (see `main.rs`) is safe
-//! and cheap after the first run.
+//! Seeds a starter set of public Template Library entries.
+//!
+//! Populates ready-to-use templates so the library isn't an empty shelf. Idempotent:
+//! each template below has a fixed, reserved slug under `owner_user_id`; if a template
+//! with that slug already exists, seeding it is skipped, so calling this on every
+//! server start is safe and cheap after the first run.
 
 use crate::error::WebResult;
 use crate::services::knowledge_sync::KanbanColumnDef;
@@ -462,8 +462,14 @@ Summarize contributions and future work.
     ]
 }
 
+/// Publishes default templates.
+///
 /// Publishes each of `seed_list()`'s templates (as version "1.0.0", `public` visibility) under
 /// `owner_user_id` if a template with that reserved slug doesn't already exist for that owner.
+///
+/// # Errors
+///
+/// Returns an error if querying existing templates or inserting default templates fails in the database.
 pub async fn seed_default_templates(
     repo: &Repository<'_>,
     owner_user_id: Uuid,

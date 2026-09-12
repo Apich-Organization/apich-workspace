@@ -1,8 +1,7 @@
-//! Real end-to-end test for the self-hosted git-over-HTTP server (`/git/:id.git/...`): spawns a
-//! real server, uses the actual `git` binary as a subprocess to clone and push over HTTP with a
-//! real PAT for Basic auth -- this is the one part of this feature where "looks right in code
-//! review" isn't good enough, since the CGI bridge to `git http-backend` has to get header/body
-//! framing exactly right for a real Git client to accept it.
+//! End-to-end integration test for self-hosted Git HTTP server.
+//!
+//! Spawns a real server, uses the actual `git` binary to clone and push over HTTP
+//! with a real PAT to verify that the CGI bridge handles Git client framing correctly.
 
 use apich_db::CreateUserDto;
 use apich_db::Database;

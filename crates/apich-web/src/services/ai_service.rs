@@ -83,20 +83,21 @@ impl AiAssistantService {
         );
 
         let system_instruction = "You are APICH Copilot, an elite scientific programming and research assistant. Support LaTeX math, Typst markup, cargo-slide presentation DSL, Python scientific data analysis, and Markdown notes.";
-        let mut user_text = req.prompt.clone();
-        if let Some(ref ctx) = req.file_content {
-            let filename = req.context_file.as_deref().unwrap_or("file");
-            user_text = format!(
-                "Context file `{}`:\n```\n{}\n```\n\nUser Question:\n{}",
-                filename,
-                if ctx.len() > 12000 {
-                    &ctx[..12000]
+        let user_text = req.file_content.as_ref().map_or_else(
+            || req.prompt.clone(),
+            |ctx| {
+                let filename = req.context_file.as_deref().unwrap_or("file");
+                let ctx_snippet = if ctx.len() > 12000 {
+                    ctx.get(..12000).unwrap_or(ctx)
                 } else {
                     ctx
-                },
-                req.prompt
-            );
-        }
+                };
+                format!(
+                    "Context file `{filename}`:\n```\n{ctx_snippet}\n```\n\nUser Question:\n{}",
+                    req.prompt
+                )
+            },
+        );
 
         let body = serde_json::json!({
             "contents": [{
@@ -135,8 +136,14 @@ impl AiAssistantService {
             .await
             .map_err(|e| WebError::Internal(format!("Failed to parse Gemini response: {e}")))?;
 
-        let reply = json["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
+        let reply = json
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("text"))
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("No response generated from Gemini")
             .to_string();
 
@@ -161,14 +168,16 @@ impl AiAssistantService {
             "content": "You are APICH Copilot, an elite scientific programming and research assistant."
         })];
 
-        let mut prompt_full = req.prompt.clone();
-        if let Some(ref ctx) = req.file_content {
-            let filename = req.context_file.as_deref().unwrap_or("file");
-            prompt_full = format!(
-                "File `{}`:\n```\n{}\n```\n\nPrompt: {}",
-                filename, ctx, req.prompt
-            );
-        }
+        let prompt_full = req.file_content.as_ref().map_or_else(
+            || req.prompt.clone(),
+            |ctx| {
+                let filename = req.context_file.as_deref().unwrap_or("file");
+                format!(
+                    "File `{filename}`:\n```\n{ctx}\n```\n\nPrompt: {}",
+                    req.prompt
+                )
+            },
+        );
 
         messages.push(serde_json::json!({
             "role": "user",
@@ -199,8 +208,12 @@ impl AiAssistantService {
             .await
             .map_err(|e| WebError::Internal(e.to_string()))?;
 
-        let reply = json["choices"][0]["message"]["content"]
-            .as_str()
+        let reply = json
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("No response from OpenAI")
             .to_string();
 
@@ -243,8 +256,9 @@ impl AiAssistantService {
             .await
             .map_err(|e| WebError::Internal(e.to_string()))?;
 
-        let reply = json["response"]
-            .as_str()
+        let reply = json
+            .get("response")
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("No response from Ollama")
             .to_string();
 
@@ -261,9 +275,12 @@ impl AiAssistantService {
     fn builtin_scientific_assistant(req: &AiChatRequest) -> AiChatResponse {
         let p_lower = req.prompt.to_lowercase();
         let cur_file = req.context_file.as_deref().unwrap_or("");
-        let is_typst = cur_file.ends_with(".typ");
-        let is_python = cur_file.ends_with(".py");
-        let is_note = cur_file.ends_with(".anote") || cur_file.ends_with(".md");
+        let cur_path = std::path::Path::new(cur_file);
+        let ext = cur_path.extension().and_then(|e| e.to_str());
+        let is_typst = ext.is_some_and(|e| e.eq_ignore_ascii_case("typ"));
+        let is_python = ext.is_some_and(|e| e.eq_ignore_ascii_case("py"));
+        let is_note =
+            ext.is_some_and(|e| e.eq_ignore_ascii_case("anote") || e.eq_ignore_ascii_case("md"));
 
         if p_lower.contains("formula")
             || p_lower.contains("equation")

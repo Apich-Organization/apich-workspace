@@ -4,6 +4,7 @@ use crate::services::knowledge_sync::MarkdownTask;
 use regex::Regex;
 use serde::Deserialize;
 use serde::Serialize;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -113,14 +114,14 @@ impl DocumentRenderer {
                 zero_content_calls = calls;
                 let file_path = annotated_dir.join(format!(".apich_sync_{run_id}.typ"));
                 if std::fs::write(&file_path, annotated.as_bytes()).is_ok() {
-                    input_to_compile = file_path.clone();
+                    input_to_compile.clone_from(&file_path);
                     annotated_path = Some(file_path);
                     did_annotate = true;
                 }
             }
         }
 
-        let out_pattern = compile_dir.join("page-{p}.svg");
+        let out_pattern = compile_dir.join(format!("page-{{{}}}.svg", "p"));
         let typst_bin = if Path::new("/home/user/.cargo/bin/typst").exists() {
             "/home/user/.cargo/bin/typst"
         } else {
@@ -182,16 +183,15 @@ impl DocumentRenderer {
                             total_pages: count,
                             error_message: None,
                         };
-                    } else {
-                        let stderr = String::from_utf8_lossy(&fb_out.stderr).to_string();
-                        let _ = std::fs::remove_dir_all(&compile_dir);
-                        return TypstRenderResult {
-                            success: false,
-                            pages_svg: Vec::new(),
-                            total_pages: 0,
-                            error_message: Some(stderr),
-                        };
                     }
+                    let stderr = String::from_utf8_lossy(&fb_out.stderr).to_string();
+                    let _ = std::fs::remove_dir_all(&compile_dir);
+                    return TypstRenderResult {
+                        success: false,
+                        pages_svg: Vec::new(),
+                        total_pages: 0,
+                        error_message: Some(stderr),
+                    };
                 }
             }
 
@@ -345,7 +345,7 @@ impl DocumentRenderer {
         let mut current_call: Option<(u32, bool)> = None;
 
         for (idx, line) in source.lines().enumerate() {
-            let line_num = idx + 1;
+            let line_num = idx.saturating_add(1);
             let trimmed = line.trim();
 
             if trimmed.contains("/*") && !trimmed.contains("*/") {
@@ -369,7 +369,7 @@ impl DocumentRenderer {
                 continue;
             }
 
-            let in_markup_before = stack.last().map_or(true, |c| *c == '[');
+            let in_markup_before = stack.last().is_none_or(|c| *c == '[');
             let stack_was_empty = stack.is_empty();
             let stack_len_before = stack.len();
             let mut balanced = true;
@@ -452,7 +452,10 @@ impl DocumentRenderer {
             .map(|mut page| {
                 if !page.contains("sync:line:") {
                     if let (Some(&line), Some(pos)) = (calls.next(), page.find("<svg")) {
-                        page.insert_str(pos + 4, &format!(" data-fallback-line=\"{line}\""));
+                        page.insert_str(
+                            pos.saturating_add(4),
+                            &format!(" data-fallback-line=\"{line}\""),
+                        );
                     }
                 }
                 page
@@ -468,6 +471,10 @@ impl DocumentRenderer {
     /// the bug that motivated moving execution into the sandbox -- see that method's doc
     /// comment). This host-local version stays as the interpreter-dispatch/image-diffing logic
     /// its own unit test (`test_script_execution`) exercises without needing a live sandbox.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WebError`] if the script file does not exist or execution fails.
     pub async fn run_script<P: AsRef<Path>>(
         project_root: P,
         rel_path: &str,
@@ -505,7 +512,6 @@ impl DocumentRenderer {
         let rust_bin_path = format!("/home/user/tmp/apich_run_{run_id}");
         let (interpreter, base_args): (&str, Vec<String>) = match ext.as_str() {
             | "py" => ("python3", vec![rel_path.to_string()]),
-            | "sh" | "bash" => ("bash", vec![rel_path.to_string()]),
             | "r" => ("Rscript", vec![rel_path.to_string()]),
             | "rs" => {
                 (
@@ -627,36 +633,7 @@ impl DocumentRenderer {
         dir: &Path
     ) -> std::collections::HashMap<PathBuf, std::time::SystemTime> {
         let mut map = std::collections::HashMap::new();
-        fn walk(
-            p: &Path,
-            map: &mut std::collections::HashMap<PathBuf, std::time::SystemTime>,
-        ) {
-            if let Ok(entries) = std::fs::read_dir(p) {
-                for e in entries.flatten() {
-                    let path = e.path();
-                    let name = e.file_name().to_string_lossy().to_string();
-                    if path.is_dir() {
-                        if !name.starts_with('.') && name != "target" && name != "node_modules" {
-                            walk(&path, map);
-                        }
-                    } else if path.is_file() {
-                        let ext = path
-                            .extension()
-                            .and_then(|x| x.to_str())
-                            .unwrap_or("")
-                            .to_lowercase();
-                        if matches!(ext.as_str(), "png" | "svg" | "jpg" | "jpeg") {
-                            if let Ok(meta) = path.metadata() {
-                                if let Ok(modified) = meta.modified() {
-                                    map.insert(path, modified);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        walk(dir, &mut map);
+        walk_images(dir, &mut map);
         map
     }
 
@@ -669,9 +646,15 @@ impl DocumentRenderer {
         let mut html = String::new();
         let mut tasks = Vec::new();
 
-        let task_regex = Regex::new(r"^\s*[-*]\s+\[([ xX/])\]\s+(.*)$").unwrap();
-        let tag_regex = Regex::new(r"#([a-zA-Z0-9_\-]+)").unwrap();
-        let date_regex = Regex::new(r"@(\d{4}-\d{2}-\d{2})").unwrap();
+        let Ok(task_regex) = Regex::new(r"^\s*[-*]\s+\[([ xX/])\]\s+(.*)$") else {
+            return MarkdownRenderResult { html, tasks };
+        };
+        let Ok(tag_regex) = Regex::new(r"#([a-zA-Z0-9_\-]+)") else {
+            return MarkdownRenderResult { html, tasks };
+        };
+        let Ok(date_regex) = Regex::new(r"@(\d{4}-\d{2}-\d{2})") else {
+            return MarkdownRenderResult { html, tasks };
+        };
 
         let mut in_code_block = false;
         let mut code_lang = String::new();
@@ -679,17 +662,18 @@ impl DocumentRenderer {
         let mut in_list = false;
 
         for (idx, line) in content.lines().enumerate() {
-            let line_num = idx + 1;
+            let line_num = idx.saturating_add(1);
             let trimmed = line.trim();
 
             // Code blocks
             if trimmed.starts_with("```") {
                 if in_code_block {
-                    html.push_str(&format!(
-                        "<pre class=\"code-block\"><code class=\"language-{}\">{}</code></pre>\n",
+                    let _ = writeln!(
+                        html,
+                        "<pre class=\"code-block\"><code class=\"language-{}\">{}</code></pre>",
                         html_escape(&code_lang),
                         html_escape(&code_lines.join("\n"))
-                    ));
+                    );
                     code_lines.clear();
                     in_code_block = false;
                 } else {
@@ -714,13 +698,13 @@ impl DocumentRenderer {
                     html.push_str("</ul>\n");
                     in_list = false;
                 }
-                let math = &trimmed[2..trimmed.len() - 2];
-                html.push_str(&format!(
-                    "<div class=\"math-block\" data-line=\"{}\" data-math=\"{}\">$$\n{}\n$$</div>\n",
-                    line_num,
+                let math = &trimmed[2..trimmed.len().saturating_sub(2)];
+                let _ = write!(
+                    html,
+                    "<div class=\"math-block\" data-line=\"{line_num}\" data-math=\"{}\">$$\n{}\n$$</div>\n",
                     html_escape(math.trim()),
                     html_escape(math.trim())
-                ));
+                );
                 continue;
             }
 
@@ -782,34 +766,32 @@ impl DocumentRenderer {
 
                 let mut badges = String::new();
                 for t in tag_regex.find_iter(raw_body) {
-                    badges.push_str(&format!(
+                    let _ = write!(
+                        badges,
                         "<span class=\"task-tag-badge\">{}</span> ",
                         html_escape(t.as_str())
-                    ));
+                    );
                 }
                 if let Some(d) = date_regex.captures(raw_body).and_then(|c| c.get(0)) {
-                    badges.push_str(&format!(
+                    let _ = write!(
+                        badges,
                         "<span class=\"task-date-badge\">📅 {}</span> ",
                         html_escape(d.as_str())
-                    ));
+                    );
                 }
 
                 // Render body with wiki links
                 let body_with_wiki = Self::format_inline_markdown(raw_body, project_id);
 
-                html.push_str(&format!(
-                    "<li class=\"interactive-task-row {}\" data-line=\"{}\" data-file=\"{}\">\
-                        <input type=\"checkbox\" {} class=\"task-live-checkbox\">\
-                        <span class=\"task-text\">{}</span>\
-                        <div class=\"task-badges\">{}</div>\
-                    </li>\n",
-                    class_extra,
-                    line_num,
-                    html_escape(file_path),
-                    checked_attr,
-                    body_with_wiki,
-                    badges
-                ));
+                let _ = writeln!(
+                    html,
+                    "<li class=\"interactive-task-row {class_extra}\" data-line=\"{line_num}\" data-file=\"{}\">\
+                        <input type=\"checkbox\" {checked_attr} class=\"task-live-checkbox\">\
+                        <span class=\"task-text\">{body_with_wiki}</span>\
+                        <div class=\"task-badges\">{badges}</div>\
+                    </li>",
+                    html_escape(file_path)
+                );
                 continue;
             }
 
@@ -824,12 +806,13 @@ impl DocumentRenderer {
                 if level <= 4 {
                     let htext = trimmed[level..].trim();
                     let formatted_text = Self::format_inline_markdown(htext, project_id);
-                    html.push_str(&format!(
+                    let _ = writeln!(
+                        html,
                         "<h{level} data-line=\"{line_num}\" class=\"doc-heading\" id=\"sec-{line_num}\">\
                             <span>{formatted_text}</span>\
                             <a href=\"javascript:void(0)\" class=\"line-sync-anchor\" data-line=\"{line_num}\" title=\"Reverse search: jump to line {line_num}\">#L{line_num}</a>\
-                        </h{level}>\n"
-                    ));
+                        </h{level}>"
+                    );
                     continue;
                 }
             }
@@ -842,20 +825,22 @@ impl DocumentRenderer {
 
             // Regular paragraph
             let p_formatted = Self::format_inline_markdown(trimmed, project_id);
-            html.push_str(&format!(
-                "<p class=\"doc-paragraph\" data-line=\"{line_num}\">{p_formatted}</p>\n"
-            ));
+            let _ = writeln!(
+                html,
+                "<p class=\"doc-paragraph\" data-line=\"{line_num}\">{p_formatted}</p>"
+            );
         }
 
         if in_list {
             html.push_str("</ul>\n");
         }
         if in_code_block {
-            html.push_str(&format!(
-                "<pre class=\"code-block\"><code class=\"language-{}\">{}</code></pre>\n",
+            let _ = writeln!(
+                html,
+                "<pre class=\"code-block\"><code class=\"language-{}\">{}</code></pre>",
                 html_escape(&code_lang),
                 html_escape(&code_lines.join("\n"))
-            ));
+            );
         }
 
         MarkdownRenderResult { html, tasks }
@@ -876,12 +861,16 @@ impl DocumentRenderer {
         // <a href=.../Cryostat%20Cool-Down%20Log.anote>[[Cryostat Cool-Down Log]]</a></a>`, a
         // real link to a nonexistent file inside invalid nested-anchor HTML. Caught live: the
         // demo project's own pipe-form links rendered exactly this way.
-        let wiki_link = Regex::new(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]").unwrap();
+        let Ok(wiki_link) = Regex::new(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]") else {
+            return out;
+        };
         out = wiki_link
             .replace_all(&out, |caps: &regex::Captures<'_>| {
                 let target = caps.get(1).map_or("", |m| m.as_str().trim());
                 let display = caps.get(2).map_or(target, |m| m.as_str().trim());
-                let note_file = if target.ends_with(".anote") || target.ends_with(".md") {
+                let note_file = if Path::new(target).extension().is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("anote") || ext.eq_ignore_ascii_case("md")
+                }) {
                     target.to_string()
                 } else {
                     format!("{target}.anote")
@@ -896,35 +885,38 @@ impl DocumentRenderer {
             .to_string();
 
         // Inline math: $formula$
-        let inline_math = Regex::new(r"\$([^\$]+)\$").unwrap();
-        out = inline_math
-            .replace_all(&out, |caps: &regex::Captures<'_>| {
-                let math = caps.get(1).map_or("", |m| m.as_str());
-                format!("<span class=\"math-inline\" data-math=\"{math}\">${math}$</span>")
-            })
-            .to_string();
+        if let Ok(inline_math) = Regex::new(r"\$([^\$]+)\$") {
+            out = inline_math
+                .replace_all(&out, |caps: &regex::Captures<'_>| {
+                    let math = caps.get(1).map_or("", |m| m.as_str());
+                    format!("<span class=\"math-inline\" data-math=\"{math}\">${math}$</span>")
+                })
+                .to_string();
+        }
 
         // Bold: **text**
-        let bold = Regex::new(r"\*\*([^\*]+)\*\*").unwrap();
-        out = bold
-            .replace_all(&out, |caps: &regex::Captures<'_>| {
-                format!(
-                    "<strong>{}</strong>",
-                    caps.get(1).map_or("", |m| m.as_str())
-                )
-            })
-            .to_string();
+        if let Ok(bold) = Regex::new(r"\*\*([^\*]+)\*\*") {
+            out = bold
+                .replace_all(&out, |caps: &regex::Captures<'_>| {
+                    format!(
+                        "<strong>{}</strong>",
+                        caps.get(1).map_or("", |m| m.as_str())
+                    )
+                })
+                .to_string();
+        }
 
         // Inline code: `code`
-        let code = Regex::new(r"`([^`]+)`").unwrap();
-        out = code
-            .replace_all(&out, |caps: &regex::Captures<'_>| {
-                format!(
-                    "<code class=\"inline-code\">{}</code>",
-                    caps.get(1).map_or("", |m| m.as_str())
-                )
-            })
-            .to_string();
+        if let Ok(code) = Regex::new(r"`([^`]+)`") {
+            out = code
+                .replace_all(&out, |caps: &regex::Captures<'_>| {
+                    format!(
+                        "<code class=\"inline-code\">{}</code>",
+                        caps.get(1).map_or("", |m| m.as_str())
+                    )
+                })
+                .to_string();
+        }
 
         out
     }
@@ -936,6 +928,36 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#x27;")
+}
+
+fn walk_images(
+    p: &Path,
+    map: &mut std::collections::HashMap<PathBuf, std::time::SystemTime>,
+) {
+    if let Ok(entries) = std::fs::read_dir(p) {
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                    walk_images(&path, map);
+                }
+            } else if path.is_file()
+                && path.extension().is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("png")
+                        || ext.eq_ignore_ascii_case("svg")
+                        || ext.eq_ignore_ascii_case("jpg")
+                        || ext.eq_ignore_ascii_case("jpeg")
+                })
+            {
+                if let Ok(meta) = path.metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        map.insert(path, modified);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

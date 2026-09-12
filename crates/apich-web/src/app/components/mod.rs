@@ -35,12 +35,18 @@ pub fn PageShell(
     } else {
         "en"
     };
+    let full_title = {
+        let mut s = title;
+        s.push_str(" - APICH ");
+        s.push_str(i18n.brand_title());
+        s
+    };
     view! {
         <html lang=lang_attr>
             <head>
                 <meta charset="UTF-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <title>{format!("{} - APICH {}", title, i18n.brand_title())}</title>
+                <title>{full_title}</title>
                 <style>{EMBEDDED_CSS}</style>
             </head>
             <body>
@@ -99,10 +105,10 @@ pub enum ActiveNav {
 
 impl ActiveNav {
     fn is(
-        &self,
+        self,
         other: Self,
     ) -> bool {
-        *self == other
+        self == other
     }
 }
 
@@ -121,6 +127,18 @@ pub fn AppShell(
     i18n: I18n,
     children: Children,
 ) -> impl IntoView {
+    let full_title = {
+        let mut s = page_title;
+        s.push_str(" - APICH ");
+        s.push_str(i18n.brand_title());
+        s
+    };
+    let lang_toggle_url = format!(
+        "/set-lang?lang={}&return_to={}",
+        i18n.lang.toggle_code(),
+        urlencoding::encode(&current_path)
+    );
+    drop(current_path);
     let lang_attr = if i18n.is_zh() {
         "zh-CN"
     } else {
@@ -174,7 +192,7 @@ pub fn AppShell(
             <head>
                 <meta charset="UTF-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <title>{format!("{} - APICH {}", page_title, i18n.brand_title())}</title>
+                <title>{full_title}</title>
                 <KatexHead />
                 <IslandScript />
                 <style>{EMBEDDED_CSS}</style>
@@ -220,7 +238,7 @@ pub fn AppShell(
                                 </div>
                                 <div class="sidebar-actions">
                                     <a
-                                        href=format!("/set-lang?lang={}&return_to={}", i18n.lang.toggle_code(), urlencoding::encode(&current_path))
+                                        href=lang_toggle_url
                                         class="lang-toggle"
                                         title="Switch Language"
                                     >

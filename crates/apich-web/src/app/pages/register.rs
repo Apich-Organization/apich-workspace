@@ -3,33 +3,51 @@ use crate::ui::i18n::I18n;
 use apich_islands::OrgSignupFieldsIsland;
 use leptos::prelude::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegistrationMode {
+    InviteOnly,
+    AdminOnly,
+    Open,
+}
+
+impl RegistrationMode {
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s {
+            | "invite_only" => Self::InviteOnly,
+            | "admin_only" => Self::AdminOnly,
+            | _ => Self::Open,
+        }
+    }
+}
+
 #[component]
 pub fn RegisterPage(
     error: Option<String>,
-    registration_mode: String,
+    registration_mode: RegistrationMode,
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let mode_banner = match registration_mode.as_str() {
-        "invite_only" => view! {
+    let mode_banner = match registration_mode {
+        RegistrationMode::InviteOnly => view! {
             <div class="alert alert-info" style="font-size:0.825rem; margin-bottom:1rem; padding:0.6rem 0.85rem; border-radius:var(--radius-sm);">
                 "🔑 " {i18n.registration_mode_invite()}
             </div>
         }.into_any(),
-        "admin_only" => view! {
+        RegistrationMode::AdminOnly => view! {
             <div class="alert alert-warning" style="font-size:0.825rem; margin-bottom:1rem; padding:0.6rem 0.85rem; border-radius:var(--radius-sm);">
                 "🚫 " {i18n.registration_mode_closed()}
             </div>
         }.into_any(),
-        _ => view! {
+        RegistrationMode::Open => view! {
             <div class="alert alert-info" style="font-size:0.825rem; margin-bottom:1rem; padding:0.6rem 0.85rem; border-radius:var(--radius-sm);">
                 "✉️ " {i18n.registration_mode_open()}
             </div>
         }.into_any(),
     };
 
-    let invite_required = registration_mode == "invite_only";
-    let invite_field = if registration_mode == "admin_only" {
+    let invite_required = registration_mode == RegistrationMode::InviteOnly;
+    let invite_field = if registration_mode == RegistrationMode::AdminOnly {
         None
     } else {
         Some(view! {
@@ -50,7 +68,7 @@ pub fn RegisterPage(
         })
     };
 
-    let registration_closed = registration_mode == "admin_only";
+    let registration_closed = registration_mode == RegistrationMode::AdminOnly;
 
     view! {
         <PageShell title=i18n.submit_register().to_string() i18n=i18n>

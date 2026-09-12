@@ -124,7 +124,9 @@ async fn register(
     // Create initial session
     let token = generate_session_token();
     let token_hash = hash_session_token(&token);
-    let expires_at = Utc::now() + chrono::Duration::days(14);
+    let expires_at = Utc::now()
+        .checked_add_signed(chrono::Duration::days(14))
+        .unwrap_or_else(Utc::now);
     repo.create_user_session(user.id, &token_hash, expires_at, None, None)
         .await?;
 
@@ -160,7 +162,9 @@ async fn login(
 
     let token = generate_session_token();
     let token_hash = hash_session_token(&token);
-    let expires_at = Utc::now() + chrono::Duration::days(14);
+    let expires_at = Utc::now()
+        .checked_add_signed(chrono::Duration::days(14))
+        .unwrap_or_else(Utc::now);
     repo.create_user_session(user.id, &token_hash, expires_at, None, None)
         .await?;
 
@@ -340,7 +344,7 @@ async fn passkey_auth_finish(
     )?;
 
     // 5. Update credential counter
-    repo.update_fido2_counter(&cred.credential_id, cred.counter + 1)
+    repo.update_fido2_counter(&cred.credential_id, cred.counter.saturating_add(1))
         .await?;
 
     // 6. Issue authenticated session
@@ -351,7 +355,9 @@ async fn passkey_auth_finish(
 
     let token = generate_session_token();
     let token_hash = hash_session_token(&token);
-    let expires_at = Utc::now() + chrono::Duration::days(14);
+    let expires_at = Utc::now()
+        .checked_add_signed(chrono::Duration::days(14))
+        .unwrap_or_else(Utc::now);
     repo.create_user_session(user.id, &token_hash, expires_at, None, None)
         .await?;
 

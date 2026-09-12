@@ -17,6 +17,8 @@ use apich_db::User;
 use apich_islands::WhiteboardIsland;
 use leptos::prelude::*;
 
+/// Unified note space view selector.
+///
 /// plan.md calls for one integrated space that seamlessly aggregates personal notes, a
 /// bidirectional-link wiki, a whiteboard, a calendar, and a task kanban ("一体化空间：无缝聚合
 /// 个人笔记、双链 Wiki、白板、日历日程与任务看板") -- not five separate pages. Wiki/Calendar/
@@ -24,7 +26,7 @@ use leptos::prelude::*;
 /// actually linked to (a real, orphaned-page bug, not just an organizational preference); now
 /// they're tabs here, alongside the note editor and whiteboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NoteView {
+pub enum NoteView {
     Editor,
     Whiteboard,
     Wiki,
@@ -33,14 +35,18 @@ enum NoteView {
 }
 
 impl NoteView {
-    fn from_str(s: &str) -> Self {
-        match s {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
             | "whiteboard" => Self::Whiteboard,
             | "wiki" => Self::Wiki,
             | "calendar" => Self::Calendar,
             | "kanban" => Self::Kanban,
             | _ => Self::Editor,
         }
+    }
+
+    pub fn from_string(s: &str) -> Self {
+        Self::from_str(s)
     }
 }
 
@@ -67,42 +73,54 @@ pub fn NotePage(
     visible_note_templates: Vec<apich_db::TemplateWithLatestVersion>,
     file_share: Option<FileShareInfo>,
     all_users: Vec<User>,
-    active_view: String,
+    active_view: NoteView,
     notice: Option<String>,
     error: Option<String>,
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let project_id = project.id;
-    let view = NoteView::from_str(&active_view);
+    let Project {
+        id: project_id,
+        owner_id: project_owner_id,
+        storage_path: _storage_path,
+        ..
+    } = project;
+    let view = active_view;
 
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
-    let share_label = match file_share.as_ref() {
-        | Some(s) if s.mode == "public" => format!("🌐 Public ({})", s.role),
-        | Some(s) if s.mode == "specific" => format!("👥 Specific ({})", s.role),
-        | _ => "🔒 Private".to_string(),
+    let (share_label, share_mode, share_role, share_users) = match file_share {
+        | Some(s) => {
+            let label = match s.mode.as_str() {
+                | "public" => format!("🌐 Public ({})", s.role),
+                | "specific" => format!("👥 Specific ({})", s.role),
+                | _ => "🔒 Private".to_string(),
+            };
+            let users = s.allowed_users.join(",");
+            (label, s.mode, s.role, users)
+        },
+        | None => {
+            (
+                "🔒 Private".to_string(),
+                "private".to_string(),
+                "read".to_string(),
+                String::new(),
+            )
+        },
     };
-    let share_mode = file_share
-        .as_ref()
-        .map_or_else(|| "private".to_string(), |s| s.mode.clone());
-    let share_role = file_share
-        .as_ref()
-        .map_or_else(|| "read".to_string(), |s| s.role.clone());
-    let share_users = file_share
-        .as_ref()
-        .map(|s| s.allowed_users.join(","))
-        .unwrap_or_default();
     let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
     let share_onclick = format!(
         "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))"
@@ -135,36 +153,37 @@ pub fn NotePage(
     let content = match view {
         | NoteView::Editor => {
             render_editor_view(
-                &project,
+                project_id,
                 &file_path,
-                &body_content,
+                body_content,
                 &meta,
-                &headings,
-                &backlinks,
-                &rendered_markdown_html,
+                headings,
+                backlinks,
+                rendered_markdown_html,
                 task_count,
                 completed_task_count,
                 i18n.is_zh(),
-                &own_note_templates,
-                &visible_note_templates,
+                own_note_templates,
+                visible_note_templates,
                 i18n,
             )
             .into_any()
         },
         | NoteView::Whiteboard => render_whiteboard_view(project_id, &file_path, &meta).into_any(),
-        | NoteView::Wiki => render_wiki(project.id, &graph).into_any(),
+        | NoteView::Wiki => render_wiki(project_id, &graph).into_any(),
         | NoteView::Calendar => render_calendar(&calendar).into_any(),
         | NoteView::Kanban => {
             render_kanban(
-                &project,
+                project_id,
                 &kanban,
-                &own_kanban_templates,
-                &visible_kanban_templates,
+                own_kanban_templates,
+                visible_kanban_templates,
                 i18n,
             )
             .into_any()
         },
     };
+    drop((graph, kanban, calendar));
 
     view! {
         <AppShell
@@ -188,7 +207,7 @@ pub fn NotePage(
                 project_id=project_id
                 redirect_to=format!("/projects/{}/note?file={}", project_id, file_path_enc)
                 all_users=all_users
-                owner_id=project.owner_id
+                owner_id=project_owner_id
                 i18n=i18n
             />
             <AiDrawer project_id=project_id file_path=file_path />
@@ -198,34 +217,32 @@ pub fn NotePage(
 
 #[allow(clippy::too_many_arguments)]
 fn render_editor_view(
-    project: &Project,
+    project_id: uuid::Uuid,
     file_path: &str,
-    body_content: &str,
+    body_content: String,
     meta: &UnifiedNoteMeta,
-    headings: &[NoteHeading],
-    backlinks: &[String],
-    rendered_html: &str,
+    headings: Vec<NoteHeading>,
+    backlinks: Vec<String>,
+    rendered_html: String,
     task_count: usize,
     completed_task_count: usize,
     is_zh: bool,
-    own_note_templates: &[apich_db::Template],
-    visible_note_templates: &[apich_db::TemplateWithLatestVersion],
+    own_note_templates: Vec<apich_db::Template>,
+    visible_note_templates: Vec<apich_db::TemplateWithLatestVersion>,
     i18n: I18n,
 ) -> impl IntoView {
-    let project_id = project.id;
     let tags_joined = meta.tags.join(", ");
-    let progress_pct = if task_count > 0 {
-        completed_task_count * 100 / task_count
-    } else {
-        0
-    };
+    let progress_pct = completed_task_count
+        .saturating_mul(100)
+        .checked_div(task_count)
+        .unwrap_or(0);
 
     let editor_headings: Vec<apich_islands::NoteHeadingItem> = headings
-        .iter()
+        .into_iter()
         .map(|h| {
             apich_islands::NoteHeadingItem {
                 level: h.level as u8,
-                text: h.text.clone(),
+                text: h.text,
                 line: h.line as u32,
             }
         })
@@ -261,10 +278,10 @@ fn render_editor_view(
                 <apich_islands::NoteEditorIsland
                     project_id=project_id.to_string()
                     file_path=file_path.to_string()
-                    body_content=body_content.to_string()
+                    body_content=body_content
                     headings=editor_headings
-                    backlinks=backlinks.to_vec()
-                    rendered_html=rendered_html.to_string()
+                    backlinks=backlinks
+                    rendered_html=rendered_html
                     task_progress_label=task_progress_label
                     is_zh=is_zh
                 />
@@ -286,19 +303,19 @@ fn render_editor_view(
 fn render_note_template_panel(
     project_id: uuid::Uuid,
     file_path: &str,
-    own_templates: &[apich_db::Template],
-    visible_templates: &[apich_db::TemplateWithLatestVersion],
+    own_templates: Vec<apich_db::Template>,
+    visible_templates: Vec<apich_db::TemplateWithLatestVersion>,
     i18n: I18n,
 ) -> impl IntoView {
     let publish_existing = (!own_templates.is_empty()).then(|| {
         let rows: Vec<_> = own_templates
-            .iter()
+            .into_iter()
             .map(|t| {
                 view! {
                     <form method="post" action=format!("/templates/{}/publish-version-note", t.id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.3rem; align-items:center;">
                         <input type="hidden" name="project_id" value=project_id.to_string() />
                         <input type="hidden" name="file" value=file_path.to_string() />
-                        <span style="font-size:0.8rem; min-width:120px;">{t.name.clone()}</span>
+                        <span style="font-size:0.8rem; min-width:120px;">{t.name}</span>
                         <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:140px;" required=true />
                         <input type="text" name="changelog" placeholder=i18n.template_changelog_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:220px;" />
                         <button type="submit" class="btn btn-secondary btn-sm">{i18n.template_publish()}</button>
@@ -315,9 +332,9 @@ fn render_note_template_panel(
     });
 
     let apply_options: Vec<_> = visible_templates
-        .iter()
+        .into_iter()
         .filter_map(|t| t.latest_version_id.map(|vid| (t, vid)))
-        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name.clone()}" ("{t.latest_version_label.clone().unwrap_or_default()}")"</option> })
+        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name}" ("{t.latest_version_label.unwrap_or_default()}")"</option> })
         .collect();
     let apply_panel = (!apply_options.is_empty()).then(|| {
         view! {

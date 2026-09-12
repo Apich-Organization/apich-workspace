@@ -1,13 +1,17 @@
-//! Small helper for parsing an ASCII-armored GPG public key's fingerprint out of the text a user
-//! pastes into Settings, without importing it into any real keyring -- `gpg --show-keys` reads
-//! and reports on key material without touching `$GNUPGHOME` at all, which is exactly what a
-//! one-off "what fingerprint is this?" check needs.
+//! GPG public key fingerprint parser.
+//!
+//! Parses an ASCII-armored GPG public key's fingerprint without importing it into
+//! a keyring, using `gpg --show-keys` to inspect key material directly.
 
 use std::io::Write;
 use std::process::Command;
 use std::process::Stdio;
 
 /// Parse the primary key fingerprint out of an ASCII-armored GPG public key block.
+///
+/// # Errors
+///
+/// Returns an error if spawning `gpg` fails, piping fails, or no fingerprint could be parsed.
 pub fn gpg_key_fingerprint(armored: &str) -> Result<String, String> {
     let mut cmd = Command::new("gpg");
     cmd.arg("--with-colons").arg("--show-keys");
@@ -16,12 +20,13 @@ pub fn gpg_key_fingerprint(armored: &str) -> Result<String, String> {
         .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    child
-        .stdin
-        .take()
-        .expect("stdin was piped")
+    let Some(mut stdin) = child.stdin.take() else {
+        return Err("stdin was not piped".to_string());
+    };
+    stdin
         .write_all(armored.as_bytes())
         .map_err(|e| e.to_string())?;
+    drop(stdin);
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
 
     if !output.status.success() {

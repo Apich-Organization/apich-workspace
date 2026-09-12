@@ -16,17 +16,20 @@ pub fn AdminPlatformPage(
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
     let pwd_placeholder = if settings.smtp_password.is_some() {
         "•••••••• (Password configured - leave empty to keep unchanged)".to_string()

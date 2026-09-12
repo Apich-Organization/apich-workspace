@@ -1,6 +1,7 @@
-//! Real end-to-end test for apich-vcs's own remote protocol (`/vcs-remote/:id/bundle`): a real
-//! Postgres-backed server, real PAT-based auth (no session cookie), and a real second on-disk
-//! clone that pushes a new snapshot back and is verified to actually advance the server's history.
+//! End-to-end integration test for apich-vcs remote protocol.
+//!
+//! Tests the `/vcs-remote/:id/bundle` endpoint against a Postgres-backed server,
+//! PAT auth, and an on-disk clone pushing a snapshot to advance history.
 
 use apich_db::CreateUserDto;
 use apich_db::Database;

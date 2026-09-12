@@ -1,10 +1,7 @@
-//! Template Library pages: a public-ish gallery (`TemplateGalleryPage`) of publishable, versioned
-//! templates across all 5 content kinds (note/latex/typst/slides/kanban -- see
-//! `apich_db::TemplateKind`), and a per-template detail/version/preview/sharing page
-//! (`TemplateDetailPage`). Actually *publishing* a version happens contextually from the
-//! originating content page instead (the kanban board's own "Publish as Template" panel, the
-//! note editor's own, etc.) -- see `ui::template_handlers` -- since a version's content is always
-//! "whatever this specific project/board/note currently looks like", which only that page has.
+//! Template Library UI pages and components.
+//!
+//! Provides the gallery (`TemplateGalleryPage`) of publishable templates and the
+//! per-template detail and version management page (`TemplateDetailPage`).
 
 use crate::services::template_library;
 use crate::ui::i18n::I18n;
@@ -55,23 +52,27 @@ pub fn TemplateGalleryPage(
     use crate::app::components::ActiveNav;
     use crate::app::components::AppShell;
 
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
+    let current_kind = kind_filter.unwrap_or_default();
     let kinds = ["", "kanban", "note", "latex", "typst", "slides"];
     let tabs: Vec<_> = kinds
         .iter()
         .map(|k| {
-            let is_active = kind_filter.as_deref().unwrap_or("") == *k;
+            let is_active = current_kind == *k;
             let href = if k.is_empty() { "/templates".to_string() } else { format!("/templates?kind={k}") };
             view! {
                 <a href=href class="tab-item" class:active=is_active>{i18n.template_kind_label(k)}</a>
@@ -140,20 +141,25 @@ pub fn TemplateDetailPage(
     use crate::app::components::ActiveNav;
     use crate::app::components::AppShell;
 
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
     let template_id = template.id;
     let kind = template.kind.clone();
+    let projects = user_projects.into_boxed_slice();
+    let mut compiled_previews = compiled_previews;
 
     let management_panel = is_owner.then(|| {
         let share_rows: Vec<_> = shares
@@ -216,9 +222,9 @@ pub fn TemplateDetailPage(
     let version_items: Vec<_> = versions
         .into_iter()
         .map(|v| {
-            let compiled = compiled_previews.get(&v.id);
-            let preview = render_version_content_preview(template_id, v.id, &kind, &v.content, compiled, i18n);
-            let apply_form = render_apply_to_project_form(&kind, v.id, &user_projects, i18n);
+            let compiled = compiled_previews.remove(&v.id);
+            let preview = render_version_content_preview(template_id, v.id, &kind, &v.content, compiled.as_ref(), i18n);
+            let apply_form = render_apply_to_project_form(&kind, v.id, &projects, i18n);
             view! {
                 <div class="section-card" style="margin-bottom:1rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">

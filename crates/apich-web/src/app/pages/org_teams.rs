@@ -55,7 +55,7 @@ pub async fn flatten_team_tree(
             members,
         });
         for child in node.children.iter().rev() {
-            stack.push((child, depth + 1));
+            stack.push((child, depth.saturating_add(1)));
         }
     }
     out
@@ -72,34 +72,37 @@ pub fn OrgTeamsPage(
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1.5rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
     let user_options = all_users
-        .iter()
+        .into_iter()
         .map(|u| {
             let label = format!("{} (@{})", u.display_name, u.username);
-            view! { <option value=u.username.clone()>{label}</option> }
+            view! { <option value=u.username>{label}</option> }
         })
         .collect::<Vec<_>>();
 
     let org_sections = orgs
         .into_iter()
-        .map(|card| render_org_card(card, &user, &user_options, &i18n))
+        .map(|card| render_org_card(card, &user_options, i18n))
         .collect::<Vec<_>>();
 
     view! {
         <AppShell
-            user=user.clone()
+            user=user
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::OrgAdmin
             current_path=current_path
@@ -140,9 +143,8 @@ pub fn OrgTeamsPage(
 
 fn render_org_card(
     card: OrgCard,
-    _user: &User,
     user_options: &[impl IntoView + Clone + 'static],
-    i18n: &I18n,
+    i18n: I18n,
 ) -> impl IntoView {
     let org = card.org;
     let org_id = org.id;
@@ -309,10 +311,11 @@ fn render_team_row(
     row: &TeamRow,
     org_id: &Uuid,
     user_options: &[impl IntoView + Clone + 'static],
-    i18n: &I18n,
+    i18n: I18n,
 ) -> impl IntoView {
     let team_id = row.team.id;
-    let indent = format!("{}rem", 1.25 * row.depth as f64);
+    let depth = u32::try_from(row.depth).unwrap_or(0);
+    let indent = format!("{}rem", 1.25 * f64::from(depth));
     let modal_sub_id = format!("modal-subteam-{team_id}");
     let modal_member_id = format!("modal-team-member-{team_id}");
 

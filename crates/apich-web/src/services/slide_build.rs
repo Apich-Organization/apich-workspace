@@ -1,9 +1,8 @@
-//! Tracks in-flight `cargo slide build --target <triple>` cross-compilation jobs so their real
-//! progress can be polled and, once finished, the resulting binary downloaded -- across several
-//! separate HTTP requests, since a cross-compiled build (especially the musl and Windows-arm64
-//! targets, which compile a genuinely large dependency graph from scratch) can run for minutes,
-//! far longer than a single request should block for. Mirrors `AgentLoginRegistry`'s own shape
-//! (a registry of ids -> background tasks pumping a real `ExecStream` into a pollable record).
+//! Tracks in-flight slide cross-compilation jobs.
+//!
+//! Allows polling the progress of `cargo slide build --target <triple>` jobs and
+//! downloading finished binaries across separate HTTP requests. Mirrors the
+//! `AgentLoginRegistry` shape (a registry of background tasks pumping an `ExecStream`).
 //!
 //! Progress itself is real, not simulated: the patched `cargo-slide` binary this project vendors
 //! (see `vendor/cargo-slide`) emits one JSON object per line when run with `--log-format json`,

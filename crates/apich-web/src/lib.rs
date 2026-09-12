@@ -30,7 +30,7 @@ async fn not_found() -> (axum::http::StatusCode, axum::response::Html<String>) {
     let body = ui::views::render_page(
         "Not Found",
         r#"<div class="empty-state"><h2>404</h2><p>This page does not exist.</p><a href="/" class="btn btn-primary">Back to dashboard</a></div>"#,
-        &i18n,
+        i18n,
     );
     (
         axum::http::StatusCode::NOT_FOUND,

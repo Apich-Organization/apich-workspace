@@ -27,6 +27,10 @@ impl ProjectTab {
             | _ => Self::Files,
         }
     }
+
+    pub fn from_string(s: &str) -> Self {
+        Self::from_str(s)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -48,14 +52,14 @@ pub fn ProjectDetailPage(
     gitignore_content: String,
     apichignore_content: String,
     new_file_templates: Vec<apich_db::TemplateWithLatestVersion>,
-    active_tab: String,
+    active_tab: ProjectTab,
     notice: Option<String>,
     signature_statuses: std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
     milestones: Vec<Snapshot>,
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let tab = ProjectTab::from_str(&active_tab);
+    let tab = active_tab;
     let is_owner = project.owner_id == user.id || user.is_platform_admin;
     let project_id = project.id;
 
@@ -63,42 +67,47 @@ pub fn ProjectDetailPage(
         |n| view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> },
     );
 
-    let hub_bar = hub_links.map(render_hub_links_bar);
+    let hub_bar = hub_links.map(|h| render_hub_links_bar(&h));
+
+    let files_len = files.len();
+    let conflicts_len = conflicts.len();
+    let snapshots_len = snapshots.len();
+    let members_len = members.len();
 
     let tab_bar = render_tab_bar(
         project_id,
         tab,
-        files.len(),
-        conflicts.len(),
-        snapshots.len(),
-        members.len(),
-        &i18n,
+        files_len,
+        conflicts_len,
+        snapshots_len,
+        members_len,
+        i18n,
     );
 
     let tab_content = match tab {
         | ProjectTab::Files => {
-            render_files_tab(&project, &files, &all_users, &new_file_templates, &i18n).into_any()
+            render_files_tab(&project, files, all_users, new_file_templates, i18n).into_any()
         },
         | ProjectTab::Vcs => {
-            render_vcs_tab(
-                &project,
+            render_vcs_tab(VcsTabArgs {
+                project: &project,
                 is_owner,
-                &branches,
-                current_branch.as_deref(),
-                &conflicts,
-                &snapshots,
-                &signature_statuses,
-                &milestones,
-                &git_status,
-                &ignore_config,
-                &gitignore_content,
-                &apichignore_content,
-                &i18n,
-            )
+                branches,
+                current_branch,
+                conflicts,
+                snapshots,
+                signature_statuses,
+                milestones,
+                git: git_status,
+                ignore_config,
+                gitignore_content,
+                apichignore_content,
+                i18n,
+            })
             .into_any()
         },
         | ProjectTab::Sharing => {
-            render_sharing_tab(&project, &members, &all_users, is_owner, &i18n).into_any()
+            render_sharing_tab(&project, members, all_users, is_owner, i18n).into_any()
         },
     };
 
@@ -153,18 +162,18 @@ pub fn ProjectDetailPage(
     }
 }
 
-fn render_hub_links_bar(links: EffectiveHubLinks) -> impl IntoView {
+fn render_hub_links_bar(links: &EffectiveHubLinks) -> impl IntoView {
     let items: Vec<_> = [
-        ("💬", "Chat", links.chat_url.clone()),
-        ("📹", "Meeting", links.meeting_url.clone()),
-        ("💾", "Drive", links.drive_url.clone()),
-        ("🤖", "AI Agent", links.ai_agent_url.clone()),
+        ("💬", "Chat", &links.chat_url),
+        ("📹", "Meeting", &links.meeting_url),
+        ("💾", "Drive", &links.drive_url),
+        ("🤖", "AI Agent", &links.ai_agent_url),
     ]
     .into_iter()
     .filter_map(|(icon, label, url)| {
-        url.map(|u| {
+        url.as_ref().map(|u| {
             view! {
-                <a href=u target="_blank" class="hub-link-chip">
+                <a href=u.clone() target="_blank" class="hub-link-chip">
                     <span>{icon}</span><span>{label}</span>
                 </a>
             }
@@ -196,7 +205,7 @@ fn render_tab_bar(
     conflicts_count: usize,
     snapshots_count: usize,
     members_count: usize,
-    i18n: &I18n,
+    i18n: I18n,
 ) -> impl IntoView {
     view! {
         <div class="tab-bar">
@@ -218,10 +227,10 @@ fn render_tab_bar(
 
 fn render_files_tab(
     project: &Project,
-    files: &[ProjectFileItem],
-    all_users: &[User],
-    new_file_templates: &[apich_db::TemplateWithLatestVersion],
-    i18n: &I18n,
+    files: Vec<ProjectFileItem>,
+    all_users: Vec<User>,
+    new_file_templates: Vec<apich_db::TemplateWithLatestVersion>,
+    i18n: I18n,
 ) -> impl IntoView {
     let project_id = project.id;
 
@@ -233,14 +242,14 @@ fn render_files_tab(
     // it's the surrounding closure capturing the borrowed slice/reference that doesn't).
     let new_file_template_picker = (!new_file_templates.is_empty()).then(|| {
         let options: Vec<_> = new_file_templates
-            .iter()
+            .into_iter()
             .filter_map(|t| t.latest_version_id.map(|vid| (t, vid)))
             .map(|(t, vid)| {
                 let label = format!(
                     "[{}] {} ({})",
                     i18n.template_kind_label(&t.kind),
                     t.name,
-                    t.latest_version_label.clone().unwrap_or_default()
+                    t.latest_version_label.unwrap_or_default()
                 );
                 view! { <option value=vid.to_string()>{label}</option> }
             })
@@ -265,7 +274,7 @@ fn render_files_tab(
         .into_any()
     } else {
         files
-            .iter()
+            .into_iter()
             .map(|f| {
                 let (icon, pill_class) = match f.category.as_str() {
                     "script" => ("🐍", "pill-script"),
@@ -276,8 +285,10 @@ fn render_files_tab(
                     "note" => ("📔", "pill-note"),
                     _ => ("📎", "pill-asset"),
                 };
-                let size_kb = format!("{:.1} KB", f.size_bytes as f64 / 1024.0);
-                let mod_time = f.modified_rfc3339.clone().unwrap_or_else(|| "-".to_string());
+                let kb = f.size_bytes / 1024;
+                let tenths = (f.size_bytes % 1024).saturating_mul(10) / 1024;
+                let size_kb = format!("{kb}.{tenths} KB");
+                let mod_time = f.modified_rfc3339.unwrap_or_else(|| "-".to_string());
                 let share_badge = match f.share_info.as_ref() {
                     Some(info) if info.mode == "public" => view! { <span class="share-badge share-badge-public">"🌐 Public (" {info.role.clone()} ")"</span> }.into_any(),
                     Some(info) if info.mode == "specific" => view! { <span class="share-badge share-badge-specific">"👥 Specific (" {info.role.clone()} ")"</span> }.into_any(),
@@ -287,8 +298,8 @@ fn render_files_tab(
                 let mode = f.share_info.as_ref().map_or_else(|| "private".to_string(), |s| s.mode.clone());
                 let role = f.share_info.as_ref().map_or_else(|| "read".to_string(), |s| s.role.clone());
                 let users_csv = f.share_info.as_ref().map(|s| s.allowed_users.join(",")).unwrap_or_default();
-                let path = f.path.clone();
-                let open_url = f.open_url.clone();
+                let path = f.path;
+                let open_url = f.open_url;
                 // "asset"/"other" files (PDFs, images, audio -- anything routed to the raw-bytes
                 // endpoint rather than an in-app editor route, see `ProjectFileItem::open_url`'s
                 // doc comment) used to open with a plain same-tab link: for a PDF specifically,
@@ -309,22 +320,21 @@ fn render_files_tab(
                                 <a href=open_url.clone() target=open_target>{path.clone()}</a>
                             </div>
                         </td>
-                        <td><span class=format!("file-type-pill {}", pill_class)>{f.category.to_uppercase()}</span></td>
+                        <td><span class=format!("file-type-pill {}", pill_class)>{f.category}</span></td>
                         <td>{share_badge}</td>
-                        <td style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-sub);">{size_kb}</td>
-                        <td style="font-size:0.775rem; color:var(--text-sub);">{mod_time}</td>
-                        <td>
-                            <div style="display:flex; gap:0.4rem; justify-content:flex-end;">
-                                <a href=open_url class="btn btn-secondary btn-sm" target=open_target>"Open Studio"</a>
-                                <a href=format!("/projects/{}/files/raw?file={}&download=1", project_id, urlencoding::encode(&path)) class="btn btn-secondary btn-sm" title="Download">"⬇"</a>
-                                <button type="button" class="btn btn-secondary btn-sm" onclick=onclick>"🔗 Share"</button>
-                                <form method="post" action=format!("/projects/{}/files/delete", project_id) class="inline-form">
-                                    <input type="hidden" name="file" value=path.clone() />
+                        <td style="color:var(--text-sub); font-size:0.8rem;">{size_kb}</td>
+                        <td style="color:var(--text-sub); font-size:0.8rem;">{mod_time}</td>
+                        <td style="text-align:right;">
+                            <div style="display:flex; justify-content:flex-end; gap:0.35rem; align-items:center;">
+                                <a href=open_url target=open_target class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;">"Open"</a>
+                                <button type="button" class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;" onclick=onclick>"Share"</button>
+                                <form method="post" action=format!("/projects/{}/delete-file", project_id) class="inline-form">
+                                    <input type="hidden" name="file" value=path />
                                     <apich_islands::ConfirmSubmitButton
-                                        label="🗑️".to_string()
-                                        message=format!("Delete {}?", path)
-                                        button_class="btn btn-ghost btn-sm".to_string()
-                                        button_style="color:var(--danger);".to_string()
+                                        label="Del".to_string()
+                                        message="Delete this file?".to_string()
+                                        button_class="btn btn-ghost btn-sm text-danger".to_string()
+                                        button_style="padding:0.2rem 0.45rem; font-size:0.75rem;".to_string()
                                     />
                                 </form>
                             </div>
@@ -337,36 +347,34 @@ fn render_files_tab(
     };
 
     view! {
-        <div class="section-card">
-            <div class="file-explorer-toolbar">
+        <div class="section-card" style="margin-bottom:2rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
                 <div>
-                    <h2 class="section-title">"📁 Project Files"</h2>
+                    <h3 class="card-subtitle">"Project Files"</h3>
+                    <p style="font-size:0.85rem; color:var(--text-sub); margin:0;">
+                        "Multi-file document studio with inline editors for Typst, LaTeX, slides, notes, tables, and scripts."
+                    </p>
                 </div>
-                <div style="display:flex; gap:0.5rem;">
-                    <form method="post" action=format!("/projects/{}/demo/seed", project_id) class="inline-form">
-                        <button type="submit" class="btn btn-secondary btn-sm">"✨ Seed Showcase Demo"</button>
-                    </form>
-                    <apich_islands::ModalIsland trigger_label="+ New File".to_string() trigger_class="btn btn-primary btn-sm".to_string() title="Create New Project File".to_string()>
-                        <form method="post" action=format!("/projects/{}/files/new", project_id)>
+                <div class="header-actions">
+                    <apich_islands::ModalIsland trigger_label="+ New File".to_string() trigger_class="btn btn-primary".to_string() title="Create New File".to_string()>
+                        <form method="post" action=format!("/projects/{}/create-file", project_id)>
                             <div class="form-group">
-                                <label>"File Path & Name"</label>
-                                <input type="text" name="filename" required=true placeholder="document.typ" class="form-control" />
+                                <label>"File Name (with extension: .typ, .tex, .md, .py, .csv...)"</label>
+                                <input type="text" name="name" required=true placeholder="e.g. paper.typ, slides.md, script.py" class="form-control" />
                             </div>
                             <div class="form-group">
-                                <label>"File Type & Starter Template"</label>
-                                <select name="template" class="form-control">
-                                    <option value="typst">"📄 Typst Manuscript (.typ)"</option>
-                                    <option value="slide">"📊 Cargo-Slide Deck (slides.typ)"</option>
-                                    <option value="python">"🐍 Python Analysis Script (.py)"</option>
-                                    <option value="bash">"📜 Shell Script (.sh)"</option>
-                                    <option value="latex">"📝 LaTeX Document (.tex)"</option>
-                                    <option value="table">"🗄️ SQLite Table (.table)"</option>
-                                    <option value="note">"📔 Unified Note (.anote)"</option>
-                                    <option value="markdown">"📝 Markdown (.md)"</option>
+                                <label>"Initial Content / Starter Template"</label>
+                                <select name="starter" class="form-control">
+                                    <option value="empty">"Empty file"</option>
+                                    <option value="typst_paper">"Typst Paper (template)"</option>
+                                    <option value="typst_slide">"Typst Presentation Slides"</option>
+                                    <option value="latex_paper">"LaTeX Article"</option>
+                                    <option value="marp_slide">"Marp Slide Deck (Markdown)"</option>
+                                    <option value="python_script">"Python Script"</option>
                                 </select>
                             </div>
                             {new_file_template_picker}
-                            <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
+                            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
                                 <button type="submit" class="btn btn-primary">"Create File"</button>
                             </div>
                         </form>
@@ -376,9 +384,18 @@ fn render_files_tab(
             <div class="file-table-wrap">
                 <table class="file-table">
                     <thead>
-                        <tr><th>"Name"</th><th>"Kind"</th><th>"Sharing"</th><th>"Size"</th><th>"Modified"</th><th style="text-align:right;">"Action"</th></tr>
+                        <tr>
+                            <th>"Name"</th>
+                            <th>"Kind"</th>
+                            <th>"Sharing"</th>
+                            <th>"Size"</th>
+                            <th>"Modified"</th>
+                            <th style="text-align:right;">"Actions"</th>
+                        </tr>
                     </thead>
-                    <tbody>{rows}</tbody>
+                    <tbody>
+                        {rows}
+                    </tbody>
                 </table>
             </div>
         </div>
@@ -386,30 +403,47 @@ fn render_files_tab(
         <crate::app::components::FileShareModal
             project_id=project_id
             redirect_to=format!("/projects/{}?tab=files", project_id)
-            all_users=all_users.to_vec()
+            all_users=all_users
             owner_id=project.owner_id
-            i18n=*i18n
+            i18n=i18n
         />
     }
 }
 
-fn render_vcs_tab(
-    project: &Project,
+struct VcsTabArgs<'a> {
+    project: &'a Project,
     is_owner: bool,
-    branches: &[String],
-    current_branch: Option<&str>,
-    conflicts: &[ConflictFileView],
-    snapshots: &[Snapshot],
-    signature_statuses: &std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
-    milestones: &[Snapshot],
-    git: &GitStatusView,
-    ignore_config: &apich_vcs::IgnoreConfig,
-    gitignore_content: &str,
-    apichignore_content: &str,
-    i18n: &I18n,
-) -> impl IntoView {
+    branches: Vec<String>,
+    current_branch: Option<String>,
+    conflicts: Vec<ConflictFileView>,
+    snapshots: Vec<Snapshot>,
+    signature_statuses: std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
+    milestones: Vec<Snapshot>,
+    git: GitStatusView,
+    ignore_config: apich_vcs::IgnoreConfig,
+    gitignore_content: String,
+    apichignore_content: String,
+    i18n: I18n,
+}
+
+fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
+    let VcsTabArgs {
+        project,
+        is_owner,
+        branches,
+        current_branch,
+        conflicts,
+        snapshots,
+        signature_statuses,
+        milestones,
+        git,
+        ignore_config,
+        gitignore_content,
+        apichignore_content,
+        i18n,
+    } = args;
     let project_id = project.id;
-    let curr = current_branch.unwrap_or("main").to_string();
+    let curr = current_branch.unwrap_or_else(|| "main".to_string());
 
     let branch_options: Vec<_> = branches
         .iter()
@@ -730,7 +764,7 @@ fn render_vcs_tab(
             </div>
         </div>
 
-        {render_ignore_section(project_id, ignore_config, gitignore_content, apichignore_content)}
+        {render_ignore_section(project_id, &ignore_config, &gitignore_content, &apichignore_content)}
     }
 }
 
@@ -828,10 +862,10 @@ fn render_ignore_section(
 
 fn render_sharing_tab(
     project: &Project,
-    members: &[ProjectMemberWithUser],
-    all_users: &[User],
+    members: Vec<ProjectMemberWithUser>,
+    all_users: Vec<User>,
     is_owner: bool,
-    i18n: &I18n,
+    i18n: I18n,
 ) -> impl IntoView {
     let project_id = project.id;
 
@@ -850,8 +884,11 @@ fn render_sharing_tab(
     let is_public = share_mode == "public";
     let share_link = format!("/shared/{project_id}");
 
+    let existing_member_ids: std::collections::HashSet<_> =
+        members.iter().map(|m| m.user_id).collect();
+
     let member_rows: Vec<_> = members
-        .iter()
+        .into_iter()
         .map(|m| {
             let role_badge = match m.role.as_str() {
                 "owner" => view! { <span class="role-badge role-badge-admin">"Owner"</span> }.into_any(),
@@ -877,8 +914,8 @@ fn render_sharing_tab(
                     <div style="display:flex; align-items:center; gap:0.75rem;">
                         <div class="collab-avatar">{m.display_name.chars().take(2).collect::<String>()}</div>
                         <div class="collab-info">
-                            <span class="collab-name">{m.display_name.clone()}" "<small style="color:var(--text-sub);">"(@"{m.username.clone()}")"</small></span>
-                            <span style="font-size:0.75rem; color:var(--text-sub);">{m.email.clone()}</span>
+                            <span class="collab-name">{m.display_name}" "<small style="color:var(--text-sub);">"(@"{m.username}")"</small></span>
+                            <span style="font-size:0.75rem; color:var(--text-sub);">{m.email}</span>
                         </div>
                     </div>
                     <div style="display:flex; align-items:center; gap:0.75rem;">{role_badge}{remove}</div>
@@ -918,9 +955,9 @@ fn render_sharing_tab(
 
     let invite_form = is_owner.then(|| {
         let options: Vec<_> = all_users
-            .iter()
-            .filter(|u| !members.iter().any(|m| m.user_id == u.id))
-            .map(|u| view! { <option value=u.id.to_string()>{u.display_name.clone()}" (@"{u.username.clone()}")"</option> })
+            .into_iter()
+            .filter(|u| !existing_member_ids.contains(&u.id))
+            .map(|u| view! { <option value=u.id.to_string()>{u.display_name}" (@"{u.username}")"</option> })
             .collect();
         view! {
             <div class="section-card" style="margin-top:1.5rem;">

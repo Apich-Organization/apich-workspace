@@ -36,19 +36,27 @@ pub fn DocumentEditorPage(
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
-    let project_id = project.id;
+    let Project {
+        id: project_id,
+        name: project_name,
+        owner_id: project_owner_id,
+        ..
+    } = project;
 
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
     let kind_label = if is_script {
         "PYTHON / SCRIPT"
@@ -58,21 +66,25 @@ pub fn DocumentEditorPage(
         "TYPST / LATEX"
     };
 
-    let share_label = match file_share.as_ref() {
-        | Some(s) if s.mode == "public" => format!("🌐 Public ({})", s.role),
-        | Some(s) if s.mode == "specific" => format!("👥 Specific ({})", s.role),
-        | _ => "🔒 Private".to_string(),
+    let (share_label, share_mode, share_role, share_users) = match file_share {
+        | Some(s) => {
+            let label = match s.mode.as_str() {
+                | "public" => format!("🌐 Public ({})", s.role),
+                | "specific" => format!("👥 Specific ({})", s.role),
+                | _ => "🔒 Private".to_string(),
+            };
+            let users = s.allowed_users.join(",");
+            (label, s.mode, s.role, users)
+        },
+        | None => {
+            (
+                "🔒 Private".to_string(),
+                "private".to_string(),
+                "read".to_string(),
+                String::new(),
+            )
+        },
     };
-    let share_mode = file_share
-        .as_ref()
-        .map_or_else(|| "private".to_string(), |s| s.mode.clone());
-    let share_role = file_share
-        .as_ref()
-        .map_or_else(|| "read".to_string(), |s| s.role.clone());
-    let share_users = file_share
-        .as_ref()
-        .map(|s| s.allowed_users.join(","))
-        .unwrap_or_default();
     let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
     let share_onclick = format!(
         "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))"
@@ -82,10 +94,17 @@ pub fn DocumentEditorPage(
         <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('editor-present-trigger')?.click()">"🖥️ " {i18n.present_mode()}</button>
     });
 
-    let is_typst_preview = is_slide || file_path.ends_with(".typ");
+    let is_typst_preview = is_slide
+        || std::path::Path::new(&file_path)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("typ"));
     let is_latex_preview = !is_script
         && !is_typst_preview
-        && (file_path.ends_with(".tex") || file_path.ends_with(".latex"));
+        && std::path::Path::new(&file_path)
+            .extension()
+            .is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("tex") || ext.eq_ignore_ascii_case("latex")
+            });
     let preview_kind = if is_slide {
         DocumentPreviewKind::Slide
     } else if is_typst_preview {
@@ -124,11 +143,11 @@ pub fn DocumentEditorPage(
             .html
         });
     let editor_headings: Vec<HeadingItem> = headings
-        .iter()
+        .into_iter()
         .map(|h| {
             HeadingItem {
                 level: h.level as u8,
-                text: h.text.clone(),
+                text: h.text,
             }
         })
         .collect();
@@ -137,8 +156,8 @@ pub fn DocumentEditorPage(
             project_id,
             &file_path,
             &kind,
-            &own_file_templates,
-            &visible_file_templates,
+            own_file_templates,
+            visible_file_templates,
             i18n,
         )
     });
@@ -149,7 +168,7 @@ pub fn DocumentEditorPage(
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::Projects
             current_path=current_path
-            page_title=format!("{} - {}", project.name, file_path)
+            page_title=format!("{} - {}", project_name, file_path)
             i18n=i18n
         >
             <div class="editor-top-bar">
@@ -187,7 +206,7 @@ pub fn DocumentEditorPage(
                 project_id=project_id
                 redirect_to=format!("/projects/{}/editor?file={}", project_id, urlencoding::encode(&file_path))
                 all_users=all_users
-                owner_id=project.owner_id
+                owner_id=project_owner_id
                 i18n=i18n
             />
             <AiDrawer project_id=project_id file_path=file_path />
@@ -204,19 +223,19 @@ fn render_file_template_panel(
     project_id: uuid::Uuid,
     file_path: &str,
     kind: &str,
-    own_templates: &[apich_db::Template],
-    visible_templates: &[apich_db::TemplateWithLatestVersion],
+    own_templates: Vec<apich_db::Template>,
+    visible_templates: Vec<apich_db::TemplateWithLatestVersion>,
     i18n: I18n,
 ) -> impl IntoView {
     let publish_existing = (!own_templates.is_empty()).then(|| {
         let rows: Vec<_> = own_templates
-            .iter()
+            .into_iter()
             .map(|t| {
                 view! {
                     <form method="post" action=format!("/templates/{}/publish-version-file", t.id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.3rem; align-items:center;">
                         <input type="hidden" name="project_id" value=project_id.to_string() />
                         <input type="hidden" name="file" value=file_path.to_string() />
-                        <span style="font-size:0.8rem; min-width:120px;">{t.name.clone()}</span>
+                        <span style="font-size:0.8rem; min-width:120px;">{t.name}</span>
                         <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:140px;" required=true />
                         <input type="text" name="changelog" placeholder=i18n.template_changelog_field() class="form-control" style="height:30px; font-size:0.8rem; max-width:220px;" />
                         <button type="submit" class="btn btn-secondary btn-sm">{i18n.template_publish()}</button>
@@ -233,9 +252,9 @@ fn render_file_template_panel(
     });
 
     let apply_options: Vec<_> = visible_templates
-        .iter()
+        .into_iter()
         .filter_map(|t| t.latest_version_id.map(|vid| (t, vid)))
-        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name.clone()}" ("{t.latest_version_label.clone().unwrap_or_default()}")"</option> })
+        .map(|(t, vid)| view! { <option value=vid.to_string()>{t.name}" ("{t.latest_version_label.unwrap_or_default()}")"</option> })
         .collect();
     let apply_panel = (!apply_options.is_empty()).then(|| {
         view! {

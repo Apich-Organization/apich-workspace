@@ -1,3 +1,5 @@
+#![allow(clippy::trivially_copy_pass_by_ref)]
+
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -125,10 +127,8 @@ impl I18n {
         match (self.lang, kind) {
             | (Lang::En, "note") => "Note",
             | (Lang::Zh, "note") => "笔记",
-            | (Lang::En, "latex") => "LaTeX",
-            | (Lang::Zh, "latex") => "LaTeX",
-            | (Lang::En, "typst") => "Typst",
-            | (Lang::Zh, "typst") => "Typst",
+            | (_, "latex") => "LaTeX",
+            | (_, "typst") => "Typst",
             | (Lang::En, "slides") => "Slides",
             | (Lang::Zh, "slides") => "幻灯片",
             | (Lang::En, "kanban") => "Kanban",

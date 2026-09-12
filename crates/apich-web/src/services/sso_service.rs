@@ -124,7 +124,9 @@ impl SsoService {
         rand::thread_rng().fill_bytes(&mut bytes);
         let code = BASE64_URL_SAFE_NO_PAD.encode(bytes);
 
-        let expires_at = Utc::now() + chrono::Duration::minutes(5);
+        let expires_at = Utc::now()
+            .checked_add_signed(chrono::Duration::minutes(5))
+            .unwrap_or_else(Utc::now);
         repo.create_oauth_auth_code(&code, client_id, user_id, redirect_uri, scope, expires_at)
             .await?;
 
@@ -172,7 +174,7 @@ impl SsoService {
             .ok_or_else(|| WebError::NotFound("User not found".to_string()))?;
 
         let now = Utc::now().timestamp();
-        let exp = now + 3600;
+        let exp = now.saturating_add(3600);
 
         // Generate ID Token claims
         let claims = OidcClaims {

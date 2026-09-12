@@ -12,42 +12,63 @@ use apich_db::User;
 use apich_islands::SpreadsheetIsland;
 use leptos::prelude::*;
 
-#[allow(clippy::too_many_arguments)]
+pub struct TablePageState {
+    pub databases: Vec<DatabaseFileInfo>,
+    pub selected_file: Option<String>,
+    pub schema: Option<DatabaseSchema>,
+    pub selected_table: Option<String>,
+    pub table_data: Option<TableDataPage>,
+    pub column_view: ColumnViewConfig,
+    pub query_history: Vec<String>,
+    pub sql_query: String,
+    pub sql_result: Option<SqlExecutionResult>,
+    pub mode: String,
+    pub search: Option<String>,
+    pub notebook_cells: Vec<NotebookCell>,
+}
+
 #[component]
 pub fn TablePage(
     user: User,
     is_org_or_team_admin: bool,
     project: Project,
-    databases: Vec<DatabaseFileInfo>,
-    selected_file: Option<String>,
-    schema: Option<DatabaseSchema>,
-    selected_table: Option<String>,
-    table_data: Option<TableDataPage>,
-    column_view: ColumnViewConfig,
-    query_history: Vec<String>,
-    sql_query: String,
-    sql_result: Option<SqlExecutionResult>,
-    mode: String,
-    search: Option<String>,
+    state: TablePageState,
     notice: Option<String>,
     error: Option<String>,
-    notebook_cells: Vec<NotebookCell>,
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
+    let TablePageState {
+        databases,
+        selected_file,
+        schema,
+        selected_table,
+        table_data,
+        column_view,
+        query_history,
+        sql_query,
+        sql_result,
+        mode,
+        search,
+        notebook_cells,
+    } = state;
+
     let project_id = project.id;
 
-    let alert = if let Some(n) = notice {
-        Some(
-            view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
-                .into_any(),
-        )
-    } else {
-        error.map(|e| {
-            view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
-                .into_any()
-        })
-    };
+    let alert = notice.map_or_else(
+        || {
+            error.map(|e| {
+                view! { <div class="alert alert-danger" style="margin-bottom:1rem;">{e}</div> }
+                    .into_any()
+            })
+        },
+        |n| {
+            Some(
+                view! { <div class="alert alert-success" style="margin-bottom:1rem;">{n}</div> }
+                    .into_any(),
+            )
+        },
+    );
 
     let cur_file = selected_file
         .clone()
@@ -273,7 +294,7 @@ fn render_column_panel(
                     <span style="font-size:0.8rem; font-family:var(--font-mono);">{name.clone()}</span>
                     <div style="display:flex; gap:0.15rem;">
                         {(i > 0).then(|| row_form("◀".to_string(), name.clone(), vec![("action", "move-left".to_string())]))}
-                        {(i + 1 < n_visible).then(|| row_form("▶".to_string(), name.clone(), vec![("action", "move-right".to_string())]))}
+                        {(i.saturating_add(1) < n_visible).then(|| row_form("▶".to_string(), name.clone(), vec![("action", "move-right".to_string())]))}
                         {row_form("🙈 Hide".to_string(), name.clone(), vec![("action", "hide".to_string())])}
                     </div>
                 </div>
@@ -404,12 +425,12 @@ fn render_grid(
 
     let cur_search = search.unwrap_or("").to_string();
     let prev_page = if td.page > 1 {
-        td.page - 1
+        td.page.saturating_sub(1)
     } else {
         1
     };
     let next_page = if td.page < td.total_pages {
-        td.page + 1
+        td.page.saturating_add(1)
     } else {
         td.total_pages
     };

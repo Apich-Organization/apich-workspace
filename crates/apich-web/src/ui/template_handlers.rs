@@ -1,6 +1,7 @@
-//! Routes and handlers for the Template Library: browsing (`/templates`, `/templates/:id`),
-//! visibility/sharing management, and publishing/applying versions for each content kind. Kept
-//! in its own module -- see `handlers.rs`'s `build_ui_router`, which merges this router in --
+//! Routes and handlers for the Template Library.
+//!
+//! Handles browsing (`/templates`, `/templates/:id`), visibility/sharing management,
+//! and publishing/applying versions for each content kind. Kept in its own module
 //! since it's a self-contained feature with no other handler depending on it.
 
 use super::handlers::get_i18n;
@@ -128,9 +129,8 @@ async fn template_gallery_page(
     State(state): State<AppState>,
     Query(query): Query<TemplateGalleryQuery>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let i18n = get_i18n(&headers, None);
     let repo = state.db.repository();
@@ -176,9 +176,8 @@ async fn template_detail_page(
     Path(id): Path<Uuid>,
     Query(query): Query<TemplateDetailQuery>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let can_access = IdentityPermissionResolver::can_access_template(state.db.pool(), user.id, id)
         .await
@@ -309,9 +308,8 @@ async fn latex_template_preview_pdf_action(
     State(state): State<AppState>,
     Path((_id, version_id)): Path<(Uuid, Uuid)>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
     };
 
     let repo = state.db.repository();
@@ -380,9 +378,8 @@ async fn update_template_visibility_action(
     Path(id): Path<Uuid>,
     Form(payload): Form<UpdateVisibilityForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     if !IdentityPermissionResolver::can_manage_template(state.db.pool(), user.id, id)
         .await
@@ -421,9 +418,8 @@ async fn add_template_share_action(
     Path(id): Path<Uuid>,
     Form(payload): Form<AddShareForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     if !IdentityPermissionResolver::can_manage_template(state.db.pool(), user.id, id)
         .await
@@ -477,9 +473,8 @@ async fn remove_template_share_action(
     State(state): State<AppState>,
     Path((id, share_id)): Path<(Uuid, Uuid)>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     if !IdentityPermissionResolver::can_manage_template(state.db.pool(), user.id, id)
         .await
@@ -500,9 +495,8 @@ async fn delete_template_action(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     if !IdentityPermissionResolver::can_manage_template(state.db.pool(), user.id, id)
         .await
@@ -581,9 +575,8 @@ async fn create_template_from_kanban_action(
     State(state): State<AppState>,
     Form(payload): Form<CreateKanbanTemplateForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -654,9 +647,8 @@ async fn publish_kanban_version_action(
     Path(id): Path<Uuid>,
     Form(payload): Form<PublishKanbanVersionForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -732,9 +724,8 @@ async fn create_template_from_note_action(
     State(state): State<AppState>,
     Form(payload): Form<CreateNoteTemplateForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -813,9 +804,8 @@ async fn publish_note_version_action(
     Path(id): Path<Uuid>,
     Form(payload): Form<PublishNoteVersionForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -893,9 +883,8 @@ async fn apply_kanban_template_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<ApplyKanbanTemplateForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return Redirect::to("/").into_response();
@@ -940,7 +929,12 @@ async fn apply_kanban_template_action(
         | Err(e) => return redirect_error(&back, e),
     };
     let mut settings = project.settings.clone();
-    settings["kanban_columns"] = KnowledgeSyncService::serialize_kanban_columns(&columns);
+    if let Some(map) = settings.as_object_mut() {
+        map.insert(
+            "kanban_columns".to_string(),
+            KnowledgeSyncService::serialize_kanban_columns(&columns),
+        );
+    }
     let _ = repo.update_project_settings(project.id, settings).await;
     redirect_notice(&back, "Applied template columns to this board")
 }
@@ -957,9 +951,8 @@ async fn apply_note_template_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<ApplyNoteTemplateForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return Redirect::to("/").into_response();
@@ -984,7 +977,10 @@ async fn apply_note_template_action(
     if clean_name.is_empty() || clean_name.contains("..") {
         return redirect_error(&back, "Invalid file name");
     }
-    let file_name = if clean_name.ends_with(".anote") || clean_name.ends_with(".md") {
+    let file_name = if std::path::Path::new(clean_name)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("anote") || ext.eq_ignore_ascii_case("md"))
+    {
         clean_name.to_string()
     } else {
         format!("{clean_name}.anote")
@@ -1062,9 +1058,8 @@ async fn create_template_from_file_action(
     State(state): State<AppState>,
     Form(payload): Form<CreateFileTemplateForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -1146,9 +1141,8 @@ async fn publish_file_version_action(
     Path(id): Path<Uuid>,
     Form(payload): Form<PublishFileVersionForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -1228,9 +1222,8 @@ async fn apply_file_template_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<ApplyFileTemplateForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return Redirect::to("/").into_response();
@@ -1323,9 +1316,8 @@ async fn apply_kanban_template_from_library_action(
     State(state): State<AppState>,
     Form(payload): Form<ApplyKanbanTemplateFromLibraryForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -1370,7 +1362,12 @@ async fn apply_kanban_template_from_library_action(
         | Err(e) => return redirect_error(&back, e),
     };
     let mut settings = project.settings.clone();
-    settings["kanban_columns"] = KnowledgeSyncService::serialize_kanban_columns(&columns);
+    if let Some(map) = settings.as_object_mut() {
+        map.insert(
+            "kanban_columns".to_string(),
+            KnowledgeSyncService::serialize_kanban_columns(&columns),
+        );
+    }
     let _ = repo.update_project_settings(project.id, settings).await;
     redirect_notice(&back, "Applied template columns to this board")
 }
@@ -1387,9 +1384,8 @@ async fn apply_note_template_from_library_action(
     State(state): State<AppState>,
     Form(payload): Form<ApplyNoteTemplateFromLibraryForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();
@@ -1414,7 +1410,10 @@ async fn apply_note_template_from_library_action(
     if clean_name.is_empty() || clean_name.contains("..") {
         return redirect_error(&back, "Invalid file name");
     }
-    let file_name = if clean_name.ends_with(".anote") || clean_name.ends_with(".md") {
+    let file_name = if std::path::Path::new(clean_name)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("anote") || ext.eq_ignore_ascii_case("md"))
+    {
         clean_name.to_string()
     } else {
         format!("{clean_name}.anote")
@@ -1482,9 +1481,8 @@ async fn apply_file_template_from_library_action(
     State(state): State<AppState>,
     Form(payload): Form<ApplyFileTemplateFromLibraryForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let Some(project) = resolve_project(&state, &payload.project_id.to_string()).await else {
         return Redirect::to("/").into_response();

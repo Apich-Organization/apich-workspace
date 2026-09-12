@@ -1,6 +1,7 @@
-//! Self-hosted git-over-HTTP server: lets an external `git clone`/`git push` talk to a project
-//! directly, via the real `git http-backend` CGI program (the same one Apache/nginx-fronted git
-//! servers use) rather than reimplementing the smart-HTTP wire protocol.
+//! Self-hosted Git HTTP server.
+//!
+//! Lets an external `git clone`/`git push` talk to a project directly via the
+//! `git http-backend` CGI program rather than reimplementing smart HTTP.
 //!
 //! Design note on why there's a *separate bare mirror repo*, not the project's own working `.git`:
 //! `git-http-backend` accepting a push (`git-receive-pack`) directly into a normal, checked-out
@@ -202,7 +203,9 @@ pub async fn run_git_http_backend(
         .stderr(Stdio::piped());
 
     let mut child = cmd.spawn()?;
-    let mut stdin = child.stdin.take().expect("stdin was piped");
+    let Some(mut stdin) = child.stdin.take() else {
+        return Err(io::Error::other("stdin was not piped"));
+    };
     let body_owned = body.to_vec();
     let write_task = tokio::spawn(async move {
         let _ = stdin.write_all(&body_owned).await;
@@ -241,8 +244,9 @@ fn parse_cgi_output(raw: &[u8]) -> CgiResponse {
         };
     };
 
-    let header_bytes = &raw[..split_at];
-    let body = raw[split_at + sep_len..].to_vec();
+    let header_bytes = raw.get(..split_at).unwrap_or(&[]);
+    let body_start = split_at.saturating_add(sep_len);
+    let body = raw.get(body_start..).map_or_else(Vec::new, <[u8]>::to_vec);
     let header_text = String::from_utf8_lossy(header_bytes);
 
     let mut status = 200u16;

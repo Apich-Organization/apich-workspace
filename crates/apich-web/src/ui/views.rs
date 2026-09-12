@@ -7,7 +7,7 @@ use crate::ui::i18n::I18n;
 pub fn render_page(
     title: &str,
     body_html: &str,
-    i18n: &I18n,
+    i18n: I18n,
 ) -> String {
     let lang_attr = if i18n.is_zh() {
         "zh-CN"

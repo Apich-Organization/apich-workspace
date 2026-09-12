@@ -76,22 +76,19 @@ async fn authorize(
     }
 
     // If user is not authenticated, redirect to login page preserving query params
-    let AuthUser(user) = match auth_user {
-        | Some(u) => u,
-        | None => {
-            let return_to = format!(
-                "/oauth/authorize?response_type={}&client_id={}&redirect_uri={}&state={}",
-                params.response_type,
-                params.client_id,
-                urlencoding::encode(&params.redirect_uri),
-                urlencoding::encode(params.state.as_deref().unwrap_or(""))
-            );
-            return Ok(Redirect::temporary(&format!(
-                "/login?return_to={}",
-                urlencoding::encode(&return_to)
-            ))
-            .into_response());
-        },
+    let Some(AuthUser(user)) = auth_user else {
+        let return_to = format!(
+            "/oauth/authorize?response_type={}&client_id={}&redirect_uri={}&state={}",
+            params.response_type,
+            params.client_id,
+            urlencoding::encode(&params.redirect_uri),
+            urlencoding::encode(params.state.as_deref().unwrap_or(""))
+        );
+        return Ok(Redirect::temporary(&format!(
+            "/login?return_to={}",
+            urlencoding::encode(&return_to)
+        ))
+        .into_response());
     };
 
     let scope = params

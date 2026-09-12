@@ -7,7 +7,11 @@ use argon2::password_hash::PasswordVerifier;
 use argon2::password_hash::SaltString;
 use argon2::Argon2;
 
-/// Hash a plaintext password using Argon2id with random salt
+/// Hash a plaintext password using Argon2id with random salt.
+///
+/// # Errors
+///
+/// Returns an error if the password could not be hashed.
 pub fn hash_password(password: &str) -> WebResult<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
@@ -19,14 +23,17 @@ pub fn hash_password(password: &str) -> WebResult<String> {
     Ok(password_hash)
 }
 
-/// Verify a plaintext password against an Argon2id hash
+/// Verify a plaintext password against an Argon2id hash.
+///
+/// # Errors
+///
+/// Returns an error if the password hash cannot be verified due to internal argon2 errors.
 pub fn verify_password(
     password: &str,
     password_hash: &str,
 ) -> WebResult<bool> {
-    let parsed_hash = match PasswordHash::new(password_hash) {
-        | Ok(h) => h,
-        | Err(_) => return Ok(false),
+    let Ok(parsed_hash) = PasswordHash::new(password_hash) else {
+        return Ok(false);
     };
 
     let argon2 = Argon2::default();

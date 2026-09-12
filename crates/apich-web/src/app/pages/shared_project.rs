@@ -15,27 +15,34 @@ pub fn SharedProjectPage(
     share_role: String,
     i18n: I18n,
 ) -> impl IntoView {
+    let Project {
+        name: project_name,
+        description: project_desc,
+        ..
+    } = project;
+
     let file_rows = if files.is_empty() {
         view! { <p class="text-muted">"This project has no files yet."</p> }.into_any()
     } else {
         let rows = files
-            .iter()
+            .into_iter()
             .map(|f| {
                 let icon = match f.category.as_str() {
-                    "script" => "🐍",
-                    "slide" => "📊",
-                    "typst" => "📄",
-                    "latex" => "📝",
-                    "table" => "🗄️",
-                    "note" => "📔",
-                    _ => "📎",
+                    | "script" => "🐍",
+                    | "slide" => "📊",
+                    | "typst" => "📄",
+                    | "latex" => "📝",
+                    | "table" => "🗄️",
+                    | "note" => "📔",
+                    | _ => "📎",
                 };
+                let cat = f.category.to_uppercase();
                 view! {
                     <div class="collaborator-item">
                         <span style="font-size:1.1rem;">{icon}</span>
                         <div class="collab-info">
-                            <span class="collab-name">{f.name.clone()}</span>
-                            <span style="font-size:0.75rem; color:var(--text-sub);">{f.category.to_uppercase()}</span>
+                            <span class="collab-name">{f.name}</span>
+                            <span style="font-size:0.75rem; color:var(--text-sub);">{cat}</span>
                         </div>
                     </div>
                 }
@@ -45,19 +52,22 @@ pub fn SharedProjectPage(
     };
 
     let role_label = match share_role.as_str() {
-        | "read_and_review" => "Read & Review",
-        | "read_write_and_review" => "Read, Write & Review (sign in required to edit)",
-        | _ => "Read Only",
+        | "read_and_review" => "Read & Review".to_string(),
+        | "read_write_and_review" => "Read, Write & Review (sign in required to edit)".to_string(),
+        | "read" => "Read Only".to_string(),
+        | _ => share_role,
     };
 
+    let page_title = project_name.clone();
+
     view! {
-        <PageShell title=project.name.clone() i18n=i18n>
+        <PageShell title=page_title i18n=i18n>
             <div class="auth-page">
                 <div class="auth-card" style="max-width:640px;">
                     <div class="auth-header">
                         <div class="auth-logo">"APICH"</div>
-                        <h1 class="auth-title">{project.name.clone()}</h1>
-                        <p class="auth-subtitle">{project.description.clone().unwrap_or_else(|| "Shared via public link".to_string())}</p>
+                        <h1 class="auth-title">{project_name}</h1>
+                        <p class="auth-subtitle">{project_desc.unwrap_or_else(|| "Shared via public link".to_string())}</p>
                     </div>
                     <div class="alert alert-info" style="margin-bottom:1.25rem;">
                         "🌐 Public link — viewing at: " <strong>{role_label}</strong>

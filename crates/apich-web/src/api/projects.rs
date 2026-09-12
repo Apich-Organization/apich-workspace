@@ -370,7 +370,7 @@ async fn list_project_databases(
         .await?
         .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
 
-    let dbs = SqliteTableService::discover_databases(&proj.storage_path)?;
+    let dbs = SqliteTableService::discover_databases(&proj.storage_path);
     Ok(Json(dbs))
 }
 

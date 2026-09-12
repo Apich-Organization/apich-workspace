@@ -36,6 +36,7 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
+use sha2::Digest as _;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -479,9 +480,8 @@ async fn dashboard_page(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return redirect_to_login(&headers, "/"),
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, "/");
     };
 
     let i18n = get_i18n(&headers, Some(&params));
@@ -563,11 +563,8 @@ async fn login_form(
             .unwrap_or(None)
     };
 
-    let user = match user {
-        | Some(u) => u,
-        | None => {
-            return Redirect::to("/login?error=Invalid username or password").into_response();
-        },
+    let Some(user) = user else {
+        return Redirect::to("/login?error=Invalid username or password").into_response();
     };
 
     if !verify_password(&payload.password, &user.password_hash).unwrap_or(false) {
@@ -576,7 +573,9 @@ async fn login_form(
 
     let token = generate_session_token();
     let token_hash = hash_session_token(&token);
-    let expires_at = Utc::now() + chrono::Duration::days(14);
+    let expires_at = Utc::now()
+        .checked_add_signed(chrono::Duration::days(14))
+        .unwrap_or_else(Utc::now);
 
     if let Err(e) = repo
         .create_user_session(user.id, &token_hash, expires_at, None, None)
@@ -612,7 +611,8 @@ async fn register_page(
 
     let i18n = get_i18n(&headers, Some(&params));
     let error = params.get("error").cloned();
-    let registration_mode = settings.registration_mode;
+    let registration_mode =
+        crate::app::pages::register::RegistrationMode::parse(&settings.registration_mode);
 
     let html = crate::app::components::render_document(move || {
         leptos::prelude::view! {
@@ -650,12 +650,8 @@ async fn register_form(
                 return Redirect::to("/register?error=Invitation code required").into_response()
             },
         };
-        let invite = match repo.get_invitation_by_token(token).await.ok().flatten() {
-            | Some(inv) => inv,
-            | None => {
-                return Redirect::to("/register?error=Invalid or expired invitation")
-                    .into_response()
-            },
+        let Some(invite) = repo.get_invitation_by_token(token).await.ok().flatten() else {
+            return Redirect::to("/register?error=Invalid or expired invitation").into_response();
         };
         if invite.email.to_lowercase() != payload.email.to_lowercase() {
             return Redirect::to("/register?error=Email mismatch with invitation").into_response();
@@ -663,9 +659,8 @@ async fn register_form(
         let _ = repo.mark_invitation_used(&invite.token).await;
     }
 
-    let pwd_hash = match hash_password(&payload.password) {
-        | Ok(h) => h,
-        | Err(_) => return Redirect::to("/register?error=Password hashing failed").into_response(),
+    let Ok(pwd_hash) = hash_password(&payload.password) else {
+        return Redirect::to("/register?error=Password hashing failed").into_response();
     };
 
     let user = repo
@@ -707,7 +702,9 @@ async fn register_form(
 
             let token = generate_session_token();
             let token_hash = hash_session_token(&token);
-            let expires_at = Utc::now() + chrono::Duration::days(14);
+            let expires_at = Utc::now()
+                .checked_add_signed(chrono::Duration::days(14))
+                .unwrap_or_else(Utc::now);
             let _ = repo
                 .create_user_session(u.id, &token_hash, expires_at, None, None)
                 .await;
@@ -770,22 +767,18 @@ async fn project_detail_page(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return redirect_to_login(&headers, &format!("/projects/{id_or_slug}")),
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, &format!("/projects/{id_or_slug}"));
     };
 
     let i18n = get_i18n(&headers, Some(&params));
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3><p><a href='/'>Return to dashboard</a></p>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3><p><a href='/'>Return to dashboard</a></p>"),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -803,7 +796,7 @@ async fn project_detail_page(
         .project_manager
         .get_branches(project.id)
         .await
-        .unwrap_or((Some("main".to_string()), vec!["main".to_string()]));
+        .unwrap_or_else(|_| (Some("main".to_string()), vec!["main".to_string()]));
 
     let conflicts = state
         .project_manager
@@ -844,12 +837,14 @@ async fn project_detail_page(
         .project_manager
         .get_git_status(project.id)
         .await
-        .unwrap_or(crate::services::project_manager::GitStatusView {
-            initialized: false,
-            remote_url: None,
-            remotes: Vec::new(),
-            branches: vec!["main".to_string()],
-            current_branch: Some("main".to_string()),
+        .unwrap_or_else(|_| {
+            crate::services::project_manager::GitStatusView {
+                initialized: false,
+                remote_url: None,
+                remotes: Vec::new(),
+                branches: vec!["main".to_string()],
+                current_branch: Some("main".to_string()),
+            }
         });
 
     let files = state
@@ -946,7 +941,7 @@ async fn project_detail_page(
                 gitignore_content=gitignore_content
                 apichignore_content=apichignore_content
                 new_file_templates=new_file_templates
-                active_tab=active_tab
+                active_tab=crate::app::pages::project_detail::ProjectTab::from_str(&active_tab)
                 notice=notice
                 i18n=i18n
                 current_path=current_path
@@ -968,11 +963,8 @@ async fn shared_project_page(
 ) -> Response {
     let i18n = get_i18n(&headers, Some(&params));
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (StatusCode::NOT_FOUND, Html("<h3>Project not found</h3>")).into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("<h3>Project not found</h3>")).into_response();
     };
 
     let share_mode = project
@@ -1347,7 +1339,9 @@ async fn file_raw_action(
 
     let content_type = mime_type_for_path(&query.file);
     let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
+    if let Ok(ct) = content_type.parse() {
+        headers.insert(header::CONTENT_TYPE, ct);
+    }
     if query.download.is_some() {
         let name = std::path::Path::new(&query.file)
             .file_name()
@@ -1398,22 +1392,18 @@ async fn project_editor_page(
     Query(query): Query<EditorQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let i18n = get_i18n(&headers, None);
     let repo = state.db.repository();
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3>"),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -1438,19 +1428,21 @@ async fn project_editor_page(
             .list_files(project.id)
             .await
             .unwrap_or_default();
-        if let Some(slides) = all_files
+        all_files
             .iter()
             .find(|f| f.path == "slides.typ" || f.category == "slide")
-        {
-            slides.path.clone()
-        } else if let Some(first_doc) = all_files
-            .iter()
-            .find(|f| f.category == "typst" || f.category == "latex")
-        {
-            first_doc.path.clone()
-        } else {
-            "main.typ".to_string()
-        }
+            .map_or_else(
+                || {
+                    all_files
+                        .iter()
+                        .find(|f| f.category == "typst" || f.category == "latex")
+                        .map_or_else(
+                            || "main.typ".to_string(),
+                            |first_doc| first_doc.path.clone(),
+                        )
+                },
+                |slides| slides.path.clone(),
+            )
     };
 
     let file_content = state
@@ -1469,15 +1461,20 @@ async fn project_editor_page(
     );
 
     let is_script = crate::services::document_renderer::DocumentRenderer::is_script(&file_path);
+    let is_typ = std::path::Path::new(&file_path)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("typ"));
+    let is_tex = std::path::Path::new(&file_path)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("tex") || ext.eq_ignore_ascii_case("latex"));
+    let is_slide_typ = file_path.to_lowercase().ends_with(".slide.typ");
     let is_slide = file_path == "slides.typ"
-        || file_path.ends_with(".slide.typ")
+        || is_slide_typ
         || file_content.contains("#show: slide-theme")
         || file_content.contains("slide-theme");
 
     let ws_root = &project.storage_path;
-    let typst_res = if !is_script
-        && (file_path.ends_with(".typ") || file_path.ends_with(".slide.typ") || is_slide)
-    {
+    let typst_res = if !is_script && (is_typ || is_slide_typ || is_slide) {
         Some(
             crate::services::document_renderer::DocumentRenderer::compile_typst(
                 ws_root, &file_path, true,
@@ -1504,16 +1501,13 @@ async fn project_editor_page(
 
     // Template kind this file could be published/applied as -- `None` for a plain script, since
     // scripts aren't one of the 5 template kinds (see `apich_db::TemplateKind`).
-    let is_latex_preview_for_kind = !is_script
-        && !(file_path.ends_with(".typ") || file_path.ends_with(".slide.typ") || is_slide)
-        && (file_path.ends_with(".tex") || file_path.ends_with(".latex"));
     let file_template_kind = if is_script {
         None
     } else if is_slide {
         Some("slides")
-    } else if is_latex_preview_for_kind {
+    } else if is_tex {
         Some("latex")
-    } else if file_path.ends_with(".typ") {
+    } else if is_typ {
         Some("typst")
     } else {
         None
@@ -1577,14 +1571,12 @@ async fn latex_pdf_action(
     Query(query): Query<EditorQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return (StatusCode::NOT_FOUND, Html("Project not found")).into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
 
     let can_access =
@@ -1653,34 +1645,28 @@ async fn latex_sync_action(
     State(state): State<AppState>,
     Json(payload): Json<LatexSyncRequest>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(LatexSyncResponse {
-                    success: false,
-                    line: None,
-                    error: Some("Unauthorized".to_string()),
-                }),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(LatexSyncResponse {
+                success: false,
+                line: None,
+                error: Some("Unauthorized".to_string()),
+            }),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(LatexSyncResponse {
-                    success: false,
-                    line: None,
-                    error: Some("Project not found".to_string()),
-                }),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(LatexSyncResponse {
+                success: false,
+                line: None,
+                error: Some("Project not found".to_string()),
+            }),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -1748,13 +1734,11 @@ async fn typst_pdf_action(
     Query(query): Query<EditorQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return (StatusCode::NOT_FOUND, Html("Project not found")).into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -1807,25 +1791,19 @@ async fn slide_binary_start_action(
     State(state): State<AppState>,
     Json(payload): Json<SlideBuildStartRequest>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Project not found"})),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -1867,15 +1845,12 @@ async fn slide_binary_status_action(
     Query(query): Query<SlideBuildJobQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
     let Ok(job_id) = uuid::Uuid::parse_str(&query.job) else {
         return (
@@ -1918,9 +1893,8 @@ async fn slide_binary_download_action(
     Query(query): Query<SlideBuildJobQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
     };
     let Ok(job_id) = uuid::Uuid::parse_str(&query.job) else {
         return (StatusCode::BAD_REQUEST, Html("Invalid job id")).into_response();
@@ -1959,13 +1933,11 @@ async fn vcs_remote_bundle_get_action(
     Path(id_or_slug): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return (StatusCode::NOT_FOUND, "Project not found").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, "Project not found").into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -2001,25 +1973,19 @@ async fn vcs_remote_bundle_post_action(
     State(state): State<AppState>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Project not found"})),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
     };
     let can_edit =
         IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, project.id)
@@ -2073,22 +2039,18 @@ async fn git_http_backend_action(
     let is_write = path.contains("receive-pack") || query.contains("service=git-receive-pack");
 
     let project_key = id_or_slug.strip_suffix(".git").unwrap_or(&id_or_slug);
-    let project = match resolve_project(&state, project_key).await {
-        | Some(p) => p,
-        | None => return (StatusCode::NOT_FOUND, "Repository not found").into_response(),
+    let Some(project) = resolve_project(&state, project_key).await else {
+        return (StatusCode::NOT_FOUND, "Repository not found").into_response();
     };
 
     let www_authenticate = [(header::WWW_AUTHENTICATE, "Basic realm=\"APICH Git\"")];
-    let user = match auth {
-        | Some(AuthUser(u)) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                www_authenticate,
-                "Authentication required",
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            www_authenticate,
+            "Authentication required",
+        )
+            .into_response();
     };
 
     if is_write {
@@ -2175,14 +2137,12 @@ async fn save_editor_file_action(
     State(state): State<AppState>,
     Form(payload): Form<SaveEditorFileForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_access =
@@ -2749,9 +2709,12 @@ pub struct UpdateProfileForm {
 
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordForm {
-    pub current_password: String,
-    pub new_password: String,
-    pub confirm_password: String,
+    #[serde(rename = "current_password")]
+    pub current: String,
+    #[serde(rename = "new_password")]
+    pub new: String,
+    #[serde(rename = "confirm_password")]
+    pub confirm: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2828,9 +2791,8 @@ async fn settings_page(
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return redirect_to_login(&headers, "/settings"),
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, "/settings");
     };
 
     let i18n = get_i18n(&headers, Some(&params));
@@ -2895,9 +2857,8 @@ async fn create_pat_action(
     State(state): State<AppState>,
     Form(payload): Form<CreatePatForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let (token, hash, prefix) = generate_pat();
     let repo = state.db.repository();
@@ -2921,9 +2882,8 @@ async fn revoke_pat_action(
     State(state): State<AppState>,
     Path(token_id): Path<Uuid>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let _ = state
         .db
@@ -2944,9 +2904,8 @@ async fn add_ssh_key_action(
     State(state): State<AppState>,
     Form(payload): Form<AddSshKeyForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let trimmed = payload.public_key.trim();
     let mut parts = trimmed.split_whitespace();
@@ -2964,17 +2923,14 @@ async fn add_ssh_key_action(
             "Not a recognizable SSH public key (missing key body)",
         );
     };
-    let key_bytes =
-        match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, key_body) {
-            | Ok(b) => b,
-            | Err(_) => {
-                return redirect_error(
-                    "/settings",
-                    "Not a recognizable SSH public key (invalid base64 body)",
-                )
-            },
-        };
-    use sha2::Digest as _;
+    let Ok(key_bytes) =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, key_body)
+    else {
+        return redirect_error(
+            "/settings",
+            "Not a recognizable SSH public key (invalid base64 body)",
+        );
+    };
     let mut hasher = sha2::Sha256::new();
     sha2::Digest::update(&mut hasher, &key_bytes);
     let fingerprint = format!(
@@ -3006,9 +2962,8 @@ async fn delete_ssh_key_action(
     State(state): State<AppState>,
     Path(key_id): Path<Uuid>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let _ = state
         .db
@@ -3029,9 +2984,8 @@ async fn add_gpg_key_action(
     State(state): State<AppState>,
     Form(payload): Form<AddGpgKeyForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let armored = payload.public_key.trim();
     if !armored.contains("BEGIN PGP PUBLIC KEY BLOCK") {
@@ -3057,9 +3011,8 @@ async fn delete_gpg_key_action(
     State(state): State<AppState>,
     Path(key_id): Path<Uuid>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
     let _ = state
         .db
@@ -3075,9 +3028,8 @@ async fn update_profile_form(
     State(state): State<AppState>,
     Form(payload): Form<UpdateProfileForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let avatar = payload.avatar_url.filter(|s| !s.trim().is_empty());
@@ -3103,12 +3055,11 @@ async fn change_password_form(
     State(state): State<AppState>,
     Form(payload): Form<ChangePasswordForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    if payload.new_password != payload.confirm_password {
+    if payload.new != payload.confirm {
         return redirect_error(
             "/settings",
             "New password and confirm password do not match",
@@ -3117,7 +3068,7 @@ async fn change_password_form(
 
     match state
         .identity_service
-        .change_user_password(user.id, &payload.current_password, &payload.new_password)
+        .change_user_password(user.id, &payload.current, &payload.new)
         .await
     {
         | Ok(()) => redirect_notice("/settings", "Password changed successfully"),
@@ -3132,9 +3083,8 @@ async fn admin_orgs_page(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return redirect_to_login(&headers, "/admin/orgs"),
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, "/admin/orgs");
     };
 
     let i18n = get_i18n(&headers, Some(&params));
@@ -3224,15 +3174,14 @@ async fn create_org_form(
     State(state): State<AppState>,
     Form(payload): Form<CreateOrgForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let allow_team_override = payload
         .allow_team_override
         .as_deref()
-        .map_or(true, |s| s == "true" || s == "on" || s == "1");
+        .is_none_or(|s| s == "true" || s == "on" || s == "1");
 
     let dto = apich_db::CreateOrganizationDto {
         slug: payload.slug.trim().to_lowercase(),
@@ -3261,9 +3210,8 @@ async fn update_org_form(
     State(state): State<AppState>,
     Form(payload): Form<UpdateOrgForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let allow_team_override = payload
@@ -3298,9 +3246,8 @@ async fn delete_org_form(
     State(state): State<AppState>,
     Form(payload): Form<DeleteOrgForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     match state
@@ -3319,9 +3266,8 @@ async fn create_team_form(
     State(state): State<AppState>,
     Form(payload): Form<NewTeamForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     match state
@@ -3353,9 +3299,8 @@ async fn update_team_form(
     State(state): State<AppState>,
     Form(payload): Form<UpdateTeamForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let parent_id = match payload.parent_team_id {
@@ -3396,9 +3341,8 @@ async fn delete_team_form(
     State(state): State<AppState>,
     Form(payload): Form<DeleteTeamForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     match state
@@ -3418,9 +3362,8 @@ async fn add_org_member_form(
     Form(payload): Form<AddOrgMemberForm>,
 ) -> Response {
     let repo = state.db.repository();
-    let target_uid = match resolve_user_id(&repo, &payload.user_id_or_username).await {
-        | Some(id) => id,
-        | None => return redirect_error("/admin/orgs", "Target user not found"),
+    let Some(target_uid) = resolve_user_id(&repo, &payload.user_id_or_username).await else {
+        return redirect_error("/admin/orgs", "Target user not found");
     };
 
     match state
@@ -3456,9 +3399,8 @@ async fn add_team_member_form(
     Form(payload): Form<AddTeamMemberForm>,
 ) -> Response {
     let repo = state.db.repository();
-    let target_uid = match resolve_user_id(&repo, &payload.user_id_or_username).await {
-        | Some(id) => id,
-        | None => return redirect_error("/admin/orgs", "Target user not found"),
+    let Some(target_uid) = resolve_user_id(&repo, &payload.user_id_or_username).await else {
+        return redirect_error("/admin/orgs", "Target user not found");
     };
 
     match state
@@ -3494,9 +3436,8 @@ async fn admin_platform_page(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return redirect_to_login(&headers, "/admin/platform"),
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, "/admin/platform");
     };
 
     if !user.is_platform_admin {
@@ -3532,9 +3473,8 @@ async fn update_platform_settings_form(
     State(state): State<AppState>,
     Form(payload): Form<UpdatePlatformSettingsForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     if !user.is_platform_admin {
@@ -3585,9 +3525,8 @@ async fn test_smtp_form(
     State(state): State<AppState>,
     Form(payload): Form<TestSmtpForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     if !user.is_platform_admin {
@@ -3627,22 +3566,18 @@ async fn project_table_page(
     Path(id_or_slug): Path<String>,
     Query(params): Query<TablePageQuery>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let i18n = get_i18n(&headers, None);
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3>"),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -3653,8 +3588,7 @@ async fn project_table_page(
         return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
     }
 
-    let databases =
-        SqliteTableService::discover_databases(&project.storage_path).unwrap_or_default();
+    let databases = SqliteTableService::discover_databases(&project.storage_path);
 
     let selected_file = params
         .file
@@ -3704,7 +3638,7 @@ async fn project_table_page(
                 .and_then(|p| SqliteTableService::get_column_view(&p, tbl).ok())
                 .unwrap_or_default()
         },
-        | _ => Default::default(),
+        | _ => crate::services::sqlite_table::ColumnViewConfig::default(),
     };
     let query_history = selected_file
         .as_deref()
@@ -3723,26 +3657,30 @@ async fn project_table_page(
     let notice = params.notice;
     let error = params.error;
 
+    let state = crate::app::pages::table_page::TablePageState {
+        databases,
+        selected_file,
+        schema,
+        selected_table,
+        table_data,
+        column_view,
+        query_history,
+        sql_query: String::new(),
+        sql_result: None,
+        mode,
+        search,
+        notebook_cells,
+    };
+
     let html = crate::app::components::render_document(move || {
         leptos::prelude::view! {
             <crate::app::pages::table_page::TablePage
                 user=user
                 is_org_or_team_admin=is_org_admin
                 project=project
-                databases=databases
-                selected_file=selected_file
-                schema=schema
-                selected_table=selected_table
-                table_data=table_data
-                column_view=column_view
-                query_history=query_history
-                sql_query=String::new()
-                sql_result=None
-                mode=mode
-                search=search
+                state=state
                 notice=notice
                 error=error
-                notebook_cells=notebook_cells
                 i18n=i18n
                 current_path=current_path
             />
@@ -3777,14 +3715,12 @@ async fn execute_table_sql_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<TableSqlForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_manage =
@@ -3823,8 +3759,7 @@ async fn execute_table_sql_action(
         .is_org_or_team_admin(user.id)
         .await
         .unwrap_or(false);
-    let databases =
-        SqliteTableService::discover_databases(&project.storage_path).unwrap_or_default();
+    let databases = SqliteTableService::discover_databases(&project.storage_path);
     let schema = SqliteTableService::get_database_schema(&full_path).ok();
 
     let max_rows = payload.max_rows.unwrap_or(500);
@@ -3835,11 +3770,9 @@ async fn execute_table_sql_action(
             let first_table = schema
                 .as_ref()
                 .and_then(|s| s.tables.first().map(|t| t.name.clone()));
-            let table_data = if let Some(ref t) = first_table {
+            let table_data = first_table.as_ref().and_then(|t| {
                 SqliteTableService::get_table_data(&full_path, t, 1, 50, None, None, None).ok()
-            } else {
-                None
-            };
+            });
             let notice = Some(sql_res.message.clone());
             let selected_file = Some(payload.file.clone());
             let notebook_cells = notebook_cells_for(
@@ -3854,26 +3787,30 @@ async fn execute_table_sql_action(
             let query_history =
                 SqliteTableService::list_query_history(&full_path).unwrap_or_default();
 
+            let state = crate::app::pages::table_page::TablePageState {
+                databases,
+                selected_file,
+                schema,
+                selected_table: first_table,
+                table_data,
+                column_view,
+                query_history,
+                sql_query: payload.sql,
+                sql_result: Some(sql_res),
+                mode: "sql".to_string(),
+                search: None,
+                notebook_cells,
+            };
+
             let html = crate::app::components::render_document(move || {
                 leptos::prelude::view! {
                     <crate::app::pages::table_page::TablePage
                         user=user
                         is_org_or_team_admin=is_org_admin
                         project=project
-                        databases=databases
-                        selected_file=selected_file
-                        schema=schema
-                        selected_table=first_table
-                        table_data=table_data
-                        column_view=column_view
-                        query_history=query_history
-                        sql_query=payload.sql
-                        sql_result=Some(sql_res)
-                        mode="sql".to_string()
-                        search=None
+                        state=state
                         notice=notice
                         error=None
-                        notebook_cells=notebook_cells
                         i18n=i18n
                         current_path=current_path
                     />
@@ -3900,14 +3837,12 @@ async fn create_table_db_action(
     State(state): State<AppState>,
     Path(id_or_slug): Path<String>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_manage =
@@ -3943,26 +3878,20 @@ async fn table_cell_edit_action(
     State(state): State<AppState>,
     Form(payload): Form<TableCellEditForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                axum::Json(serde_json::json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                axum::Json(serde_json::json!({ "error": "Project not found" })),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({ "error": "Project not found" })),
+        )
+            .into_response();
     };
 
     let can_manage =
@@ -4040,26 +3969,20 @@ async fn table_cell_style_action(
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<TableCellStyleJson>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                axum::Json(serde_json::json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                axum::Json(serde_json::json!({ "error": "Project not found" })),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({ "error": "Project not found" })),
+        )
+            .into_response();
     };
 
     let can_manage =
@@ -4119,14 +4042,12 @@ async fn table_row_add_action(
     State(state): State<AppState>,
     Form(payload): Form<TableRowAddForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_manage =
@@ -4137,19 +4058,16 @@ async fn table_row_add_action(
         return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
     }
 
-    let db_path = match crate::services::sqlite_table::SqliteTableService::resolve_db_path(
+    let Ok(db_path) = crate::services::sqlite_table::SqliteTableService::resolve_db_path(
         &project.storage_path,
         &payload.file,
-    ) {
-        | Ok(p) => p,
-        | Err(_) => {
-            return Redirect::to(&format!(
-                "/projects/{}/table?file={}&error=table_not_found",
-                project.id,
-                urlencoding::encode(&payload.file)
-            ))
-            .into_response()
-        },
+    ) else {
+        return Redirect::to(&format!(
+            "/projects/{}/table?file={}&error=table_not_found",
+            project.id,
+            urlencoding::encode(&payload.file)
+        ))
+        .into_response();
     };
     if let Ok(rowid) =
         crate::services::sqlite_table::SqliteTableService::insert_row(&db_path, &payload.table)
@@ -4176,14 +4094,12 @@ async fn table_row_delete_action(
     State(state): State<AppState>,
     Form(payload): Form<TableRowDeleteForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_manage =
@@ -4194,19 +4110,16 @@ async fn table_row_delete_action(
         return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
     }
 
-    let db_path = match crate::services::sqlite_table::SqliteTableService::resolve_db_path(
+    let Ok(db_path) = crate::services::sqlite_table::SqliteTableService::resolve_db_path(
         &project.storage_path,
         &payload.file,
-    ) {
-        | Ok(p) => p,
-        | Err(_) => {
-            return Redirect::to(&format!(
-                "/projects/{}/table?file={}&error=table_not_found",
-                project.id,
-                urlencoding::encode(&payload.file)
-            ))
-            .into_response()
-        },
+    ) else {
+        return Redirect::to(&format!(
+            "/projects/{}/table?file={}&error=table_not_found",
+            project.id,
+            urlencoding::encode(&payload.file)
+        ))
+        .into_response();
     };
     let _ = crate::services::sqlite_table::SqliteTableService::delete_row(
         &db_path,
@@ -4235,20 +4148,16 @@ async fn table_export_action(
     Query(query): Query<TableExportQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3>"),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -4354,19 +4263,15 @@ async fn table_column_view_action(
     State(state): State<AppState>,
     Form(payload): Form<ColumnViewForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3>"),
+        )
+            .into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -4410,9 +4315,9 @@ async fn table_column_view_action(
             let mut order = visible;
             if let Some(pos) = order.iter().position(|c| c == &payload.column) {
                 if payload.action == "move-left" && pos > 0 {
-                    order.swap(pos, pos - 1);
-                } else if payload.action == "move-right" && pos + 1 < order.len() {
-                    order.swap(pos, pos + 1);
+                    order.swap(pos, pos.saturating_sub(1));
+                } else if payload.action == "move-right" && pos.saturating_add(1) < order.len() {
+                    order.swap(pos, pos.saturating_add(1));
                 }
             }
             for c in &all_columns {
@@ -4462,14 +4367,12 @@ async fn table_import_action(
     State(state): State<AppState>,
     Form(payload): Form<TableImportForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_manage =
@@ -4534,13 +4437,11 @@ async fn notebook_cell_create_action(
     State(state): State<AppState>,
     Form(payload): Form<NotebookCellCreateForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_manage =
         IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id)
@@ -4597,13 +4498,11 @@ async fn notebook_cell_delete_action(
     State(state): State<AppState>,
     Form(payload): Form<NotebookCellDeleteForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_manage =
         IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id)
@@ -4637,13 +4536,11 @@ async fn notebook_cell_move_action(
     State(state): State<AppState>,
     Form(payload): Form<NotebookCellMoveForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_manage =
         IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id)
@@ -4688,25 +4585,19 @@ async fn notebook_run_cell_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Project not found"})),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
     };
     let can_manage =
         IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id)
@@ -4842,22 +4733,18 @@ async fn project_note_page(
     Query(query): Query<NoteQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let i18n = get_i18n(&headers, None);
     let repo = state.db.repository();
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3>"),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -4882,11 +4769,10 @@ async fn project_note_page(
             .list_files(project.id)
             .await
             .unwrap_or_default();
-        if let Some(note) = all_files.iter().find(|f| f.category == "note") {
-            note.path.clone()
-        } else {
-            "lab_notebook.anote".to_string()
-        }
+        all_files.iter().find(|f| f.category == "note").map_or_else(
+            || "lab_notebook.anote".to_string(),
+            |note| note.path.clone(),
+        )
     };
 
     let raw_content = state
@@ -4994,7 +4880,7 @@ async fn project_note_page(
                 visible_note_templates=visible_note_templates
                 file_share=file_share
                 all_users=all_users
-                active_view=view
+                active_view=crate::app::pages::note_page::NoteView::from_str(&view)
                 notice=notice
                 error=error
                 i18n=i18n
@@ -5013,14 +4899,12 @@ async fn save_note_action(
     State(state): State<AppState>,
     Form(payload): Form<SaveNoteForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_access =
@@ -5112,26 +4996,20 @@ async fn save_whiteboard_action(
     State(state): State<AppState>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Project not found"})),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -5211,15 +5089,12 @@ async fn project_knowledge_page(
         return Redirect::to("/login").into_response();
     }
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3>"),
+        )
+            .into_response();
     };
 
     let view = params.view.unwrap_or_else(|| "kanban".to_string());
@@ -5247,13 +5122,11 @@ async fn create_note_page_action(
     State(state): State<AppState>,
     Form(payload): Form<CreateNotePageForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -5282,7 +5155,7 @@ async fn create_note_page_action(
     let content = format!("---\ntitle: \"{safe_title}\"\n---\n\n# {title}\n");
 
     let mut filename = format!("{base_slug}.anote");
-    let mut attempt = 2;
+    let mut attempt: usize = 2;
     loop {
         match state
             .project_manager
@@ -5292,7 +5165,7 @@ async fn create_note_page_action(
             | Ok(()) => break,
             | Err(WebError::Conflict(_)) if attempt <= 50 => {
                 filename = format!("{base_slug}-{attempt}.anote");
-                attempt += 1;
+                attempt = attempt.saturating_add(1);
             },
             | Err(e) => {
                 return redirect_error(&format!("/projects/{}/note?view={}", project.id, view), e)
@@ -5316,14 +5189,12 @@ async fn toggle_task_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<ToggleTaskForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let can_access =
@@ -5413,13 +5284,11 @@ async fn kanban_add_column_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<KanbanAddColumnForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -5442,10 +5311,14 @@ async fn kanban_add_column_action(
             is_done: false,
         });
         let mut settings = project.settings.clone();
-        settings["kanban_columns"] =
-            crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
-                &columns,
+        if let Some(map) = settings.as_object_mut() {
+            map.insert(
+                "kanban_columns".to_string(),
+                crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
+                    &columns,
+                ),
             );
+        }
         let _ = state
             .db
             .repository()
@@ -5463,13 +5336,11 @@ async fn kanban_rename_column_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<KanbanRenameColumnForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -5488,10 +5359,14 @@ async fn kanban_rename_column_action(
             col.is_done = payload.is_done;
         }
         let mut settings = project.settings.clone();
-        settings["kanban_columns"] =
-            crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
-                &columns,
+        if let Some(map) = settings.as_object_mut() {
+            map.insert(
+                "kanban_columns".to_string(),
+                crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
+                    &columns,
+                ),
             );
+        }
         let _ = state
             .db
             .repository()
@@ -5509,13 +5384,11 @@ async fn kanban_delete_column_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<KanbanDeleteColumnForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -5533,10 +5406,14 @@ async fn kanban_delete_column_action(
     if columns.len() > 1 {
         columns.retain(|c| c.id != payload.col_id);
         let mut settings = project.settings.clone();
-        settings["kanban_columns"] =
-            crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
-                &columns,
+        if let Some(map) = settings.as_object_mut() {
+            map.insert(
+                "kanban_columns".to_string(),
+                crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
+                    &columns,
+                ),
             );
+        }
         let _ = state
             .db
             .repository()
@@ -5554,13 +5431,11 @@ async fn kanban_move_column_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<KanbanMoveColumnForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
     let can_access =
         IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
@@ -5576,15 +5451,19 @@ async fn kanban_move_column_action(
         let swap_with = if payload.direction == "left" {
             idx.checked_sub(1)
         } else {
-            (idx + 1 < columns.len()).then_some(idx + 1)
+            (idx.saturating_add(1) < columns.len()).then_some(idx.saturating_add(1))
         };
         if let Some(j) = swap_with {
             columns.swap(idx, j);
             let mut settings = project.settings.clone();
-            settings["kanban_columns"] =
-                crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
-                    &columns,
+            if let Some(map) = settings.as_object_mut() {
+                map.insert(
+                    "kanban_columns".to_string(),
+                    crate::services::knowledge_sync::KnowledgeSyncService::serialize_kanban_columns(
+                        &columns,
+                    ),
                 );
+            }
             let _ = state
                 .db
                 .repository()
@@ -5603,22 +5482,18 @@ async fn project_terminal_page(
     State(state): State<AppState>,
     Path(id_or_slug): Path<String>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
     let i18n = get_i18n(&headers, None);
     let repo = state.db.repository();
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Html("<h3>Project not found 404</h3>"),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<h3>Project not found 404</h3>"),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -5638,7 +5513,7 @@ async fn project_terminal_page(
         .get_project_sandbox(project.id, user.id)
         .await
         .unwrap_or(None);
-    let sandbox_status = sb.map_or_else(|| "stopped".to_string(), |s| s.status);
+    let sandbox_is_running = sb.is_some_and(|s| s.status == "running");
 
     let current_path = format!("/projects/{}/terminal", project.id);
 
@@ -5648,7 +5523,7 @@ async fn project_terminal_page(
                 user=user
                 is_org_or_team_admin=is_org_admin
                 project=project
-                sandbox_status=sandbox_status
+                sandbox_is_running=sandbox_is_running
                 notice=None
                 error=None
                 i18n=i18n
@@ -5667,26 +5542,20 @@ async fn terminal_exec_action(
     Path(id_or_slug): Path<String>,
     Form(payload): Form<TerminalExecForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                axum::Json(serde_json::json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                axum::Json(serde_json::json!({ "error": "Project not found" })),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({ "error": "Project not found" })),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -5835,26 +5704,20 @@ async fn run_script_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Project not found"})),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -5912,26 +5775,20 @@ async fn toggle_task_ajax_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Project not found"})),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -5983,7 +5840,10 @@ async fn toggle_task_ajax_action(
         .read_file(project.id, &payload.file)
         .await
         .unwrap_or_default();
-    let body = if payload.file.ends_with(".anote") {
+    let body = if std::path::Path::new(&payload.file)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("anote"))
+    {
         crate::services::knowledge_sync::KnowledgeSyncService::parse_unified_note(&updated_content)
             .1
     } else {
@@ -6008,14 +5868,12 @@ async fn share_file_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let is_owner = project.owner_id == user.id || user.is_platform_admin;
@@ -6063,14 +5921,12 @@ async fn delete_project_action(
     Path(id_or_slug): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let is_owner = project.owner_id == user.id || user.is_platform_admin;
@@ -6087,22 +5943,21 @@ pub struct SetVigilantModeForm {
     pub enabled: bool,
 }
 
-/// Toggle a project's "vigilant mode" (bugs.md's own term): when on, the VCS timeline flags
-/// snapshots without a valid GPG signature as unverified instead of showing them like signed ones.
+/// Toggle a project's vigilant mode.
+///
+/// When on, the VCS timeline flags snapshots without a valid GPG signature as unverified.
 async fn set_vigilant_mode_action(
     auth: Option<AuthUser>,
     Path(id_or_slug): Path<String>,
     State(state): State<AppState>,
     Form(payload): Form<SetVigilantModeForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let is_owner = project.owner_id == user.id || user.is_platform_admin;
@@ -6126,14 +5981,12 @@ async fn update_project_sharing_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => return Redirect::to("/login").into_response(),
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => return Redirect::to("/").into_response(),
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
     };
 
     let is_owner = project.owner_id == user.id || user.is_platform_admin;
@@ -6190,26 +6043,20 @@ async fn render_doc_preview_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Project not found"})),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -6254,7 +6101,14 @@ async fn render_doc_preview_action(
             .map(|h| json!({ "level": h.level, "text": h.text, "line": h.line }))
             .collect();
 
-    if payload.file.ends_with(".typ") || payload.file.ends_with(".slide.typ") {
+    let payload_path = std::path::Path::new(&payload.file);
+    let is_typ = payload_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("typ"));
+    let is_tex = payload_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("tex") || ext.eq_ignore_ascii_case("latex"));
+    if is_typ || payload.file.to_lowercase().ends_with(".slide.typ") {
         let ws = &project.storage_path;
         let _ = state
             .project_manager
@@ -6275,7 +6129,7 @@ async fn render_doc_preview_action(
             "headings": headings
         }))
         .into_response()
-    } else if payload.file.ends_with(".tex") || payload.file.ends_with(".latex") {
+    } else if is_tex {
         // Real hot reload for LaTeX: save what's currently in the editor (the same autosave
         // side effect the Typst branch above already has), then let the browser reload the
         // `<iframe src="/projects/:id/editor/latex-pdf?...">` itself -- that endpoint always
@@ -6357,34 +6211,29 @@ async fn ai_chat_action(
     }
 }
 
-/// Which CLI coding agents (claude/codex/opencode/aider/goose) are actually installed in this
-/// project's sandbox image -- checked live against a real container, not assumed, since an
-/// image build can silently skip an install step (see docker/Containerfile.sandbox).
+/// Query installed CLI coding agent status.
+///
+/// Checks live against a real container which CLI coding agents are installed in this
+/// project's sandbox image (claude/codex/opencode/aider/goose).
 async fn agent_status_action(
     auth: Option<AuthUser>,
     State(state): State<AppState>,
     Path(id_or_slug): Path<String>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Project not found" })),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Project not found" })),
+        )
+            .into_response();
     };
 
     let can_access =
@@ -6425,9 +6274,9 @@ pub struct AgentRunForm {
     pub api_key: Option<String>,
 }
 
-/// Run a CLI coding agent non-interactively inside the project's real sandbox container,
-/// against the real project files -- per plan.md this is not a hosted chat API call, it's a
-/// real agent process with a real shell in the real workspace. Requires write access since the
+/// Run a CLI coding agent non-interactively in sandbox.
+///
+/// Runs against the real project files in the workspace. Requires write access since the
 /// agent can (and by default, in its non-interactive mode, will) edit files.
 async fn agent_run_action(
     auth: Option<AuthUser>,
@@ -6436,26 +6285,20 @@ async fn agent_run_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Project not found" })),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Project not found" })),
+        )
+            .into_response();
     };
 
     let can_manage =
@@ -6477,15 +6320,12 @@ async fn agent_run_action(
         },
     };
 
-    let kind = match apich_sandbox::tools::AgentKind::parse(&payload.agent) {
-        | Some(k) => k,
-        | None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Unknown agent: {}", payload.agent) })),
-            )
-                .into_response()
-        },
+    let Some(kind) = apich_sandbox::tools::AgentKind::parse(&payload.agent) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Unknown agent: {}", payload.agent) })),
+        )
+            .into_response();
     };
 
     let prompt = payload.prompt.trim();
@@ -6531,10 +6371,11 @@ const fn login_support_json(support: apich_sandbox::tools::LoginSupport) -> &'st
     }
 }
 
-/// Starts a real account-login flow for a CLI agent (`claude auth login`, `codex login
-/// --device-auth`) inside the project's sandbox -- not another shape of API-key entry. Once
-/// this succeeds, the agent's own credentials live in the container and later `agent/run` calls
-/// need no `api_key` param at all. Requires write access, same as running an agent.
+/// Start account-login flow for a CLI agent.
+///
+/// Starts a real account-login flow for a CLI agent inside the project's sandbox. Once
+/// this succeeds, the agent's own credentials live in the container and later agent runs
+/// need no API key param. Requires write access.
 async fn agent_login_start_action(
     auth: Option<AuthUser>,
     headers: HeaderMap,
@@ -6542,26 +6383,20 @@ async fn agent_login_start_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
-    let project = match resolve_project(&state, &id_or_slug).await {
-        | Some(p) => p,
-        | None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Project not found" })),
-            )
-                .into_response()
-        },
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Project not found" })),
+        )
+            .into_response();
     };
 
     let can_manage =
@@ -6583,15 +6418,12 @@ async fn agent_login_start_action(
         },
     };
 
-    let kind = match apich_sandbox::tools::AgentKind::parse(&payload.agent) {
-        | Some(k) => k,
-        | None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Unknown agent: {}", payload.agent) })),
-            )
-                .into_response()
-        },
+    let Some(kind) = apich_sandbox::tools::AgentKind::parse(&payload.agent) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Unknown agent: {}", payload.agent) })),
+        )
+            .into_response();
     };
 
     if kind.login_support() == apich_sandbox::tools::LoginSupport::None {
@@ -6613,22 +6445,20 @@ async fn agent_login_start_action(
     }
 }
 
-/// Poll a running or finished agent-login session for its accumulated output (the OAuth URL and
-/// code appear here as the real CLI prints them) and current status.
+/// Poll running or finished agent-login session.
+///
+/// Polls for accumulated CLI output (OAuth URL and code) and current status.
 async fn agent_login_status_action(
     auth: Option<AuthUser>,
     State(state): State<AppState>,
     Path((id_or_slug, session_id)): Path<(String, Uuid)>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
     if resolve_project(&state, &id_or_slug).await.is_none() {
@@ -6677,24 +6507,21 @@ pub struct AgentLoginCodeForm {
     pub code: String,
 }
 
-/// Submit the code a user copied from their browser after completing an agent's OAuth flow
-/// (only meaningful for `PasteCodeBack` agents like Claude Code; `DeviceCode` agents like Codex
-/// poll on their own and don't need this).
+/// Submit browser OAuth code for an agent login session.
+///
+/// Meaningful for `PasteCodeBack` agents like Claude Code (`DeviceCode` agents poll on their own).
 async fn agent_login_submit_code_action(
     auth: Option<AuthUser>,
     State(state): State<AppState>,
     Path((id_or_slug, session_id)): Path<(String, Uuid)>,
     Form(payload): Form<AgentLoginCodeForm>,
 ) -> Response {
-    let AuthUser(user) = match auth {
-        | Some(u) => u,
-        | None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "Unauthorized" })),
-            )
-                .into_response()
-        },
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     };
 
     if resolve_project(&state, &id_or_slug).await.is_none() {

@@ -65,7 +65,9 @@ async fn create_invitation(
     let settings = repo.get_system_settings().await?;
 
     let token = generate_session_token();
-    let expires_at = Utc::now() + chrono::Duration::days(7);
+    let expires_at = Utc::now()
+        .checked_add_signed(chrono::Duration::days(7))
+        .unwrap_or_else(Utc::now);
 
     let invite = repo
         .create_invitation(

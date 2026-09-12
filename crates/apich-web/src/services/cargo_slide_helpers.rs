@@ -1,14 +1,8 @@
-//! The two Typst helper files every cargo-slide deck (`slides.typ`/`*.slide.typ`) imports --
-//! `theme.typ` (colors + the page/text setup) and `slide.typ` (the actual `title-slide`/`slide`/
-//! `callout`/etc. component macros, which itself imports `theme.typ`). Previously only ever
-//! written into a project by `DemoProjectService::seed_demo_files` (the "✨ Seed Showcase Demo"
-//! button) -- meaning any *other* project, including one started via the plain "+ New File" ->
-//! "Cargo-Slide Deck" starter or a slides-kind Template Library template, had no `slide.typ` to
-//! import at all and failed its very first compile with "unknown variable: slide-theme" (a real,
-//! confirmed-live bug, not hypothetical) or "file not found: slide.typ". Extracted here as the
-//! single source of truth so `demo_project.rs`, `project_manager.rs`'s starter, the Template
-//! Library's apply/preview paths, and anything else that provisions a slide deck all agree on the
-//! same content instead of each carrying their own copy that can drift.
+//! Typst helper files for cargo-slide decks.
+//!
+//! Provides the `theme.typ` and `slide.typ` files imported by cargo-slide decks.
+//! Extracted here as the single source of truth so demo projects, templates, and
+//! project creation all provision identical helper files without drift.
 //!
 //! This content is cargo-slide's own official reference theme (vendored at
 //! `vendor/cargo-slide/crates/slide-theme/typst/{theme,slide}.typ`), re-skinned with APICH's own

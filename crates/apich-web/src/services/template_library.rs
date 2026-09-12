@@ -1,9 +1,8 @@
-//! Kind-specific content shapes for the Template Library (`apich_db::Template`/`TemplateVersion`)
-//! and the pure (de)serialization + apply logic around them. The DB layer stores each version's
-//! `content` as an opaque JSONB blob (see migration 007) -- this module is where that blob's
-//! shape per `kind` ("kanban" | "note" | "latex" | "typst" | "slides") is actually defined and
-//! interpreted, so a template's content is never file-backed the way a real project's is: it's
-//! just data, until "apply" writes it into a real project.
+//! Content models and serialization for the Template Library.
+//!
+//! Handles pure (de)serialization and apply logic for kind-specific template shapes
+//! (`apich_db::Template`/`TemplateVersion`). The DB layer stores each version's
+//! content as an opaque JSONB blob, which is interpreted here per kind.
 
 use crate::error::WebError;
 use crate::error::WebResult;
