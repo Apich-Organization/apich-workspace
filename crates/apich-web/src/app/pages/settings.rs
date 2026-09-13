@@ -19,6 +19,7 @@ pub fn SettingsPage(
     ssh_keys: Vec<SshPublicKey>,
     gpg_keys: Vec<GpgPublicKey>,
     new_pat_token: Option<String>,
+    totp_setup: Option<crate::auth::TotpSetupData>,
     notice: Option<String>,
     error: Option<String>,
     i18n: I18n,
@@ -362,6 +363,114 @@ pub fn SettingsPage(
                         <PasskeyEnrollIsland register_button_label=i18n.register_passkey_btn().to_string() />
                     </div>
                     {passkey_list}
+                </div>
+
+                <div class="section-card" id="totp">
+                    <div class="section-header">
+                        <div>
+                            <h2 class="section-title">{i18n.totp_title()}</h2>
+                            <p class="text-muted">{i18n.totp_desc()}</p>
+                        </div>
+                        <div>
+                            {if user.totp_enabled {
+                                view! { <span class="badge badge-active">{i18n.totp_status_active()}</span> }.into_any()
+                            } else {
+                                view! { <span class="badge badge-idle">{i18n.totp_status_disabled()}</span> }.into_any()
+                            }}
+                        </div>
+                    </div>
+
+                    {if user.totp_enabled {
+                        view! {
+                            <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:1.25rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+                                <div>
+                                    <div style="font-weight:600; font-size:0.95rem; color:var(--text-main); margin-bottom:0.25rem;">
+                                        "✅ " {i18n.totp_status_active()}
+                                    </div>
+                                    <p class="text-muted" style="margin:0; font-size:0.85rem;">
+                                        "Your account is protected with two-factor authentication via an authenticator application."
+                                    </p>
+                                </div>
+                                <form method="post" action="/settings/totp/disable" onsubmit="return confirm('Are you sure you want to disable Two-Factor Authentication for your account?');">
+                                    <button type="submit" class="btn btn-danger btn-sm">{i18n.totp_disable_btn()}</button>
+                                </form>
+                            </div>
+                        }.into_any()
+                    } else if let Some(setup) = totp_setup {
+                        let secret = setup.secret.clone();
+                        let formatted_secret = setup.formatted_secret.clone();
+                        let qr_url = setup.qr_data_url.clone();
+                        view! {
+                            <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem;">
+                                <div style="display:flex; flex-wrap:wrap; gap:1.75rem; align-items:center;">
+                                    // Left: Scannable QR Code
+                                    <div style="text-align:center;">
+                                        <img
+                                            src=qr_url
+                                            alt="TOTP QR Code"
+                                            style="width:160px; height:160px; border-radius:8px; border:1px solid var(--border-subtle); background:#ffffff; padding:6px; display:block;"
+                                        />
+                                        <span class="text-muted" style="font-size:0.75rem; margin-top:0.4rem; display:block;">
+                                            {i18n.totp_scan_qr_prompt()}
+                                        </span>
+                                    </div>
+
+                                    // Right: Manual entry hash & activation form
+                                    <div style="flex:1; min-width:280px;">
+                                        <div style="margin-bottom:1.15rem;">
+                                            <label style="font-size:0.8rem; font-weight:600; color:var(--text-sub); display:block; margin-bottom:0.35rem;">
+                                                {i18n.totp_manual_key_prompt()}
+                                            </label>
+                                            <div style="display:flex; align-items:center; gap:0.5rem; max-width:390px;">
+                                                <input
+                                                    type="text"
+                                                    id="totp-secret-input"
+                                                    value=formatted_secret
+                                                    readonly=true
+                                                    class="form-control readonly"
+                                                    style="font-family:var(--font-mono); font-size:0.85rem; font-weight:600; letter-spacing:0.05em; background:var(--bg-surface); text-align:center;"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-secondary btn-sm"
+                                                    onclick="const i=document.getElementById('totp-secret-input');if(i){navigator.clipboard.writeText(i.value.replace(/\\s/g,''));this.innerText='✓ Copied';setTimeout(()=>this.innerText='Copy Key',2000);}"
+                                                    style="white-space:nowrap;"
+                                                >
+                                                    {i18n.totp_copy_key()}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        // Verification Form
+                                        <form method="post" action="/settings/totp/activate" style="margin:0;">
+                                            <input type="hidden" name="secret" value=secret />
+                                            <div style="display:flex; flex-wrap:wrap; gap:0.6rem; align-items:flex-end;">
+                                                <div class="form-group" style="margin-bottom:0;">
+                                                    <label style="font-size:0.8rem; font-weight:600; color:var(--text-sub); display:block; margin-bottom:0.35rem;">
+                                                        {i18n.totp_verify_code_label()}
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        name="code"
+                                                        required=true
+                                                        placeholder="00000000"
+                                                        maxlength="8"
+                                                        class="form-control"
+                                                        style="width:160px; font-family:var(--font-mono); font-size:1.1rem; font-weight:700; text-align:center; letter-spacing:0.2em;"
+                                                    />
+                                                </div>
+                                                <button type="submit" class="btn btn-primary" style="height:38px; padding:0 1.1rem;">
+                                                    {i18n.totp_activate_btn()}
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! { <div></div> }.into_any()
+                    }}
                 </div>
 
                 <div class="section-card" id="pat">

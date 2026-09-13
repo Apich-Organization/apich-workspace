@@ -93,6 +93,8 @@ pub struct SystemSettings {
     pub id: i32,
     /// Current registration policy ("open", "`invite_only`", or "`admin_only`").
     pub registration_mode: String,
+    /// Whether Two-Factor Authentication is enforced globally for all users.
+    pub require_2fa: bool,
     /// SMTP server hostname.
     pub smtp_host: Option<String>,
     /// SMTP server port.
@@ -120,6 +122,7 @@ impl Default for SystemSettings {
         Self {
             id: 1,
             registration_mode: "invite_only".to_string(),
+            require_2fa: false,
             smtp_host: None,
             smtp_port: None,
             smtp_username: None,
@@ -157,6 +160,8 @@ pub struct UpdateSystemSettingsDto {
     pub smtp_force_tls: Option<bool>,
     /// Updated enable/disable flag for email dispatch.
     pub smtp_enabled: Option<bool>,
+    /// Updated global 2FA enforcement policy.
+    pub require_2fa: Option<bool>,
 }
 
 /// Pending or redeemed invitation to register or join an organization.
@@ -279,5 +284,24 @@ pub struct GpgPublicKey {
     /// Hex fingerprint of the GPG key.
     pub fingerprint: String,
     /// Upload timestamp.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Transient 2FA challenge created when password verification succeeds and 2FA is required.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct User2faChallenge {
+    /// Challenge identifier.
+    pub id: Uuid,
+    /// Targeted user ID.
+    pub user_id: Uuid,
+    /// Secure hash of 6-digit email verification code (if requested).
+    pub email_code_hash: Option<String>,
+    /// Expiration timestamp of the email code.
+    pub email_code_expires_at: Option<DateTime<Utc>>,
+    /// Original return_to path.
+    pub return_to: Option<String>,
+    /// Challenge expiration timestamp (typically 10 minutes).
+    pub expires_at: DateTime<Utc>,
+    /// Creation timestamp.
     pub created_at: DateTime<Utc>,
 }

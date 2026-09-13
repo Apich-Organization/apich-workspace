@@ -354,4 +354,25 @@ impl MailerService {
 
         Ok(())
     }
+
+    /// Send a two-factor authentication verification code email.
+    pub async fn send_2fa_code_email(
+        &self,
+        settings: &SystemSettings,
+        to_email: &str,
+        username: &str,
+        code: &str,
+    ) -> WebResult<()> {
+        let subject = format!("[APICH] Your Verification Code: {code}");
+        let body = format!(
+            "Hello {username},\n\n\
+            Your two-factor authentication verification code is:\n\n\
+                {code}\n\n\
+            This code will expire in 10 minutes.\n\n\
+            If you did not attempt to sign in to your APICH account, please secure your password immediately.\n\n\
+            — The APICH Team\n"
+        );
+
+        self.send_mail(settings, to_email, &subject, &body).await
+    }
 }

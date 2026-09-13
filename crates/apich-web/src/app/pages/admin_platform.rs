@@ -183,6 +183,24 @@ pub fn AdminPlatformPage(
                                 <option value="admin_only" selected=settings.registration_mode == "admin_only">"Platform Administrator Only"</option>
                             </select>
                         </div>
+                        <div class="form-group" style="margin-bottom:1.25rem; margin-top:1rem; padding-top:0.85rem; border-top:1px solid var(--border-subtle);">
+                            <label style="font-weight:600; font-size:0.85rem; margin-bottom:0.35rem; display:block;">
+                                {i18n.global_2fa_title()}
+                            </label>
+                            <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer; font-weight:500; font-size:0.875rem;">
+                                <input
+                                    type="checkbox"
+                                    name="require_2fa"
+                                    value="true"
+                                    checked=settings.require_2fa
+                                    style="width:17px; height:17px; margin-top:0.15rem;"
+                                />
+                                <span>{i18n.global_2fa_enforce()}</span>
+                            </label>
+                            <p class="text-muted" style="font-size:0.78rem; margin:0.35rem 0 0 1.65rem;">
+                                {i18n.global_2fa_desc()}
+                            </p>
+                        </div>
                         <button type="submit" class="btn btn-primary btn-sm" style="padding:0.45rem 1rem;">{i18n.save_policy()}</button>
                     </form>
                 </div>

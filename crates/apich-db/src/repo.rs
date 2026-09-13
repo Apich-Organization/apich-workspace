@@ -49,6 +49,7 @@ use crate::models::User;
 use crate::models::UserOrgMembership;
 use crate::models::UserRole;
 use crate::models::UserTeamMembership;
+use crate::models::User2faChallenge;
 use crate::models::UserSession;
 use crate::models::Workspace;
 use crate::models::WorkspaceMember;
@@ -2410,6 +2411,7 @@ impl<'a> Repository<'a> {
                 smtp_use_tls = COALESCE($8, smtp_use_tls),
                 smtp_force_tls = COALESCE($9, smtp_force_tls),
                 smtp_enabled = COALESCE($10, smtp_enabled),
+                require_2fa = COALESCE($11, require_2fa),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = 1
             RETURNING *
@@ -2425,9 +2427,30 @@ impl<'a> Repository<'a> {
         .bind(dto.smtp_use_tls)
         .bind(dto.smtp_force_tls)
         .bind(dto.smtp_enabled)
+        .bind(dto.require_2fa)
         .fetch_one(self.pool)
         .await?;
 
+        Ok(settings)
+    }
+
+    /// Update global 2FA policy enforcement.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn update_system_settings_2fa(&self, require_2fa: bool) -> Result<SystemSettings> {
+        let settings = sqlx::query_as::<_, SystemSettings>(
+            r"
+            UPDATE system_settings
+            SET require_2fa = $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+            RETURNING *
+            ",
+        )
+        .bind(require_2fa)
+        .fetch_one(self.pool)
+        .await?;
         Ok(settings)
     }
 
@@ -2917,5 +2940,130 @@ impl<'a> Repository<'a> {
         .fetch_optional(self.pool)
         .await?;
         Ok(version)
+    }
+
+    /// Get a user's TOTP secret.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn get_user_totp_secret(&self, user_id: Uuid) -> Result<Option<String>> {
+        let rec: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT totp_secret FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(self.pool)
+                .await?;
+        Ok(rec.and_then(|(s,)| s))
+    }
+
+    /// Set a user's TOTP secret and enabled status.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn set_user_totp(
+        &self,
+        user_id: Uuid,
+        secret: Option<&str>,
+        enabled: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE users SET totp_secret = $2, totp_enabled = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        )
+        .bind(user_id)
+        .bind(secret)
+        .bind(enabled)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Create a transient 2FA challenge for a user during login.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn create_2fa_challenge(
+        &self,
+        user_id: Uuid,
+        return_to: Option<&str>,
+    ) -> Result<User2faChallenge> {
+        let expires_at = Utc::now() + chrono::Duration::minutes(10);
+        let challenge = sqlx::query_as::<_, User2faChallenge>(
+            r"
+            INSERT INTO user_2fa_challenges (user_id, return_to, expires_at)
+            VALUES ($1, $2, $3)
+            RETURNING *
+            ",
+        )
+        .bind(user_id)
+        .bind(return_to)
+        .bind(expires_at)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(challenge)
+    }
+
+    /// Get a 2FA challenge by ID, ensuring it has not expired.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn get_2fa_challenge(
+        &self,
+        challenge_id: Uuid,
+    ) -> Result<Option<User2faChallenge>> {
+        let challenge = sqlx::query_as::<_, User2faChallenge>(
+            "SELECT * FROM user_2fa_challenges WHERE id = $1 AND expires_at > CURRENT_TIMESTAMP",
+        )
+        .bind(challenge_id)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(challenge)
+    }
+
+    /// Set an email verification code hash on a 2FA challenge.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn set_2fa_challenge_email_code(
+        &self,
+        challenge_id: Uuid,
+        code_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query(
+            r"
+            UPDATE user_2fa_challenges
+            SET email_code_hash = $2, email_code_expires_at = $3
+            WHERE id = $1
+            ",
+        )
+        .bind(challenge_id)
+        .bind(code_hash)
+        .bind(expires_at)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a 2FA challenge once completed.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn delete_2fa_challenge(&self, challenge_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM user_2fa_challenges WHERE id = $1")
+            .bind(challenge_id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Clean up expired 2FA challenges.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn cleanup_expired_2fa_challenges(&self) -> Result<u64> {
+        let result =
+            sqlx::query("DELETE FROM user_2fa_challenges WHERE expires_at <= CURRENT_TIMESTAMP")
+                .execute(self.pool)
+                .await?;
+        Ok(result.rows_affected())
     }
 }

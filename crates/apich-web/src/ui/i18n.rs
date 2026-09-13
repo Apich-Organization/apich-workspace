@@ -2140,4 +2140,145 @@ impl I18n {
             | Lang::Zh => "已锁定",
         }
     }
+
+    // --- Two-Factor Authentication (2FA) & TOTP ---
+    pub const fn global_2fa_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Two-Factor Authentication (2FA) Policy",
+            | Lang::Zh => "双因素认证 (2FA) 全局策略",
+        }
+    }
+
+    pub const fn global_2fa_enforce(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Enforce 2FA globally for all accounts",
+            | Lang::Zh => "全局强制所有账户启用 2FA 双因素认证",
+        }
+    }
+
+    pub const fn global_2fa_desc(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "When enabled, every user must authenticate with a second factor (Passkey, TOTP authenticator app, or email code) after password verification.",
+            | Lang::Zh => "启用后，所有用户在输入密码后必须通过第二重验证（通行密钥、身份验证器 TOTP 或邮件验证码）。",
+        }
+    }
+
+    pub const fn totp_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Two-Factor Authentication (TOTP)",
+            | Lang::Zh => "两步验证 (TOTP 动态验证码)",
+        }
+    }
+
+    pub const fn totp_desc(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Protect your account with an authenticator app (Google Authenticator, Microsoft Authenticator, Authy, etc.).",
+            | Lang::Zh => "使用身份验证器应用（如 Google Authenticator、Authy 等）为您的账户提供二次安全保护。",
+        }
+    }
+
+    pub const fn totp_status_active(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Active & Protected",
+            | Lang::Zh => "已启用保护",
+        }
+    }
+
+    pub const fn totp_status_disabled(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Not Configured",
+            | Lang::Zh => "未启用",
+        }
+    }
+
+    pub const fn totp_setup_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Set Up Authenticator App",
+            | Lang::Zh => "设置身份验证器",
+        }
+    }
+
+    pub const fn totp_disable_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Disable 2FA",
+            | Lang::Zh => "停用两步验证",
+        }
+    }
+
+    pub const fn totp_scan_qr_prompt(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Scan this QR code with your authenticator app:",
+            | Lang::Zh => "使用您的身份验证器应用扫描下方二维码：",
+        }
+    }
+
+    pub const fn totp_manual_key_prompt(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Unable to scan the QR code? Enter this secret key manually into your app:",
+            | Lang::Zh => "无法扫描二维码？请手动将以下密钥添加至验证器应用：",
+        }
+    }
+
+    pub const fn totp_copy_key(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Copy Key",
+            | Lang::Zh => "复制密钥",
+        }
+    }
+
+    pub const fn totp_verify_code_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "8-Digit Verification Code",
+            | Lang::Zh => "8 位动态验证码",
+        }
+    }
+
+    pub const fn totp_activate_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Verify & Activate 2FA",
+            | Lang::Zh => "验证并启用两步验证",
+        }
+    }
+
+    pub const fn two_factor_login_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Two-Factor Authentication",
+            | Lang::Zh => "双因素身份验证",
+        }
+    }
+
+    pub const fn two_factor_login_subtitle(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Confirm your identity with a verification code or passkey to finish signing in.",
+            | Lang::Zh => "请输入验证码或使用通行密钥完成登录。",
+        }
+    }
+
+    pub const fn two_factor_code_placeholder(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "8-digit code",
+            | Lang::Zh => "8 位验证码",
+        }
+    }
+
+    pub const fn send_code_email_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "✉️ Send code to my email",
+            | Lang::Zh => "✉️ 发送验证码到我的邮箱",
+        }
+    }
+
+    pub const fn passkey_2fa_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "🔑 Verify with Passkey (FIDO2)",
+            | Lang::Zh => "🔑 使用通行密钥验证 (FIDO2)",
+        }
+    }
+
+    pub const fn verify_and_login_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Verify & Sign In",
+            | Lang::Zh => "验证并登录",
+        }
+    }
 }

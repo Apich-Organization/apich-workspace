@@ -1,3 +1,4 @@
+use crate::auth::build_clear_2fa_cookie;
 use crate::auth::build_clear_cookie;
 use crate::auth::build_session_cookie;
 use crate::auth::generate_session_token;
@@ -524,7 +525,15 @@ async fn passkey_auth_finish(
         .await?;
 
     let cookie = build_session_cookie(&token, 14 * 86400);
+    let clear_2fa = build_clear_2fa_cookie();
     let body = Json(AuthResponse { user, token });
 
-    Ok(([(header::SET_COOKIE, cookie)], body).into_response())
+    Ok((
+        [
+            (header::SET_COOKIE, cookie),
+            (header::SET_COOKIE, clear_2fa),
+        ],
+        body,
+    )
+        .into_response())
 }

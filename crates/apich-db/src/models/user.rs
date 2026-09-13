@@ -66,6 +66,8 @@ pub struct User {
     pub storage_quota_bytes: i64,
     /// Whether the user account is active.
     pub is_active: bool,
+    /// Whether the user has enabled Two-Factor Authentication via TOTP.
+    pub totp_enabled: bool,
     /// Account creation timestamp.
     pub created_at: DateTime<Utc>,
     /// Last account update timestamp.

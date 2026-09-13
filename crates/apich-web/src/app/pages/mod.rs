@@ -13,3 +13,4 @@ pub mod shared_project;
 pub mod table_page;
 pub mod template_library_page;
 pub mod terminal_page;
+pub mod two_factor_login;

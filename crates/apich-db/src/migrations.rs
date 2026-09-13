@@ -101,6 +101,11 @@ impl MigrationManager {
             name: "011_storage_quota_default_100mb",
             sql: STORAGE_QUOTA_DEFAULT_100MB_SQL,
         });
+        manager.register(Migration {
+            version: 12,
+            name: "012_two_factor_auth",
+            sql: TWO_FACTOR_AUTH_SQL,
+        });
         manager
     }
 
@@ -279,6 +284,8 @@ CREATE TABLE IF NOT EXISTS users (
     role user_role NOT NULL DEFAULT 'member',
     storage_quota_bytes BIGINT NOT NULL DEFAULT 104857600,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    totp_secret VARCHAR(128),
+    totp_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -663,6 +670,7 @@ CREATE TABLE IF NOT EXISTS oauth_auth_codes (
 CREATE TABLE IF NOT EXISTS system_settings (
     id INT PRIMARY KEY DEFAULT 1,
     registration_mode VARCHAR(32) NOT NULL DEFAULT 'invite_only', -- 'open', 'invite_only', 'admin_only'
+    require_2fa BOOLEAN NOT NULL DEFAULT false,
     smtp_host VARCHAR(255),
     smtp_port INT,
     smtp_username VARCHAR(255),
@@ -697,6 +705,17 @@ CREATE TABLE IF NOT EXISTS invitations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 12b. User 2FA Login Challenges
+CREATE TABLE IF NOT EXISTS user_2fa_challenges (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email_code_hash VARCHAR(128),
+    email_code_expires_at TIMESTAMPTZ,
+    return_to VARCHAR(512),
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 13. Indexes for high performance lookup
 CREATE INDEX IF NOT EXISTS idx_teams_org ON teams(org_id);
 CREATE INDEX IF NOT EXISTS idx_teams_parent ON teams(parent_team_id);
@@ -711,6 +730,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token);
 CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(email);
+CREATE INDEX IF NOT EXISTS idx_user_2fa_challenges_user ON user_2fa_challenges(user_id);
 
 -- Triggers for updated_at
 DROP TRIGGER IF EXISTS trg_organizations_updated_at ON organizations;
@@ -900,6 +920,30 @@ pub const STORAGE_QUOTA_DEFAULT_100MB_SQL: &str = r"
 -- 011: Update default storage quota to 100 MB
 ALTER TABLE users
     ALTER COLUMN storage_quota_bytes SET DEFAULT 104857600;
+";
+
+/// SQL schema migration 012: Global 2FA policy, TOTP user credentials, and 2FA login challenges
+pub const TWO_FACTOR_AUTH_SQL: &str = r"
+-- 012: Global 2FA policy enforcement in system_settings
+ALTER TABLE system_settings
+    ADD COLUMN IF NOT EXISTS require_2fa BOOLEAN NOT NULL DEFAULT false;
+
+-- 012: TOTP secret and activation flag in users
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(128),
+    ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false;
+
+-- 012: Temporary challenges for two-step 2FA login verification
+CREATE TABLE IF NOT EXISTS user_2fa_challenges (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email_code_hash VARCHAR(128),
+    email_code_expires_at TIMESTAMPTZ,
+    return_to VARCHAR(512),
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_user_2fa_challenges_user ON user_2fa_challenges(user_id);
 ";
 
 

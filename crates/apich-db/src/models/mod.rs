@@ -34,6 +34,7 @@ pub use auth::RegistrationMode;
 pub use auth::SshPublicKey;
 pub use auth::SystemSettings;
 pub use auth::UpdateSystemSettingsDto;
+pub use auth::User2faChallenge;
 pub use auth::UserSession;
 pub use document::CreateDocumentDto;
 pub use document::DocType;

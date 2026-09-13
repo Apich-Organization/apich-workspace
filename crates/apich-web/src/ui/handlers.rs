@@ -1,6 +1,8 @@
 use super::i18n::resolve_language;
 use super::i18n::I18n;
 use super::i18n::Lang;
+use crate::auth::build_2fa_cookie;
+use crate::auth::build_clear_2fa_cookie;
 use crate::auth::build_clear_cookie;
 use crate::auth::build_session_cookie;
 use crate::auth::generate_session_token;
@@ -8,6 +10,7 @@ use crate::auth::hash_password;
 use crate::auth::hash_session_token;
 use crate::auth::verify_password;
 use crate::auth::AuthUser;
+use crate::auth::TWO_FACTOR_COOKIE_NAME;
 use crate::error::WebError;
 use crate::services::KnowledgeSyncService;
 use crate::services::SqliteTableService;
@@ -214,6 +217,9 @@ pub fn build_ui_router() -> Router<AppState> {
         // Authentication pages & redirects
         .route("/", get(dashboard_page))
         .route("/login", get(login_page).post(login_form))
+        .route("/login/2fa", get(two_factor_login_page))
+        .route("/login/2fa/verify", post(two_factor_verify_form))
+        .route("/login/2fa/send-email", post(two_factor_send_email_form))
         .route("/register", get(register_page).post(register_form))
         .route("/logout", get(logout_action).post(logout_action))
         // Anonymous public-link project viewer (no auth required)
@@ -429,6 +435,8 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/settings/gpg/add", post(add_gpg_key_action))
         .route("/settings/gpg/:id/delete", post(delete_gpg_key_action))
         .route("/settings/passkey/:id/delete", post(delete_passkey_action))
+        .route("/settings/totp/activate", post(activate_totp_form))
+        .route("/settings/totp/disable", post(disable_totp_form))
         // Admin Users Management
         .route("/admin/users", get(admin_users_page))
         .route("/admin/users/new", post(create_user_form))
@@ -574,6 +582,62 @@ async fn login_page(
     Html(html).into_response()
 }
 
+/// Form data for 2FA verification submission
+#[derive(Debug, Deserialize)]
+pub struct TwoFactorVerifyForm {
+    pub challenge_id: String,
+    pub code: String,
+    pub return_to: Option<String>,
+}
+
+/// Form data for requesting an email verification code
+#[derive(Debug, Deserialize)]
+pub struct TwoFactorSendEmailForm {
+    pub challenge_id: String,
+    pub return_to: Option<String>,
+}
+
+fn get_2fa_challenge_from_headers(headers: &HeaderMap) -> Option<String> {
+    let cookie_str = headers.get(header::COOKIE).and_then(|h| h.to_str().ok())?;
+    for cookie in cookie_str.split(';') {
+        let mut parts = cookie.trim().splitn(2, '=');
+        if let (Some(name), Some(val)) = (parts.next(), parts.next()) {
+            if name == TWO_FACTOR_COOKIE_NAME {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn parse_challenge_uuid(s: &str) -> Option<Uuid> {
+    Uuid::parse_str(s.trim()).ok()
+}
+
+async fn resolve_2fa_challenge(
+    repo: &apich_db::Repository<'_>,
+    headers: &HeaderMap,
+    param_challenge: Option<&str>,
+) -> Option<apich_db::User2faChallenge> {
+    if let Some(ch_id) = param_challenge.and_then(parse_challenge_uuid) {
+        if let Ok(Some(ch)) = repo.get_2fa_challenge(ch_id).await {
+            if ch.expires_at > Utc::now() {
+                return Some(ch);
+            }
+        }
+    }
+    if let Some(cookie_str) = get_2fa_challenge_from_headers(headers) {
+        if let Some(ch_id) = parse_challenge_uuid(&cookie_str) {
+            if let Ok(Some(ch)) = repo.get_2fa_challenge(ch_id).await {
+                if ch.expires_at > Utc::now() {
+                    return Some(ch);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Handle Form-based Login
 async fn login_form(
     State(state): State<AppState>,
@@ -603,6 +667,32 @@ async fn login_form(
         return Redirect::to("/login?error=Invalid username or password").into_response();
     }
 
+    let target = payload
+        .return_to
+        .as_deref()
+        .filter(|s| s.starts_with('/') && !s.starts_with("//"))
+        .unwrap_or("/");
+
+    let settings = repo.get_system_settings().await.unwrap_or_default();
+    if settings.require_2fa || user.totp_enabled {
+        let challenge = match repo.create_2fa_challenge(user.id, Some(target)).await {
+            Ok(ch) => ch,
+            Err(e) => {
+                tracing::error!("Failed to create 2FA challenge: {}", e);
+                return Redirect::to("/login?error=Failed to initialize 2FA verification").into_response();
+            }
+        };
+
+        let challenge_id_str = challenge.id.to_string();
+        let challenge_cookie = build_2fa_cookie(&challenge_id_str, 600);
+        let redirect_url = format!(
+            "/login/2fa?challenge_id={}&return_to={}",
+            urlencoding::encode(&challenge_id_str),
+            urlencoding::encode(target)
+        );
+        return ([(header::SET_COOKIE, challenge_cookie)], Redirect::to(&redirect_url)).into_response();
+    }
+
     let token = generate_session_token();
     let token_hash = hash_session_token(&token);
     let expires_at = Utc::now()
@@ -617,14 +707,236 @@ async fn login_form(
         return Redirect::to("/login?error=Failed to initialize login session").into_response();
     }
 
+    let cookie = build_session_cookie(&token, 14 * 86400);
+    ([(header::SET_COOKIE, cookie)], Redirect::to(target)).into_response()
+}
+
+/// Two-Factor Authentication Verification Page (TOTP / Email / Passkey)
+async fn two_factor_login_page(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Response {
+    if auth.is_some() {
+        return Redirect::to("/").into_response();
+    }
+
+    let repo = state.db.repository();
+    let challenge_param = params.get("challenge_id").map(|s| s.as_str());
+    let Some(challenge) = resolve_2fa_challenge(&repo, &headers, challenge_param).await else {
+        return Redirect::to("/login?error=2FA session expired or invalid. Please sign in again.").into_response();
+    };
+
+    let Some(user) = repo.get_user_by_id(challenge.user_id).await.unwrap_or(None) else {
+        return Redirect::to("/login?error=User account not found.").into_response();
+    };
+
+    if !user.is_active {
+        return Redirect::to("/login?error=This account is currently locked.").into_response();
+    }
+
+    let passkeys = repo
+        .get_fido2_credentials_by_user(user.id)
+        .await
+        .unwrap_or_default();
+    let has_passkeys = !passkeys.is_empty();
+
+    let i18n = get_i18n(&headers, Some(&params));
+    let notice = params.get("notice").cloned();
+    let error = params.get("error").cloned();
+    let return_to = params
+        .get("return_to")
+        .cloned()
+        .filter(|s| s.starts_with('/') && !s.starts_with("//"))
+        .unwrap_or_else(|| "/".to_string());
+
+    let challenge_id_str = challenge.id.to_string();
+    let html = crate::app::components::render_document(move || {
+        leptos::prelude::view! {
+            <crate::app::pages::two_factor_login::TwoFactorLoginPage
+                challenge_id=challenge_id_str
+                username=user.username
+                email=user.email
+                return_to=return_to
+                has_passkeys=has_passkeys
+                notice=notice
+                error=error
+                i18n=i18n
+                current_path="/login/2fa".to_string()
+            />
+        }
+    });
+    Html(html).into_response()
+}
+
+/// Verify 2FA Code (TOTP or Email Verification Code)
+async fn two_factor_verify_form(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(payload): Form<TwoFactorVerifyForm>,
+) -> Response {
+    let repo = state.db.repository();
+    let challenge_token = payload.challenge_id.trim();
+    let Some(challenge) = resolve_2fa_challenge(&repo, &headers, Some(challenge_token)).await else {
+        return Redirect::to("/login?error=2FA session expired. Please sign in again.").into_response();
+    };
+
+    let Some(user) = repo.get_user_by_id(challenge.user_id).await.unwrap_or(None) else {
+        return Redirect::to("/login?error=User account not found.").into_response();
+    };
+
+    if !user.is_active {
+        return Redirect::to("/login?error=This account is currently locked.").into_response();
+    }
+
+    let code = payload.code.trim();
+    let mut verified = false;
+
+    // 1. Try TOTP code if user has TOTP enabled
+    if user.totp_enabled {
+        if let Ok(Some(secret)) = repo.get_user_totp_secret(user.id).await {
+            if crate::auth::verify_totp(&secret, code) {
+                verified = true;
+            }
+        }
+    }
+
+    // 2. Try Email verification code if generated for this challenge
+    if !verified {
+        if let Some(ref email_code_hash) = challenge.email_code_hash {
+            let not_expired = challenge
+                .email_code_expires_at
+                .is_none_or(|exp| exp > Utc::now());
+            if not_expired {
+                let candidate_hash = hash_session_token(code);
+                if &candidate_hash == email_code_hash {
+                    verified = true;
+                }
+            }
+        }
+    }
+
     let target = payload
         .return_to
         .as_deref()
         .filter(|s| s.starts_with('/') && !s.starts_with("//"))
         .unwrap_or("/");
 
-    let cookie = build_session_cookie(&token, 14 * 86400);
-    ([(header::SET_COOKIE, cookie)], Redirect::to(target)).into_response()
+    if !verified {
+        let redirect_url = format!(
+            "/login/2fa?challenge_id={}&return_to={}&error={}",
+            urlencoding::encode(challenge_token),
+            urlencoding::encode(target),
+            urlencoding::encode("Invalid verification code. Please check your authenticator or email code.")
+        );
+        return Redirect::to(&redirect_url).into_response();
+    }
+
+    // Verification successful: consume challenge and create session
+    let _ = repo.delete_2fa_challenge(challenge.id).await;
+
+    let token = generate_session_token();
+    let token_hash = hash_session_token(&token);
+    let expires_at = Utc::now()
+        .checked_add_signed(chrono::Duration::days(14))
+        .unwrap_or_else(Utc::now);
+
+    if let Err(e) = repo
+        .create_user_session(user.id, &token_hash, expires_at, None, None)
+        .await
+    {
+        tracing::error!("Failed to create user session after 2FA: {}", e);
+        return Redirect::to("/login?error=Failed to initialize login session").into_response();
+    }
+
+    let session_cookie = build_session_cookie(&token, 14 * 86400);
+    let clear_2fa_cookie = build_clear_2fa_cookie();
+
+    let mut response = Redirect::to(target).into_response();
+    if let Ok(val) = session_cookie.parse() {
+        response.headers_mut().append(header::SET_COOKIE, val);
+    }
+    if let Ok(val) = clear_2fa_cookie.parse() {
+        response.headers_mut().append(header::SET_COOKIE, val);
+    }
+    response
+}
+
+/// Request an 8-digit verification code to be dispatched via email
+async fn two_factor_send_email_form(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(payload): Form<TwoFactorSendEmailForm>,
+) -> Response {
+    let repo = state.db.repository();
+    let challenge_token = payload.challenge_id.trim();
+    let Some(challenge) = resolve_2fa_challenge(&repo, &headers, Some(challenge_token)).await else {
+        return Redirect::to("/login?error=2FA session expired. Please sign in again.").into_response();
+    };
+
+    let Some(user) = repo.get_user_by_id(challenge.user_id).await.unwrap_or(None) else {
+        return Redirect::to("/login?error=User account not found.").into_response();
+    };
+
+    let target = payload
+        .return_to
+        .as_deref()
+        .filter(|s| s.starts_with('/') && !s.starts_with("//"))
+        .unwrap_or("/");
+
+    let settings = repo.get_system_settings().await.unwrap_or_default();
+    if !settings.smtp_enabled {
+        let redirect_url = format!(
+            "/login/2fa?challenge_id={}&return_to={}&error={}",
+            urlencoding::encode(challenge_token),
+            urlencoding::encode(target),
+            urlencoding::encode("SMTP email delivery is not enabled on this platform. Please use an authenticator app or passkey.")
+        );
+        return Redirect::to(&redirect_url).into_response();
+    }
+
+    let code_num: u32 = rand::random::<u32>() % 90_000_000 + 10_000_000;
+    let code = format!("{code_num:08}");
+    let code_hash = hash_session_token(&code);
+    let code_expires_at = Utc::now() + chrono::Duration::minutes(10);
+
+    if let Err(e) = repo
+        .set_2fa_challenge_email_code(challenge.id, &code_hash, code_expires_at)
+        .await
+    {
+        tracing::error!("Failed to store 2FA email code hash: {}", e);
+        let redirect_url = format!(
+            "/login/2fa?challenge_id={}&return_to={}&error={}",
+            urlencoding::encode(challenge_token),
+            urlencoding::encode(target),
+            urlencoding::encode("Failed to generate verification code.")
+        );
+        return Redirect::to(&redirect_url).into_response();
+    }
+
+    if let Err(e) = state
+        .mailer
+        .send_2fa_code_email(&settings, &user.email, &user.username, &code)
+        .await
+    {
+        tracing::error!("Failed to dispatch 2FA email code to {}: {}", user.email, e);
+        let redirect_url = format!(
+            "/login/2fa?challenge_id={}&return_to={}&error={}",
+            urlencoding::encode(challenge_token),
+            urlencoding::encode(target),
+            urlencoding::encode(&format!("Failed to send verification code email: {e}"))
+        );
+        return Redirect::to(&redirect_url).into_response();
+    }
+
+    let redirect_url = format!(
+        "/login/2fa?challenge_id={}&return_to={}&notice={}",
+        urlencoding::encode(challenge_token),
+        urlencoding::encode(target),
+        urlencoding::encode(&format!("An 8-digit verification code has been sent to {}", user.email))
+    );
+    Redirect::to(&redirect_url).into_response()
 }
 
 /// Register Page: Authenticated users redirected to /
@@ -3283,6 +3595,7 @@ pub struct UpdatePlatformSettingsForm {
     pub smtp_security: Option<String>,
     pub smtp_use_tls: Option<String>,
     pub smtp_force_tls: Option<String>,
+    pub require_2fa: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3322,6 +3635,12 @@ async fn settings_page(
     let gpg_keys = repo.list_gpg_public_keys(user.id).await.unwrap_or_default();
     let new_pat_token = params.get("new_pat_token").cloned();
 
+    let totp_setup = if !user.totp_enabled {
+        crate::auth::generate_totp_setup(&user.email).ok()
+    } else {
+        None
+    };
+
     let html = crate::app::components::render_document(move || {
         leptos::prelude::view! {
             <crate::app::pages::settings::SettingsPage
@@ -3332,6 +3651,7 @@ async fn settings_page(
                 ssh_keys=ssh_keys
                 gpg_keys=gpg_keys
                 new_pat_token=new_pat_token
+                totp_setup=totp_setup
                 notice=notice
                 error=error
                 i18n=i18n
@@ -3564,6 +3884,71 @@ async fn delete_passkey_action(
         .delete_fido2_credential(user.id, cred_id)
         .await;
     Redirect::to("/settings#passkeys").into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ActivateTotpForm {
+    pub secret: String,
+    pub code: String,
+}
+
+/// Activate Two-Factor Authentication (TOTP)
+async fn activate_totp_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<ActivateTotpForm>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+
+    let clean_code = payload.code.trim();
+    let clean_secret = payload.secret.trim();
+
+    if !crate::auth::verify_totp(clean_secret, clean_code) {
+        return redirect_error(
+            "/settings",
+            "Invalid authenticator verification code. Please check your authenticator app and try again.",
+        );
+    }
+
+    let repo = state.db.repository();
+    if let Err(e) = repo.set_user_totp(user.id, Some(clean_secret), true).await {
+        tracing::error!("Failed to activate TOTP for user {}: {}", user.id, e);
+        return redirect_error(
+            "/settings",
+            "Failed to save Two-Factor Authentication configuration.",
+        );
+    }
+
+    redirect_notice(
+        "/settings",
+        "Two-Factor Authentication (TOTP) successfully enabled!",
+    )
+}
+
+/// Disable Two-Factor Authentication (TOTP)
+async fn disable_totp_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+
+    let repo = state.db.repository();
+    if let Err(e) = repo.set_user_totp(user.id, None, false).await {
+        tracing::error!("Failed to disable TOTP for user {}: {}", user.id, e);
+        return redirect_error(
+            "/settings",
+            "Failed to disable Two-Factor Authentication.",
+        );
+    }
+
+    redirect_notice(
+        "/settings",
+        "Two-Factor Authentication has been disabled.",
+    )
 }
 
 /// Update user profile
@@ -4028,6 +4413,14 @@ async fn update_platform_settings_form(
     }
 
     let is_smtp = payload.section.as_deref() == Some("smtp");
+    let require_2fa = if !is_smtp {
+        Some(
+            payload.require_2fa.as_deref() == Some("true")
+                || payload.require_2fa.as_deref() == Some("on"),
+        )
+    } else {
+        None
+    };
     let smtp_enabled = if is_smtp {
         Some(
             payload.smtp_enabled.as_deref() == Some("true")
@@ -4068,6 +4461,7 @@ async fn update_platform_settings_form(
         smtp_use_tls,
         smtp_force_tls,
         smtp_enabled,
+        require_2fa,
     };
 
     match state.db.repository().update_system_settings(dto).await {

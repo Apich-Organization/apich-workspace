@@ -45,6 +45,24 @@ pub fn build_clear_cookie() -> String {
     format!("{SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
 }
 
+/// Name of the HTTP cookie used to store the transient 2FA challenge token.
+pub const TWO_FACTOR_COOKIE_NAME: &str = "apich_2fa_challenge";
+
+/// Helper to format Set-Cookie header for transient 2FA challenge
+#[must_use]
+pub fn build_2fa_cookie(
+    token: &str,
+    max_age_secs: i64,
+) -> String {
+    format!("{TWO_FACTOR_COOKIE_NAME}={token}; Path=/; Max-Age={max_age_secs}; HttpOnly; SameSite=Lax")
+}
+
+/// Helper to clear transient 2FA challenge cookie
+#[must_use]
+pub fn build_clear_2fa_cookie() -> String {
+    format!("{TWO_FACTOR_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+}
+
 /// Authenticated user extracted from session cookie or Authorization Bearer header
 #[derive(Debug, Clone)]
 pub struct AuthUser(pub User);
