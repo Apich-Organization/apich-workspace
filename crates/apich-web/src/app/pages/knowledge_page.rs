@@ -11,7 +11,6 @@ use crate::services::knowledge_sync::KanbanBoard;
 use crate::services::knowledge_sync::KnowledgeGraph;
 use crate::services::knowledge_sync::KANBAN_UNSORTED_COLUMN_ID;
 use crate::ui::i18n::I18n;
-use apich_db::Project;
 use leptos::prelude::*;
 
 pub fn render_kanban(

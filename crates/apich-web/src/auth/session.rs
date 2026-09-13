@@ -73,7 +73,10 @@ where
                             if let Ok(user_id) = uuid::Uuid::parse_str(&claims.sub) {
                                 let repo = app_state.db.repository();
                                 if let Ok(Some(user)) = repo.get_user_by_id(user_id).await {
-                                    return Ok(Self(user));
+                                    if user.is_active {
+                                        return Ok(Self(user));
+                                    }
+                                    return Err(WebError::Unauthorized);
                                 }
                             }
                         }
@@ -82,12 +85,18 @@ where
                     let token_hash = hash_session_token(token);
                     let repo = app_state.db.repository();
                     if let Ok(Some(user)) = repo.get_user_by_session_token_hash(&token_hash).await {
-                        return Ok(Self(user));
+                        if user.is_active {
+                            return Ok(Self(user));
+                        }
+                        return Err(WebError::Unauthorized);
                     }
                     // Personal access tokens are hashed with the same scheme as session tokens
                     // (see `handlers::generate_pat`), so a PAT presented as a Bearer token works too.
                     if let Ok(Some(user)) = repo.get_user_by_active_pat_hash(&token_hash).await {
-                        return Ok(Self(user));
+                        if user.is_active {
+                            return Ok(Self(user));
+                        }
+                        return Err(WebError::Unauthorized);
                     }
                 }
 
@@ -104,7 +113,10 @@ where
                                 if let Ok(Some(user)) =
                                     repo.get_user_by_active_pat_hash(&token_hash).await
                                 {
-                                    return Ok(Self(user));
+                                    if user.is_active {
+                                        return Ok(Self(user));
+                                    }
+                                    return Err(WebError::Unauthorized);
                                 }
                             }
                         }
@@ -125,7 +137,10 @@ where
                             if let Ok(Some(user)) =
                                 repo.get_user_by_session_token_hash(&token_hash).await
                             {
-                                return Ok(Self(user));
+                                if user.is_active {
+                                    return Ok(Self(user));
+                                }
+                                return Err(WebError::Unauthorized);
                             }
                         }
                     }

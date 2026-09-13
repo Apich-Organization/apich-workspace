@@ -36,6 +36,7 @@ use crate::models::SystemSettings;
 use crate::models::Team;
 use crate::models::TeamMemberWithUser;
 use crate::models::TeamTreeNode;
+use crate::models::TeamWithOrg;
 use crate::models::Template;
 use crate::models::TemplateShare;
 use crate::models::TemplateVersion;
@@ -45,7 +46,9 @@ use crate::models::UpdateSystemSettingsDto;
 use crate::models::UpdateTeamDto;
 use crate::models::UpdateUserProfileDto;
 use crate::models::User;
+use crate::models::UserOrgMembership;
 use crate::models::UserRole;
+use crate::models::UserTeamMembership;
 use crate::models::UserSession;
 use crate::models::Workspace;
 use crate::models::WorkspaceMember;
@@ -82,7 +85,7 @@ impl<'a> Repository<'a> {
         let is_platform_admin = dto
             .is_platform_admin
             .unwrap_or(matches!(role, UserRole::Admin));
-        let quota = dto.storage_quota_bytes.unwrap_or(10 * 1024 * 1024 * 1024);
+        let quota = dto.storage_quota_bytes.unwrap_or(100 * 1024 * 1024);
 
         let user = sqlx::query_as::<_, User>(
             r"
@@ -188,6 +191,235 @@ impl<'a> Repository<'a> {
         .await?;
 
         Ok(())
+    }
+
+    /// Toggle user active status and purge active sessions if locked.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn set_user_active(
+        &self,
+        user_id: Uuid,
+        is_active: bool,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            r"
+            UPDATE users
+            SET is_active = $2,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            ",
+        )
+        .bind(user_id)
+        .bind(is_active)
+        .execute(&mut *tx)
+        .await?;
+
+        if !is_active {
+            sqlx::query("DELETE FROM user_sessions WHERE user_id = $1")
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Update user total storage space limit in bytes.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn update_user_storage_quota(
+        &self,
+        user_id: Uuid,
+        quota_bytes: i64,
+    ) -> Result<()> {
+        sqlx::query(
+            r"
+            UPDATE users
+            SET storage_quota_bytes = $2,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            ",
+        )
+        .bind(user_id)
+        .bind(quota_bytes)
+        .execute(self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Permanently delete a user account and cascade delete associated records.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn delete_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        // 1. Delete authentication & session records
+        sqlx::query("DELETE FROM user_sessions WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM personal_access_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM ssh_public_keys WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM gpg_public_keys WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM fido2_credentials WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 2. Delete memberships
+        sqlx::query("DELETE FROM org_members WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM team_members WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM workspace_members WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM project_members WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 3. Delete owned projects and workspaces
+        sqlx::query("DELETE FROM projects WHERE owner_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM workspaces WHERE owner_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // 4. Delete user record
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// List all organization memberships for a user.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn list_user_org_memberships(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<UserOrgMembership>> {
+        let rows = sqlx::query_as::<_, UserOrgMembership>(
+            r"
+            SELECT om.org_id, o.name AS org_name, o.slug AS org_slug, om.role
+            FROM org_members om
+            JOIN organizations o ON om.org_id = o.id
+            WHERE om.user_id = $1
+            ORDER BY o.name ASC
+            ",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    /// List all team memberships for a user.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn list_user_team_memberships(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<UserTeamMembership>> {
+        let rows = sqlx::query_as::<_, UserTeamMembership>(
+            r"
+            SELECT tm.team_id, t.name AS team_name, t.slug AS team_slug, t.org_id, o.name AS org_name, tm.role
+            FROM team_members tm
+            JOIN teams t ON tm.team_id = t.id
+            JOIN organizations o ON t.org_id = o.id
+            WHERE tm.user_id = $1
+            ORDER BY t.name ASC
+            ",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    /// List all teams with their parent organization display name.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn list_all_teams_with_org(&self) -> Result<Vec<TeamWithOrg>> {
+        let rows = sqlx::query_as::<_, TeamWithOrg>(
+            r"
+            SELECT t.id, t.org_id, t.name, t.slug, t.description, o.name AS org_name
+            FROM teams t
+            JOIN organizations o ON t.org_id = o.id
+            ORDER BY o.name ASC, t.name ASC
+            ",
+        )
+        .fetch_all(self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    /// Retrieve all on-disk storage directory paths for a user's active projects and workspaces.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn get_user_storage_paths(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<String>> {
+        let mut paths = Vec::new();
+        let proj_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT storage_path FROM projects WHERE owner_id = $1 AND status != 'deleted'",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+        paths.extend(proj_rows.into_iter().map(|(p,)| p));
+
+        let ws_rows: Vec<(Option<String>,)> = sqlx::query_as(
+            "SELECT storage_path FROM workspaces WHERE owner_id = $1 AND storage_path IS NOT NULL",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await?;
+        for (p,) in ws_rows {
+            if let Some(p) = p {
+                paths.push(p);
+            }
+        }
+
+        Ok(paths)
     }
 
     // --- Workspace Operations ---
@@ -2176,7 +2408,8 @@ impl<'a> Repository<'a> {
                 smtp_from_email = COALESCE($6, smtp_from_email),
                 smtp_from_name = COALESCE($7, smtp_from_name),
                 smtp_use_tls = COALESCE($8, smtp_use_tls),
-                smtp_enabled = COALESCE($9, smtp_enabled),
+                smtp_force_tls = COALESCE($9, smtp_force_tls),
+                smtp_enabled = COALESCE($10, smtp_enabled),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = 1
             RETURNING *
@@ -2190,6 +2423,7 @@ impl<'a> Repository<'a> {
         .bind(dto.smtp_from_email)
         .bind(dto.smtp_from_name)
         .bind(dto.smtp_use_tls)
+        .bind(dto.smtp_force_tls)
         .bind(dto.smtp_enabled)
         .fetch_one(self.pool)
         .await?;

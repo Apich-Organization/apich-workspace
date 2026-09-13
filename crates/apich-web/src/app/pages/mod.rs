@@ -1,4 +1,5 @@
 pub mod admin_platform;
+pub mod admin_users;
 pub mod dashboard;
 pub mod document_editor_page;
 pub mod knowledge_page;

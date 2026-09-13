@@ -39,6 +39,16 @@ pub fn AdminPlatformPage(
         "Enter SMTP password".to_string()
     };
 
+    let current_sec = if settings.smtp_force_tls
+        || (settings.smtp_port == Some(465) && settings.smtp_use_tls)
+    {
+        "force_tls"
+    } else if settings.smtp_use_tls {
+        "starttls"
+    } else {
+        "none"
+    };
+
     let now = chrono::Utc::now();
     let invite_rows = if invitations.is_empty() {
         view! { <p class="text-muted" style="font-size:0.85rem; padding:1rem 0;">"No invitation codes created yet."</p> }.into_any()
@@ -208,7 +218,7 @@ pub fn AdminPlatformPage(
                             </div>
                             <div class="form-group">
                                 <label>{i18n.smtp_port()}</label>
-                                <input type="number" name="smtp_port" value=settings.smtp_port.map_or_else(|| "587".to_string(), |p| p.to_string()) placeholder="587" class="form-control" />
+                                <input type="number" id="smtp_port" name="smtp_port" value=settings.smtp_port.map_or_else(|| "587".to_string(), |p| p.to_string()) placeholder="587" class="form-control" />
                             </div>
                         </div>
 
@@ -235,10 +245,15 @@ pub fn AdminPlatformPage(
                         </div>
 
                         <div class="form-group" style="margin-bottom:1.25rem;">
-                            <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer;">
-                                <input type="checkbox" name="smtp_use_tls" value="true" checked=settings.smtp_use_tls style="width:16px; height:16px;" />
-                                <span>{i18n.smtp_security()}</span>
-                            </label>
+                            <label for="smtp_security" style="display:block; margin-bottom:0.4rem; font-weight:500;">{i18n.smtp_encryption_mode()}</label>
+                            <select id="smtp_security" name="smtp_security" class="form-control" style="max-width:480px;" onchange="var p=document.getElementById('smtp_port');if(p){if(this.value==='force_tls'&&(p.value==='587'||p.value==='25'||!p.value))p.value='465';else if(this.value==='starttls'&&(p.value==='465'||p.value==='25'||!p.value))p.value='587';else if(this.value==='none'&&(p.value==='465'||p.value==='587'||!p.value))p.value='25';}">
+                                <option value="force_tls" selected={current_sec == "force_tls"}>{i18n.smtp_sec_force_tls()}</option>
+                                <option value="starttls" selected={current_sec == "starttls"}>{i18n.smtp_sec_starttls()}</option>
+                                <option value="none" selected={current_sec == "none"}>{i18n.smtp_sec_none()}</option>
+                            </select>
+                            <small class="text-muted" style="display:block; margin-top:0.35rem; font-size:0.8rem;">
+                                "Force TLS / SMTPS wraps connection in TLS from byte 0 (port 465). STARTTLS connects in plain text and initiates TLS upgrade via STARTTLS command (port 587)."
+                            </small>
                         </div>
 
                         <button type="submit" class="btn btn-primary">{i18n.save_smtp_settings()}</button>

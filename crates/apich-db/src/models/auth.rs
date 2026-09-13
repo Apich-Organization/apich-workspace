@@ -107,6 +107,8 @@ pub struct SystemSettings {
     pub smtp_from_name: Option<String>,
     /// Whether to establish TLS encryption for SMTP connections.
     pub smtp_use_tls: bool,
+    /// Whether to force direct TLS wrapper (SMTPS, typically port 465) instead of STARTTLS.
+    pub smtp_force_tls: bool,
     /// Whether outbound email sending is enabled.
     pub smtp_enabled: bool,
     /// Last update timestamp of system settings.
@@ -125,6 +127,7 @@ impl Default for SystemSettings {
             smtp_from_email: None,
             smtp_from_name: None,
             smtp_use_tls: false,
+            smtp_force_tls: false,
             smtp_enabled: false,
             updated_at: Utc::now(),
         }
@@ -150,6 +153,8 @@ pub struct UpdateSystemSettingsDto {
     pub smtp_from_name: Option<String>,
     /// Updated TLS setting.
     pub smtp_use_tls: Option<bool>,
+    /// Updated Force TLS / SMTPS setting.
+    pub smtp_force_tls: Option<bool>,
     /// Updated enable/disable flag for email dispatch.
     pub smtp_enabled: Option<bool>,
 }

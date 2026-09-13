@@ -714,9 +714,11 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     line-height: 1;
 }
 .role-badge-admin { background: var(--primary-light); color: var(--primary-hover); border: 1px solid var(--primary-border); }
+.role-badge-owner { background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; }
 .role-badge-lead { background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; }
 .role-badge-editor { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
 .role-badge-viewer { background: var(--bg-subtle); color: var(--text-sub); border: 1px solid var(--border-subtle); }
+.role-badge-member { background: var(--bg-subtle); color: var(--text-sub); border: 1px solid var(--border-subtle); }
 
 /* Buttons with Smooth Bezier Elevation */
 .btn {
@@ -1098,6 +1100,11 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     overflow-y: auto;
     box-shadow: var(--shadow-lg);
     animation: subtle-fade-in 0.2s var(--ease-out-cubic);
+}
+.modal-card.modal-wide,
+.modal-card:has(.modal-wide) {
+    max-width: 860px;
+    width: min(860px, 95vw);
 }
 .modal-header {
     display: flex;

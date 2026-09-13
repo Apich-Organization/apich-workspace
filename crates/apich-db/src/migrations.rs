@@ -91,6 +91,16 @@ impl MigrationManager {
             name: "009_passkey_json_support",
             sql: PASSKEY_JSON_SUPPORT_SQL,
         });
+        manager.register(Migration {
+            version: 10,
+            name: "010_smtp_force_tls",
+            sql: SMTP_FORCE_TLS_SQL,
+        });
+        manager.register(Migration {
+            version: 11,
+            name: "011_storage_quota_default_100mb",
+            sql: STORAGE_QUOTA_DEFAULT_100MB_SQL,
+        });
         manager
     }
 
@@ -267,7 +277,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name VARCHAR(128) NOT NULL,
     avatar_url TEXT,
     role user_role NOT NULL DEFAULT 'member',
-    storage_quota_bytes BIGINT NOT NULL DEFAULT 10737418240,
+    storage_quota_bytes BIGINT NOT NULL DEFAULT 104857600,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -660,6 +670,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
     smtp_from_email VARCHAR(255),
     smtp_from_name VARCHAR(255),
     smtp_use_tls BOOLEAN NOT NULL DEFAULT true,
+    smtp_force_tls BOOLEAN NOT NULL DEFAULT false,
     smtp_enabled BOOLEAN NOT NULL DEFAULT false,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT single_row_settings CHECK (id = 1)
@@ -876,5 +887,20 @@ pub const PASSKEY_JSON_SUPPORT_SQL: &str = r"
 ALTER TABLE fido2_credentials
     ADD COLUMN IF NOT EXISTS passkey_json TEXT;
 ";
+
+/// SQL schema migration 010: Force TLS support for SMTPS (port 465) mail delivery
+pub const SMTP_FORCE_TLS_SQL: &str = r"
+-- 010: Support direct TLS wrapper (SMTPS / Force TLS) for SMTP
+ALTER TABLE system_settings
+    ADD COLUMN IF NOT EXISTS smtp_force_tls BOOLEAN NOT NULL DEFAULT false;
+";
+
+/// SQL schema migration 011: Default user storage quota set to 100 MB (104,857,600 bytes)
+pub const STORAGE_QUOTA_DEFAULT_100MB_SQL: &str = r"
+-- 011: Update default storage quota to 100 MB
+ALTER TABLE users
+    ALTER COLUMN storage_quota_bytes SET DEFAULT 104857600;
+";
+
 
 

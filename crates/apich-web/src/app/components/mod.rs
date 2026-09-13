@@ -103,6 +103,7 @@ pub enum ActiveNav {
     Settings,
     OrgAdmin,
     PlatformAdmin,
+    UserAdmin,
 }
 
 impl ActiveNav {
@@ -165,6 +166,10 @@ pub fn AppShell(
         Some(view! {
             <div class="sidebar-section">
                 <span class="sidebar-heading">"Platform"</span>
+                <a href="/admin/users" class="sidebar-link" class:active=active_nav.is(ActiveNav::UserAdmin)>
+                    <span class="sidebar-icon">"👥"</span>
+                    <span>{i18n.sidebar_user_admin()}</span>
+                </a>
                 <a href="/admin/platform" class="sidebar-link" class:active=active_nav.is(ActiveNav::PlatformAdmin)>
                     <span class="sidebar-icon">"🛡️"</span>
                     <span>{i18n.sidebar_platform_admin()}</span>

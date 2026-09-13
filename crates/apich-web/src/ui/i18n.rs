@@ -1406,6 +1406,34 @@ impl I18n {
         }
     }
 
+    pub const fn smtp_encryption_mode(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Transport Security / Encryption",
+            | Lang::Zh => "传输加密与安全协议",
+        }
+    }
+
+    pub const fn smtp_sec_force_tls(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Force TLS / SMTPS (Implicit TLS - Port 465)",
+            | Lang::Zh => "强制 TLS / SMTPS (隐式 TLS 直连 - 端口 465)",
+        }
+    }
+
+    pub const fn smtp_sec_starttls(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "STARTTLS (Explicit TLS Upgrade - Port 587)",
+            | Lang::Zh => "STARTTLS (明文升级 TLS - 端口 587)",
+        }
+    }
+
+    pub const fn smtp_sec_none(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "None / Plaintext (Unencrypted - Port 25)",
+            | Lang::Zh => "无加密 / 明文传输 (端口 25)",
+        }
+    }
+
     pub const fn save_smtp_settings(&self) -> &'static str {
         match self.lang {
             | Lang::En => "Save SMTP Configuration",
@@ -1991,6 +2019,125 @@ impl I18n {
         match self.lang {
             | Lang::En => "Copy Share Link",
             | Lang::Zh => "复制分享链接",
+        }
+    }
+
+    pub const fn sidebar_user_admin(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Users",
+            | Lang::Zh => "用户管理",
+        }
+    }
+
+    pub const fn user_admin_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Platform Users",
+            | Lang::Zh => "平台用户总览",
+        }
+    }
+
+    pub const fn user_admin_subtitle(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Provision users, monitor allocated vs used storage space, manage locks, reset passwords, and assign organizations & teams.",
+            | Lang::Zh => "管理平台账号、监控空间配额与已用容量、设置账号锁定、重置密码及分配所属机构和团队。",
+        }
+    }
+
+    pub const fn new_user(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "New User",
+            | Lang::Zh => "新建用户",
+        }
+    }
+
+    pub const fn create_user_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Create New User Account",
+            | Lang::Zh => "创建新用户账号",
+        }
+    }
+
+    pub const fn user_storage_quota(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Storage Quota",
+            | Lang::Zh => "空间配额",
+        }
+    }
+
+    pub const fn user_storage_used(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Storage Used",
+            | Lang::Zh => "已用容量",
+        }
+    }
+
+    pub const fn user_storage_quota_mb(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Storage Quota (MB)",
+            | Lang::Zh => "存储配额 (MB)",
+        }
+    }
+
+    pub const fn update_storage_quota(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Update Storage Quota",
+            | Lang::Zh => "修改存储配额",
+        }
+    }
+
+    pub const fn lock_user(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Lock User",
+            | Lang::Zh => "锁定用户",
+        }
+    }
+
+    pub const fn unlock_user(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Unlock User",
+            | Lang::Zh => "解锁用户",
+        }
+    }
+
+    pub const fn reset_password(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Reset Password",
+            | Lang::Zh => "重置密码",
+        }
+    }
+
+    pub const fn delete_user(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Delete User",
+            | Lang::Zh => "删除用户",
+        }
+    }
+
+    pub const fn assign_org_teams(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Assign Org / Teams",
+            | Lang::Zh => "分配机构 / 团队",
+        }
+    }
+
+    pub const fn account_status(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Status",
+            | Lang::Zh => "状态",
+        }
+    }
+
+    pub const fn active(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Active",
+            | Lang::Zh => "正常活跃",
+        }
+    }
+
+    pub const fn locked(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Locked",
+            | Lang::Zh => "已锁定",
         }
     }
 }

@@ -3,6 +3,8 @@ use crate::error::WebResult;
 use apich_db::SystemSettings;
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::Tls;
+use lettre::transport::smtp::client::TlsParameters;
 use lettre::AsyncSmtpTransport;
 use lettre::AsyncTransport;
 use lettre::Message;
@@ -60,6 +62,31 @@ impl MailerService {
             .clear();
     }
 
+    /// Configure TLS transport mode based on system settings and host/port heuristics.
+    fn build_tls_config(settings: &SystemSettings, host: &str, port: u16) -> WebResult<Tls> {
+        let force_tls = settings.smtp_force_tls
+            || std::env::var("SMTP_FORCE_TLS")
+                .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+                .unwrap_or(false)
+            || port == 465;
+
+        if force_tls {
+            let tls_params = TlsParameters::builder(host.to_string())
+                .build()
+                .map_err(|e| {
+                    WebError::Internal(format!("Failed to configure Force TLS / SMTPS: {e}"))
+                })?;
+            Ok(Tls::Wrapper(tls_params))
+        } else if settings.smtp_use_tls {
+            let tls_params = TlsParameters::builder(host.to_string())
+                .build()
+                .map_err(|e| WebError::Internal(format!("Failed to configure STARTTLS: {e}")))?;
+            Ok(Tls::Required(tls_params))
+        } else {
+            Ok(Tls::None)
+        }
+    }
+
     /// Send an invitation email to a user
     pub async fn send_invitation(
         &self,
@@ -101,6 +128,55 @@ impl MailerService {
             Login URL: {base_url}/login\n\n\
             You can now start managing research notes, Typst & LaTeX papers, and collaborative slide decks.\n\n\
             Best regards,\n\
+            The APICH Team"
+        );
+        self.send_mail(settings, to_email, &subject, &body).await
+    }
+
+    /// Send password reset notification email containing temporary credentials
+    pub async fn send_password_reset_email(
+        &self,
+        settings: &SystemSettings,
+        to_email: &str,
+        username: &str,
+        temp_password: &str,
+        base_url: &str,
+    ) -> WebResult<()> {
+        let subject = "[APICH] Temporary Password for Your Account".to_string();
+        let body = format!(
+            "Hello {username},\n\n\
+            An administrator has reset your password on APICH Technical & Academic Workspace.\n\n\
+            Your Temporary Credentials:\n\
+            Username: {username}\n\
+            Temporary Password: {temp_password}\n\
+            Login URL: {base_url}/login\n\n\
+            For account security, please sign in and immediately update your password under Account Settings.\n\n\
+            Best regards,\n\
+            The APICH Team"
+        );
+        self.send_mail(settings, to_email, &subject, &body).await
+    }
+
+    /// Send account provisioning email with credentials when an admin creates a user
+    pub async fn send_account_created_email(
+        &self,
+        settings: &SystemSettings,
+        to_email: &str,
+        username: &str,
+        display_name: &str,
+        initial_password: &str,
+        base_url: &str,
+    ) -> WebResult<()> {
+        let subject = "Your APICH Workspace Account Has Been Created".to_string();
+        let body = format!(
+            "Hello {display_name},\n\n\
+            An administrator has created an account for you on APICH Technical & Academic Workspace.\n\n\
+            Account Details:\n\
+            Username: {username}\n\
+            Temporary Password: {initial_password}\n\
+            Login URL: {base_url}/login\n\n\
+            Please sign in and set a custom password under Account Settings.\n\n\
+            Welcome to the APICH research environment!\n\
             The APICH Team"
         );
         self.send_mail(settings, to_email, &subject, &body).await
@@ -158,8 +234,10 @@ impl MailerService {
                 .body(body.to_string())
                 .map_err(|e| WebError::Internal(format!("Failed to build email message: {e}")))?;
 
-            let mut builder =
-                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
+            let tls_config = Self::build_tls_config(settings, host, port)?;
+            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
+                .port(port)
+                .tls(tls_config);
 
             if let (Some(user), Some(pwd)) = (&settings.smtp_username, &settings.smtp_password) {
                 if !user.is_empty() && !pwd.is_empty() {
@@ -188,6 +266,14 @@ impl MailerService {
             .as_deref()
             .filter(|h| !h.trim().is_empty());
 
+        let security_label = if settings.smtp_force_tls || settings.smtp_port == Some(465) {
+            "Force TLS / SMTPS (Implicit TLS - Port 465)"
+        } else if settings.smtp_use_tls {
+            "STARTTLS (Explicit TLS Upgrade - Port 587)"
+        } else {
+            "Disabled / Plaintext (Port 25)"
+        };
+
         let subject = "[APICH] SMTP Delivery Test Verification";
         let body = format!(
             "Hello,\n\n\
@@ -195,13 +281,15 @@ impl MailerService {
             Configuration Details:\n\
             - Host: {}\n\
             - Port: {}\n\
-            - Security (TLS): {}\n\
+            - Security: {}\n\
+            - Force TLS (SMTPS): {}\n\
             - Sender: {} <{}>\n\
             - Status: Active & Operational\n\n\
             If you received this message, outbound emailing is fully functional!",
             host.unwrap_or("simulated-localhost"),
             settings.smtp_port.unwrap_or(587),
-            if settings.smtp_use_tls { "Enabled" } else { "Disabled/Plain" },
+            security_label,
+            if settings.smtp_force_tls { "Enabled (Direct Wrapper)" } else { "Disabled" },
             settings.smtp_from_name.as_deref().unwrap_or("APICH Platform"),
             settings.smtp_from_email.as_deref().unwrap_or("noreply@apich.org"),
         );
@@ -234,8 +322,10 @@ impl MailerService {
                 .body(body.clone())
                 .map_err(|e| WebError::Internal(format!("Failed to build email message: {e}")))?;
 
-            let mut builder =
-                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host).port(port);
+            let tls_config = Self::build_tls_config(settings, host, port)?;
+            let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
+                .port(port)
+                .tls(tls_config);
 
             if let (Some(ref user), Some(ref pwd)) =
                 (&settings.smtp_username, &settings.smtp_password)

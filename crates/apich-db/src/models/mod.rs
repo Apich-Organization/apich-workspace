@@ -81,9 +81,13 @@ pub use template::TemplateVersion;
 pub use template::TemplateVisibility;
 pub use template::TemplateWithLatestVersion;
 pub use user::CreateUserDto;
+pub use user::TeamWithOrg;
 pub use user::UpdateUserProfileDto;
 pub use user::User;
+pub use user::UserOrgMembership;
 pub use user::UserRole;
+pub use user::UserTeamMembership;
+pub use user::UserWithStorageSummary;
 
 pub use workspace::CreateWorkspaceDto;
 pub use workspace::MemberRole;

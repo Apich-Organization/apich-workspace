@@ -13,16 +13,22 @@ pub fn ModalIsland(
     #[prop(into)] trigger_label: String,
     #[prop(into)] trigger_class: String,
     #[prop(into)] title: String,
+    #[prop(optional, into)] card_class: Option<String>,
     children: Children,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
     let backdrop_ref = NodeRef::<leptos::html::Div>::new();
     reparent_to_body(backdrop_ref);
 
+    let card_cls = match card_class {
+        Some(c) if !c.is_empty() => format!("modal-card {c}"),
+        _ => "modal-card".to_string(),
+    };
+
     view! {
         <button type="button" class=trigger_class on:click=move |_| open.set(true)>{trigger_label}</button>
         <div node_ref=backdrop_ref class="modal-backdrop" style:display=move || if open.get() { "flex" } else { "none" }>
-            <div class="modal-card">
+            <div class=card_cls>
                 <div class="modal-header">
                     <h3 class="modal-title">{title}</h3>
                     <button type="button" class="modal-close" on:click=move |_| open.set(false)>"×"</button>

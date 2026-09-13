@@ -429,6 +429,17 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/settings/gpg/add", post(add_gpg_key_action))
         .route("/settings/gpg/:id/delete", post(delete_gpg_key_action))
         .route("/settings/passkey/:id/delete", post(delete_passkey_action))
+        // Admin Users Management
+        .route("/admin/users", get(admin_users_page))
+        .route("/admin/users/new", post(create_user_form))
+        .route("/admin/users/toggle-lock", post(toggle_user_lock_form))
+        .route("/admin/users/reset-password", post(reset_user_password_form))
+        .route("/admin/users/update-quota", post(update_user_quota_form))
+        .route("/admin/users/delete", post(delete_user_form))
+        .route("/admin/users/assign-org", post(assign_user_org_form))
+        .route("/admin/users/remove-org", post(remove_user_org_form))
+        .route("/admin/users/assign-team", post(assign_user_team_form))
+        .route("/admin/users/remove-team", post(remove_user_team_form))
         // Admin Organizations & Teams
         .route("/admin/orgs", get(admin_orgs_page))
         .route("/admin/orgs/new", post(create_org_form))
@@ -580,6 +591,13 @@ async fn login_form(
     let Some(user) = user else {
         return Redirect::to("/login?error=Invalid username or password").into_response();
     };
+
+    if !user.is_active {
+        return Redirect::to(
+            "/login?error=This account is currently locked. Please contact a platform administrator.",
+        )
+        .into_response();
+    }
 
     if !verify_password(&payload.password, &user.password_hash).unwrap_or(false) {
         return Redirect::to("/login?error=Invalid username or password").into_response();
@@ -3262,7 +3280,9 @@ pub struct UpdatePlatformSettingsForm {
     pub smtp_password: Option<String>,
     pub smtp_from_email: Option<String>,
     pub smtp_from_name: Option<String>,
+    pub smtp_security: Option<String>,
     pub smtp_use_tls: Option<String>,
+    pub smtp_force_tls: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4016,13 +4036,23 @@ async fn update_platform_settings_form(
     } else {
         None
     };
-    let smtp_use_tls = if is_smtp {
-        Some(
-            payload.smtp_use_tls.as_deref() == Some("true")
-                || payload.smtp_use_tls.as_deref() == Some("on"),
-        )
+    let (smtp_use_tls, smtp_force_tls) = if is_smtp {
+        if let Some(sec) = payload.smtp_security.as_deref() {
+            match sec {
+                | "force_tls" => (Some(true), Some(true)),
+                | "starttls" => (Some(true), Some(false)),
+                | "none" => (Some(false), Some(false)),
+                | _ => (Some(false), Some(false)),
+            }
+        } else {
+            let use_tls = payload.smtp_use_tls.as_deref() == Some("true")
+                || payload.smtp_use_tls.as_deref() == Some("on");
+            let force_tls = payload.smtp_force_tls.as_deref() == Some("true")
+                || payload.smtp_force_tls.as_deref() == Some("on");
+            (Some(use_tls || force_tls), Some(force_tls))
+        }
     } else {
-        None
+        (None, None)
     };
 
     let pwd = payload.smtp_password.filter(|s| !s.trim().is_empty());
@@ -4036,6 +4066,7 @@ async fn update_platform_settings_form(
         smtp_from_email: payload.smtp_from_email.filter(|s| !s.trim().is_empty()),
         smtp_from_name: payload.smtp_from_name.filter(|s| !s.trim().is_empty()),
         smtp_use_tls,
+        smtp_force_tls,
         smtp_enabled,
     };
 
@@ -4153,6 +4184,503 @@ async fn delete_invitation_form(
     match repo.delete_invitation(payload.id).await {
         Ok(()) => redirect_notice("/admin/platform", "Invitation code revoked"),
         Err(e) => redirect_error("/admin/platform", e),
+    }
+}
+
+// --- Platform User Management ---
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUserAdminForm {
+    pub username: String,
+    pub email: String,
+    pub display_name: String,
+    pub password: Option<String>,
+    pub role: Option<String>,
+    pub is_platform_admin: Option<String>,
+    pub storage_quota_mb: Option<i64>,
+    pub send_welcome_email: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ToggleUserLockForm {
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResetUserPasswordForm {
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserQuotaForm {
+    pub user_id: Uuid,
+    pub storage_quota_mb: i64,
+    pub role: Option<String>,
+    pub is_platform_admin: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteUserForm {
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssignUserOrgForm {
+    pub user_id: Uuid,
+    pub org_id: Uuid,
+    pub role: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RemoveUserOrgForm {
+    pub user_id: Uuid,
+    pub org_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssignUserTeamForm {
+    pub user_id: Uuid,
+    pub team_id: Uuid,
+    pub role: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RemoveUserTeamForm {
+    pub user_id: Uuid,
+    pub team_id: Uuid,
+}
+
+fn calculate_directory_size_sync<P: AsRef<std::path::Path>>(path: P) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_dir() {
+                    total += calculate_directory_size_sync(entry.path());
+                } else {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+    total
+}
+
+/// Platform Users Overview & Management Page
+async fn admin_users_page(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return redirect_to_login(&headers, "/admin/users");
+    };
+
+    if !admin_user.is_platform_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            Html("<h3>403 Forbidden: Platform administrator privileges required</h3>".to_string()),
+        )
+            .into_response();
+    }
+
+    let repo = state.db.repository();
+    let raw_users = repo.list_users().await.unwrap_or_default();
+    let all_orgs = repo.list_organizations(1000).await.unwrap_or_default();
+    let all_teams = repo.list_all_teams_with_org().await.unwrap_or_default();
+
+    let mut users_summary = Vec::with_capacity(raw_users.len());
+    for u in raw_users {
+        let orgs = repo.list_user_org_memberships(u.id).await.unwrap_or_default();
+        let teams = repo.list_user_team_memberships(u.id).await.unwrap_or_default();
+        let paths = repo.get_user_storage_paths(u.id).await.unwrap_or_default();
+
+        let used_bytes = tokio::task::spawn_blocking(move || {
+            let mut sum: i64 = 0;
+            for path_str in paths {
+                let p = std::path::Path::new(&path_str);
+                if p.is_dir() {
+                    sum += calculate_directory_size_sync(p) as i64;
+                }
+            }
+            sum
+        })
+        .await
+        .unwrap_or(0);
+
+        users_summary.push(apich_db::UserWithStorageSummary {
+            user: u,
+            used_storage_bytes: used_bytes,
+            orgs,
+            teams,
+        });
+    }
+
+    let i18n = get_i18n(&headers, Some(&params));
+    let notice = params.get("notice").cloned();
+    let error = params.get("error").cloned();
+
+    let html = crate::app::components::render_document(move || {
+        leptos::prelude::view! {
+            <crate::app::pages::admin_users::AdminUsersPage
+                user=admin_user
+                is_org_or_team_admin=true
+                users=users_summary
+                all_orgs=all_orgs
+                all_teams=all_teams
+                notice=notice
+                error=error
+                i18n=i18n
+                current_path="/admin/users".to_string()
+            />
+        }
+    });
+
+    Html(html).into_response()
+}
+
+/// Create a new platform user account manually by administrator
+async fn create_user_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<CreateUserAdminForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+
+    let username = payload.username.trim().to_string();
+    let email = payload.email.trim().to_string();
+    let display_name = payload.display_name.trim().to_string();
+
+    if username.is_empty() || email.is_empty() || display_name.is_empty() {
+        return redirect_error("/admin/users", "Username, email, and display name are required");
+    }
+
+    // Use password or auto-generate
+    let (plain_password, is_generated) = if let Some(ref pwd) = payload.password {
+        if !pwd.trim().is_empty() {
+            (pwd.trim().to_string(), false)
+        } else {
+            (format!("Apich-{:08x}!", rand::random::<u32>()), true)
+        }
+    } else {
+        (format!("Apich-{:08x}!", rand::random::<u32>()), true)
+    };
+
+    let password_hash = match hash_password(&plain_password) {
+        Ok(h) => h,
+        Err(e) => return redirect_error("/admin/users", format!("Failed to hash password: {e}")),
+    };
+
+    let role = match payload.role.as_deref() {
+        Some("admin") => apich_db::UserRole::Admin,
+        Some("guest") => apich_db::UserRole::Guest,
+        _ => apich_db::UserRole::Member,
+    };
+
+    let is_platform_admin = payload.is_platform_admin.as_deref() == Some("true")
+        || payload.is_platform_admin.as_deref() == Some("on");
+
+    let storage_quota_mb = payload.storage_quota_mb.unwrap_or(100).max(1);
+    let storage_quota_bytes = storage_quota_mb * 1024 * 1024;
+
+    let dto = apich_db::CreateUserDto {
+        username: username.clone(),
+        email: email.clone(),
+        password_hash,
+        display_name: display_name.clone(),
+        role: Some(role),
+        is_platform_admin: Some(is_platform_admin),
+        storage_quota_bytes: Some(storage_quota_bytes),
+    };
+
+    let repo = state.db.repository();
+    match repo.create_user(dto).await {
+        Ok(new_user) => {
+            let send_mail = payload.send_welcome_email.as_deref() == Some("true")
+                || payload.send_welcome_email.as_deref() == Some("on");
+            if send_mail {
+                if let Ok(settings) = repo.get_system_settings().await {
+                    let base_url = std::env::var("BASE_URL")
+                        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+                    let _ = state
+                        .mailer
+                        .send_account_created_email(
+                            &settings,
+                            &new_user.email,
+                            &new_user.username,
+                            &new_user.display_name,
+                            &plain_password,
+                            &base_url,
+                        )
+                        .await;
+                }
+            }
+
+            let notice = if is_generated {
+                format!(
+                    "User @{} created with quota {} MB. Temporary password: {}",
+                    username, storage_quota_mb, plain_password
+                )
+            } else {
+                format!(
+                    "User @{} created successfully with quota {} MB.",
+                    username, storage_quota_mb
+                )
+            };
+            redirect_notice("/admin/users", &notice)
+        }
+        Err(e) => redirect_error("/admin/users", format!("Failed to create user: {e}")),
+    }
+}
+
+/// Toggle user active/locked status
+async fn toggle_user_lock_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<ToggleUserLockForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+    if payload.user_id == admin_user.id {
+        return redirect_error("/admin/users", "You cannot lock your own account");
+    }
+
+    let repo = state.db.repository();
+    let target_user = match repo.get_user_by_id(payload.user_id).await {
+        Ok(Some(u)) => u,
+        _ => return redirect_error("/admin/users", "User not found"),
+    };
+
+    let new_status = !target_user.is_active;
+    match repo.set_user_active(target_user.id, new_status).await {
+        Ok(()) => {
+            let msg = if new_status {
+                format!("Account @{} has been unlocked", target_user.username)
+            } else {
+                format!(
+                    "Account @{} has been locked and active sessions terminated",
+                    target_user.username
+                )
+            };
+            redirect_notice("/admin/users", &msg)
+        }
+        Err(e) => redirect_error("/admin/users", format!("Failed to update account status: {e}")),
+    }
+}
+
+/// Reset a user's password, generating temporary credentials and emailing the user
+async fn reset_user_password_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<ResetUserPasswordForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+
+    let repo = state.db.repository();
+    let target_user = match repo.get_user_by_id(payload.user_id).await {
+        Ok(Some(u)) => u,
+        _ => return redirect_error("/admin/users", "User not found"),
+    };
+
+    let temp_password = format!("Apich-{:08x}!", rand::random::<u32>());
+    let password_hash = match hash_password(&temp_password) {
+        Ok(h) => h,
+        Err(e) => return redirect_error("/admin/users", format!("Failed to hash password: {e}")),
+    };
+
+    if let Err(e) = repo.update_user_password(target_user.id, &password_hash).await {
+        return redirect_error("/admin/users", format!("Failed to update password: {e}"));
+    }
+
+    // Invalidate active sessions
+    let _ = sqlx::query("DELETE FROM user_sessions WHERE user_id = $1")
+        .bind(target_user.id)
+        .execute(state.db.pool())
+        .await;
+
+    // Send email via MailerService
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    if let Ok(settings) = repo.get_system_settings().await {
+        let _ = state
+            .mailer
+            .send_password_reset_email(
+                &settings,
+                &target_user.email,
+                &target_user.username,
+                &temp_password,
+                &base_url,
+            )
+            .await;
+    }
+
+    let msg = format!(
+        "Password reset for @{}. Temporary password sent to {}. Temporary password: {}",
+        target_user.username, target_user.email, temp_password
+    );
+    redirect_notice("/admin/users", &msg)
+}
+
+/// Update a user's storage quota limitation in MB
+async fn update_user_quota_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<UpdateUserQuotaForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+
+    let quota_mb = payload.storage_quota_mb.max(1);
+    let quota_bytes = quota_mb * 1024 * 1024;
+    let repo = state.db.repository();
+
+    if let Err(e) = repo.update_user_storage_quota(payload.user_id, quota_bytes).await {
+        return redirect_error("/admin/users", format!("Failed to update storage quota: {e}"));
+    }
+
+    if let Some(role_str) = payload.role.as_deref() {
+        let role = match role_str {
+            "admin" => apich_db::UserRole::Admin,
+            "guest" => apich_db::UserRole::Guest,
+            _ => apich_db::UserRole::Member,
+        };
+        let is_admin = payload.is_platform_admin.as_deref() == Some("true")
+            || payload.is_platform_admin.as_deref() == Some("on");
+
+        let _ = sqlx::query(
+            "UPDATE users SET role = $2, is_platform_admin = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        )
+        .bind(payload.user_id)
+        .bind(role)
+        .bind(is_admin)
+        .execute(state.db.pool())
+        .await;
+    }
+
+    redirect_notice(
+        "/admin/users",
+        &format!("Storage quota and role updated ({} MB)", quota_mb),
+    )
+}
+
+/// Permanently delete a user account
+async fn delete_user_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<DeleteUserForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+    if payload.user_id == admin_user.id {
+        return redirect_error("/admin/users", "You cannot delete your own account");
+    }
+
+    let repo = state.db.repository();
+    match repo.delete_user(payload.user_id).await {
+        Ok(()) => redirect_notice("/admin/users", "User account deleted successfully"),
+        Err(e) => redirect_error("/admin/users", format!("Failed to delete user: {e}")),
+    }
+}
+
+/// Assign user to an organization
+async fn assign_user_org_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<AssignUserOrgForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+
+    let repo = state.db.repository();
+    match repo.add_org_member(payload.org_id, payload.user_id, &payload.role).await {
+        Ok(()) => redirect_notice("/admin/users", "User assigned to organization"),
+        Err(e) => redirect_error("/admin/users", format!("Failed to assign organization: {e}")),
+    }
+}
+
+/// Remove user from an organization
+async fn remove_user_org_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<RemoveUserOrgForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+
+    let repo = state.db.repository();
+    match repo.remove_org_member(payload.org_id, payload.user_id).await {
+        Ok(()) => redirect_notice("/admin/users", "User removed from organization"),
+        Err(e) => redirect_error("/admin/users", format!("Failed to remove from organization: {e}")),
+    }
+}
+
+/// Assign user to a team
+async fn assign_user_team_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<AssignUserTeamForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+
+    let repo = state.db.repository();
+    match repo.add_team_member(payload.team_id, payload.user_id, &payload.role).await {
+        Ok(()) => redirect_notice("/admin/users", "User assigned to team"),
+        Err(e) => redirect_error("/admin/users", format!("Failed to assign team: {e}")),
+    }
+}
+
+/// Remove user from a team
+async fn remove_user_team_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<RemoveUserTeamForm>,
+) -> Response {
+    let Some(AuthUser(admin_user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !admin_user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Platform administrator privileges required").into_response();
+    }
+
+    let repo = state.db.repository();
+    match repo.remove_team_member(payload.team_id, payload.user_id).await {
+        Ok(()) => redirect_notice("/admin/users", "User removed from team"),
+        Err(e) => redirect_error("/admin/users", format!("Failed to remove from team: {e}")),
     }
 }
 

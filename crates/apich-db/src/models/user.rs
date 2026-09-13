@@ -102,6 +102,66 @@ pub struct UpdateUserProfileDto {
     pub avatar_url: Option<String>,
 }
 
+/// Represents a user's membership in an organization with role.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct UserOrgMembership {
+    /// Organization unique identifier.
+    pub org_id: Uuid,
+    /// Organization display name.
+    pub org_name: String,
+    /// Organization URL slug.
+    pub org_slug: String,
+    /// Member role in organization.
+    pub role: String,
+}
+
+/// Represents a user's membership in a team with role and parent organization.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct UserTeamMembership {
+    /// Team unique identifier.
+    pub team_id: Uuid,
+    /// Team display name.
+    pub team_name: String,
+    /// Team URL slug.
+    pub team_slug: String,
+    /// Parent organization unique identifier.
+    pub org_id: Uuid,
+    /// Parent organization display name.
+    pub org_name: String,
+    /// Member role in team.
+    pub role: String,
+}
+
+/// Represents a team accompanied by its parent organization name.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TeamWithOrg {
+    /// Team unique identifier.
+    pub id: Uuid,
+    /// Parent organization unique identifier.
+    pub org_id: Uuid,
+    /// Team name.
+    pub name: String,
+    /// Team URL slug.
+    pub slug: String,
+    /// Optional team description.
+    pub description: Option<String>,
+    /// Parent organization name.
+    pub org_name: String,
+}
+
+/// Complete user view for platform administrators, including storage usage and affiliations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserWithStorageSummary {
+    /// Underlying user record.
+    pub user: User,
+    /// Already used storage in bytes on disk.
+    pub used_storage_bytes: i64,
+    /// Organizations this user belongs to.
+    pub orgs: Vec<UserOrgMembership>,
+    /// Teams this user belongs to.
+    pub teams: Vec<UserTeamMembership>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

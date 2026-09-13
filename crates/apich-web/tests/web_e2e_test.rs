@@ -2109,6 +2109,7 @@ async fn test_fullstack_web_e2e_lifecycle() {
     let dash_html = dash_res.text().await.unwrap();
     assert!(dash_html.contains("/admin/platform"));
     assert!(dash_html.contains("/admin/orgs"));
+    assert!(dash_html.contains("/admin/users"));
     assert!(dash_html.contains("/settings"));
 
     // 2. Create Showcase Demo Project via POST /projects/demo/create
@@ -2287,6 +2288,175 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .unwrap();
     assert_eq!(save_note_res.status(), StatusCode::SEE_OTHER);
+
+    // ========================================================================
+    // TEST 7.8: Platform User Management (Quota, Lock, Password Reset, Affiliations, Deletion)
+    // ========================================================================
+    println!("--- Running Test 7.8: Platform User Management ---");
+
+    // 1. GET /admin/users renders user management page
+    let users_page_res = client
+        .get(format!("{}/admin/users", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(users_page_res.status(), StatusCode::OK);
+    let users_html = users_page_res.text().await.unwrap();
+    assert!(users_html.contains("Platform Users"));
+    assert!(users_html.contains("alice_admin"));
+
+    // 2. Admin creates a new user with custom quota (150 MB)
+    let create_user_res = client
+        .post(format!("{}/admin/users/new", base_url))
+        .form(&[
+            ("username", "test_user_managed"),
+            ("email", "managed@apich.org"),
+            ("display_name", "Managed User"),
+            ("password", "SecretManagedPass123!"),
+            ("role", "member"),
+            ("storage_quota_mb", "150"),
+            ("send_welcome_email", "false"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_user_res.status(), StatusCode::SEE_OTHER);
+
+    // Verify user exists and has 150 MB quota
+    let managed_user = repo.get_user_by_username("test_user_managed").await.unwrap().unwrap();
+    assert_eq!(managed_user.storage_quota_bytes, 150 * 1024 * 1024);
+    assert!(managed_user.is_active);
+
+    // 3. Admin updates user's quota to 300 MB
+    let update_quota_res = client
+        .post(format!("{}/admin/users/update-quota", base_url))
+        .form(&[
+            ("user_id", managed_user.id.to_string().as_str()),
+            ("storage_quota_mb", "300"),
+            ("role", "member"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(update_quota_res.status(), StatusCode::SEE_OTHER);
+    let managed_updated = repo.get_user_by_id(managed_user.id).await.unwrap().unwrap();
+    assert_eq!(managed_updated.storage_quota_bytes, 300 * 1024 * 1024);
+
+    // 4. Admin locks the user account
+    let lock_res = client
+        .post(format!("{}/admin/users/toggle-lock", base_url))
+        .form(&[("user_id", managed_user.id.to_string().as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(lock_res.status(), StatusCode::SEE_OTHER);
+    let managed_locked = repo.get_user_by_id(managed_user.id).await.unwrap().unwrap();
+    assert!(!managed_locked.is_active);
+
+    // Verify locked user cannot log in
+    let managed_anon_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .cookie_store(true)
+        .build()
+        .unwrap();
+    let managed_login_res = managed_anon_client
+        .post(format!("{}/login", base_url))
+        .form(&[
+            ("login", "test_user_managed"),
+            ("password", "SecretManagedPass123!"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(managed_login_res.status(), StatusCode::SEE_OTHER);
+    let loc = managed_login_res.headers().get("location").unwrap().to_str().unwrap();
+    assert!(loc.contains("error="));
+
+    // 5. Admin unlocks user
+    let unlock_res = client
+        .post(format!("{}/admin/users/toggle-lock", base_url))
+        .form(&[("user_id", managed_user.id.to_string().as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unlock_res.status(), StatusCode::SEE_OTHER);
+    let managed_unlocked = repo.get_user_by_id(managed_user.id).await.unwrap().unwrap();
+    assert!(managed_unlocked.is_active);
+
+    // 6. Admin resets user's password
+    let reset_res = client
+        .post(format!("{}/admin/users/reset-password", base_url))
+        .form(&[("user_id", managed_user.id.to_string().as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reset_res.status(), StatusCode::SEE_OTHER);
+
+    // Old password fails
+    let old_pass_res = managed_anon_client
+        .post(format!("{}/login", base_url))
+        .form(&[
+            ("login", "test_user_managed"),
+            ("password", "SecretManagedPass123!"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    let old_loc = old_pass_res.headers().get("location").unwrap().to_str().unwrap();
+    assert!(old_loc.contains("error="));
+
+    // 7. Admin assigns user to organization
+    let orgs = repo.list_organizations(1).await.unwrap();
+    if let Some(first_org) = orgs.first() {
+        let assign_org_res = client
+            .post(format!("{}/admin/users/assign-org", base_url))
+            .form(&[
+                ("user_id", managed_user.id.to_string().as_str()),
+                ("org_id", first_org.id.to_string().as_str()),
+                ("role", "member"),
+            ])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(assign_org_res.status(), StatusCode::SEE_OTHER);
+
+        let user_orgs = repo.list_user_org_memberships(managed_user.id).await.unwrap();
+        assert!(user_orgs.iter().any(|o| o.org_id == first_org.id));
+
+        // Remove from org
+        let remove_org_res = client
+            .post(format!("{}/admin/users/remove-org", base_url))
+            .form(&[
+                ("user_id", managed_user.id.to_string().as_str()),
+                ("org_id", first_org.id.to_string().as_str()),
+            ])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(remove_org_res.status(), StatusCode::SEE_OTHER);
+    }
+
+    // 8. Admin deletes user
+    let delete_res = client
+        .post(format!("{}/admin/users/delete", base_url))
+        .form(&[("user_id", managed_user.id.to_string().as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(delete_res.status(), StatusCode::SEE_OTHER);
+    let deleted_user = repo.get_user_by_id(managed_user.id).await.unwrap();
+    assert!(deleted_user.is_none());
+
+    // 9. Admin self-deletion blocked
+    let delete_self_res = client
+        .post(format!("{}/admin/users/delete", base_url))
+        .form(&[("user_id", alice.id.to_string().as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(delete_self_res.status(), StatusCode::SEE_OTHER);
+    let self_loc = delete_self_res.headers().get("location").unwrap().to_str().unwrap();
+    assert!(self_loc.contains("error="));
 
     // 7.6 Logout Flow: POST /logout redirects to /login and clears session cookie
     let logout_res = client
