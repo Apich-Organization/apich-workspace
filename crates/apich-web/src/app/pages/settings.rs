@@ -62,6 +62,9 @@ pub fn SettingsPage(
                             <span class="passkey-meta">{format!("Enrolled {created} • Last used {last_used}")}</span>
                         </div>
                         <span class="badge badge-active">"Active"</span>
+                        <form method="post" action=format!("/settings/passkey/{}/delete", cred.id) class="inline-form">
+                            <button type="submit" class="btn btn-danger btn-sm">"Remove"</button>
+                        </form>
                     </div>
                 }
             })
@@ -216,6 +219,16 @@ pub fn SettingsPage(
             let created = t.created_at.format("%Y-%m-%d").to_string();
             let last_used = t.last_used_at.map_or_else(|| "Never".to_string(), |d| d.format("%Y-%m-%d %H:%M").to_string());
             let is_active = t.is_active();
+            let expires_info = t.expires_at.map_or_else(
+                || "No expiration".to_string(),
+                |exp| {
+                    if exp < chrono::Utc::now() {
+                        format!("Expired {}", exp.format("%Y-%m-%d"))
+                    } else {
+                        format!("Expires {}", exp.format("%Y-%m-%d"))
+                    }
+                },
+            );
             let status_label = if is_active { "Active" } else { "Revoked/Expired" };
             let status_class = if is_active { "badge badge-active" } else { "badge badge-idle" };
             view! {
@@ -223,7 +236,7 @@ pub fn SettingsPage(
                     <div class="passkey-icon">"🔑"</div>
                     <div class="passkey-info">
                         <span class="passkey-name">{t.name} " (" {t.token_prefix} "…)"</span>
-                        <span class="passkey-meta">{format!("Created {created} • Last used {last_used}")}</span>
+                        <span class="passkey-meta">{format!("Created {created} • {expires_info} • Last used {last_used}")}</span>
                     </div>
                     <span class=status_class>{status_label}</span>
                     {is_active.then(|| view! {
@@ -355,9 +368,34 @@ pub fn SettingsPage(
                     <h2 class="section-title">"Personal Access Tokens"</h2>
                     <p class="text-muted">"Used to authenticate the apich CLI and any external git client against your projects."</p>
                     {new_pat_banner}
-                    <form method="post" action="/settings/pat/create" class="inline-form" style="margin-bottom:1rem;">
-                        <input type="text" name="name" placeholder="Token name (e.g. \"laptop\")" required=true class="form-control" style="max-width:260px;" />
-                        <button type="submit" class="btn btn-primary btn-sm">"Generate Token"</button>
+                    <form method="post" action="/settings/pat/create" class="pat-create-form" style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:flex-end; margin-bottom:1.25rem;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">"Token name"</label>
+                            <input type="text" name="name" placeholder="e.g. \"cli-laptop\"" required=true class="form-control" style="width:220px;" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">"Expiration"</label>
+                            <select
+                                name="expiration"
+                                id="pat-expiration-select"
+                                class="form-control"
+                                style="width:170px;"
+                                onchange="const c = document.getElementById('pat-custom-date'); if (c) c.style.display = this.value === 'custom' ? 'block' : 'none';"
+                            >
+                                <option value="30" selected=true>"30 days"</option>
+                                <option value="60">"60 days"</option>
+                                <option value="90">"90 days"</option>
+                                <option value="7">"7 days"</option>
+                                <option value="365">"1 year"</option>
+                                <option value="never">"No expiration"</option>
+                                <option value="custom">"Custom date..."</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="pat-custom-date" style="display:none; margin-bottom:0;">
+                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">"Expire on"</label>
+                            <input type="date" name="custom_date" class="form-control" style="width:160px;" />
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm" style="height:36px; padding:0 1rem;">"Generate Token"</button>
                     </form>
                     {pat_list}
                 </div>

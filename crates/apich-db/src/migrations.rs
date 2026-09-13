@@ -86,6 +86,11 @@ impl MigrationManager {
             name: "008_invitation_codes_enhancement",
             sql: INVITATION_CODES_ENHANCEMENT_SQL,
         });
+        manager.register(Migration {
+            version: 9,
+            name: "009_passkey_json_support",
+            sql: PASSKEY_JSON_SUPPORT_SQL,
+        });
         manager
     }
 
@@ -608,6 +613,7 @@ CREATE TABLE IF NOT EXISTS fido2_credentials (
     counter BIGINT NOT NULL DEFAULT 0,
     device_name VARCHAR(128) NOT NULL DEFAULT 'Passkey',
     aaguid BYTEA,
+    passkey_json TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_used_at TIMESTAMPTZ
 );
@@ -863,4 +869,12 @@ ALTER TABLE invitations
 ALTER TABLE invitations
     ALTER COLUMN email DROP NOT NULL;
 ";
+
+/// SQL schema migration 009: Passkey full serialization storage for WebAuthn-rs
+pub const PASSKEY_JSON_SUPPORT_SQL: &str = r"
+-- 009: Store complete WebAuthn Passkey state as JSON
+ALTER TABLE fido2_credentials
+    ADD COLUMN IF NOT EXISTS passkey_json TEXT;
+";
+
 

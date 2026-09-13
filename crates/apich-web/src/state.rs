@@ -52,7 +52,7 @@ impl AppState {
             jwt_secret,
         ));
         let mailer = Arc::new(MailerService::new());
-        let passkey_manager = Arc::new(PasskeyManager::new());
+        let passkey_manager = Arc::new(PasskeyManager::new(&base_url));
 
         Self {
             db,

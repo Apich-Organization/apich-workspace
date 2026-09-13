@@ -428,6 +428,7 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/settings/ssh/:id/delete", post(delete_ssh_key_action))
         .route("/settings/gpg/add", post(add_gpg_key_action))
         .route("/settings/gpg/:id/delete", post(delete_gpg_key_action))
+        .route("/settings/passkey/:id/delete", post(delete_passkey_action))
         // Admin Organizations & Teams
         .route("/admin/orgs", get(admin_orgs_page))
         .route("/admin/orgs/new", post(create_org_form))
@@ -3335,6 +3336,8 @@ fn generate_pat() -> (String, String, String) {
 #[derive(Debug, Deserialize)]
 pub struct CreatePatForm {
     pub name: String,
+    pub expiration: Option<String>,
+    pub custom_date: Option<String>,
 }
 
 async fn create_pat_action(
@@ -3345,10 +3348,30 @@ async fn create_pat_action(
     let Some(AuthUser(user)) = auth else {
         return Redirect::to("/login").into_response();
     };
+
+    let expires_at = match payload.expiration.as_deref() {
+        Some("never") => None,
+        Some("custom") => {
+            if let Some(date_str) = payload.custom_date.filter(|s| !s.trim().is_empty()) {
+                chrono::NaiveDate::parse_from_str(date_str.trim(), "%Y-%m-%d")
+                    .ok()
+                    .and_then(|d| d.and_hms_opt(23, 59, 59))
+                    .map(|dt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc))
+            } else {
+                Some(chrono::Utc::now() + chrono::Duration::days(30))
+            }
+        },
+        Some(days_str) => {
+            let days: i64 = days_str.parse().unwrap_or(30);
+            Some(chrono::Utc::now() + chrono::Duration::days(days))
+        },
+        None => Some(chrono::Utc::now() + chrono::Duration::days(30)),
+    };
+
     let (token, hash, prefix) = generate_pat();
     let repo = state.db.repository();
     match repo
-        .create_personal_access_token(user.id, payload.name.trim(), &hash, &prefix, None)
+        .create_personal_access_token(user.id, payload.name.trim(), &hash, &prefix, expires_at)
         .await
     {
         | Ok(_) => {
@@ -3505,6 +3528,22 @@ async fn delete_gpg_key_action(
         .delete_gpg_public_key(user.id, key_id)
         .await;
     Redirect::to("/settings#gpg").into_response()
+}
+
+async fn delete_passkey_action(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Path(cred_id): Path<Uuid>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    let _ = state
+        .db
+        .repository()
+        .delete_fido2_credential(user.id, cred_id)
+        .await;
+    Redirect::to("/settings#passkeys").into_response()
 }
 
 /// Update user profile
@@ -6494,7 +6533,7 @@ async fn delete_project_action(
     }
 
     let _ = state.project_manager.delete_project(project.id).await;
-    Redirect::to("/?notice=project_deleted").into_response()
+    Redirect::to("/?notice=Project Deleted").into_response()
 }
 
 #[derive(Debug, Deserialize)]

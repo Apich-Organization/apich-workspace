@@ -24,6 +24,7 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
+use webauthn_rs::prelude::*;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -273,28 +274,61 @@ pub struct PasskeyUser {
 
 #[derive(Debug, Deserialize)]
 pub struct PasskeyRegisterFinishRequest {
-    pub credential_id: String,
-    pub public_key_base64: String,
+    pub credential_id: Option<String>,
+    pub public_key_base64: Option<String>,
     pub device_name: Option<String>,
+    pub credential_json: Option<String>,
 }
 
 async fn passkey_register_start(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
-) -> WebResult<Json<PasskeyRegisterStartResponse>> {
-    let challenge = state.passkey_manager.generate_challenge(Some(user.id));
-    Ok(Json(PasskeyRegisterStartResponse {
-        challenge,
-        rp: PasskeyRp {
-            name: "APICH Workspace".to_string(),
-            id: "localhost".to_string(),
+) -> WebResult<Json<serde_json::Value>> {
+    let repo = state.db.repository();
+    let existing_creds = repo.get_fido2_credentials_by_user(user.id).await?;
+    let exclude_credentials: Vec<CredentialID> = existing_creds
+        .iter()
+        .filter_map(|c| {
+            c.passkey_json
+                .as_deref()
+                .and_then(|j| serde_json::from_str::<Passkey>(j).ok())
+        })
+        .map(|pk| pk.cred_id().clone())
+        .collect();
+
+    let ccr = state.passkey_manager.start_registration(
+        user.id,
+        &user.username,
+        &user.display_name,
+        if exclude_credentials.is_empty() {
+            None
+        } else {
+            Some(exclude_credentials)
         },
-        user: PasskeyUser {
-            id: user.id.to_string(),
-            name: user.username,
-            display_name: user.display_name,
-        },
-    }))
+    )?;
+
+    let mut val = serde_json::to_value(&ccr)
+        .map_err(|e| WebError::Internal(format!("Serialization error: {e}")))?;
+    if let Some(obj) = val.as_object_mut() {
+        let challenge_str = BASE64_URL_SAFE_NO_PAD.encode(&ccr.public_key.challenge);
+        obj.insert("challenge".to_string(), serde_json::Value::String(challenge_str));
+        obj.insert(
+            "rp".to_string(),
+            json!({
+                "name": ccr.public_key.rp.name,
+                "id": ccr.public_key.rp.id,
+            }),
+        );
+        obj.insert(
+            "user".to_string(),
+            json!({
+                "id": user.id.to_string(),
+                "name": user.username,
+                "displayName": user.display_name,
+            }),
+        );
+    }
+    Ok(Json(val))
 }
 
 async fn passkey_register_finish(
@@ -302,25 +336,52 @@ async fn passkey_register_finish(
     State(state): State<AppState>,
     Json(payload): Json<PasskeyRegisterFinishRequest>,
 ) -> WebResult<Json<serde_json::Value>> {
-    let public_key_bytes = BASE64_STANDARD
-        .decode(&payload.public_key_base64)
-        .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.public_key_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid public key base64: {e}")))?;
-
+    let repo = state.db.repository();
     let device_name = payload
         .device_name
-        .unwrap_or_else(|| "Security Key".to_string());
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Passkey");
 
-    let repo = state.db.repository();
-    repo.save_fido2_credential(
-        user.id,
-        &payload.credential_id,
-        &public_key_bytes,
-        0,
-        &device_name,
-        None,
-    )
-    .await?;
+    if let Some(cred_json) = payload.credential_json {
+        let reg: RegisterPublicKeyCredential = serde_json::from_str(&cred_json)
+            .map_err(|e| WebError::PasskeyError(format!("Invalid credential JSON: {e}")))?;
+
+        let passkey = state.passkey_manager.finish_registration(user.id, &reg)?;
+        let passkey_json = serde_json::to_string(&passkey)
+            .map_err(|e| WebError::Internal(format!("Failed to serialize passkey: {e}")))?;
+        let cred_id_str = BASE64_URL_SAFE_NO_PAD.encode(passkey.cred_id());
+
+        repo.save_fido2_credential(
+            user.id,
+            &cred_id_str,
+            passkey.cred_id(),
+            0,
+            device_name,
+            None,
+            Some(&passkey_json),
+        )
+        .await?;
+    } else if let (Some(cred_id), Some(pk_b64)) = (payload.credential_id, payload.public_key_base64) {
+        let public_key_bytes = BASE64_STANDARD
+            .decode(&pk_b64)
+            .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&pk_b64))
+            .map_err(|e| WebError::PasskeyError(format!("Invalid public key base64: {e}")))?;
+
+        repo.save_fido2_credential(
+            user.id,
+            &cred_id,
+            &public_key_bytes,
+            0,
+            device_name,
+            None,
+            None,
+        )
+        .await?;
+    } else {
+        return Err(WebError::BadRequest("Missing credential data".to_string()));
+    }
 
     Ok(Json(json!({
         "status": "success",
@@ -336,71 +397,121 @@ pub struct PasskeyAuthStartResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct PasskeyAuthFinishRequest {
-    pub credential_id: String,
-    pub challenge: String,
-    pub client_data_json_base64: String,
-    pub auth_data_base64: String,
-    pub signature_base64: String,
+    pub credential_json: Option<String>,
+    pub credential_id: Option<String>,
+    pub challenge: Option<String>,
+    pub client_data_json_base64: Option<String>,
+    pub auth_data_base64: Option<String>,
+    pub signature_base64: Option<String>,
 }
 
 async fn passkey_auth_start(
-    State(state): State<AppState>
-) -> WebResult<Json<PasskeyAuthStartResponse>> {
-    let challenge = state.passkey_manager.generate_challenge(None);
-    Ok(Json(PasskeyAuthStartResponse {
-        challenge,
-        timeout: 60000,
-    }))
+    State(state): State<AppState>,
+) -> WebResult<Json<serde_json::Value>> {
+    let rcr = state.passkey_manager.start_discoverable_authentication()?;
+    let mut val = serde_json::to_value(&rcr)
+        .map_err(|e| WebError::Internal(format!("Serialization error: {e}")))?;
+    if let Some(obj) = val.as_object_mut() {
+        let challenge_str = BASE64_URL_SAFE_NO_PAD.encode(&rcr.public_key.challenge);
+        obj.insert("challenge".to_string(), serde_json::Value::String(challenge_str));
+        obj.insert("timeout".to_string(), json!(60000));
+    }
+    Ok(Json(val))
 }
 
 async fn passkey_auth_finish(
     State(state): State<AppState>,
     Json(payload): Json<PasskeyAuthFinishRequest>,
 ) -> WebResult<Response> {
-    // 1. Verify challenge was registered
-    let _ = state
-        .passkey_manager
-        .verify_and_consume_challenge(&payload.challenge)?;
-
-    // 2. Fetch credential from DB
     let repo = state.db.repository();
-    let cred = repo
-        .get_fido2_credential_by_id(&payload.credential_id)
-        .await?
-        .ok_or_else(|| WebError::PasskeyError("Unknown security credential".to_string()))?;
 
-    // 3. Decode WebAuthn payload
-    let client_data_json = BASE64_STANDARD
-        .decode(&payload.client_data_json_base64)
-        .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.client_data_json_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid clientDataJSON: {e}")))?;
+    let (user_id, counter_to_update) = if let Some(cred_json) = payload.credential_json {
+        let cred: PublicKeyCredential = serde_json::from_str(&cred_json)
+            .map_err(|e| WebError::PasskeyError(format!("Invalid credential JSON: {e}")))?;
 
-    let auth_data = BASE64_STANDARD
-        .decode(&payload.auth_data_base64)
-        .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.auth_data_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid authData: {e}")))?;
+        let user_id = state.passkey_manager.identify_credential(&cred)?;
 
-    let signature = BASE64_STANDARD
-        .decode(&payload.signature_base64)
-        .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&payload.signature_base64))
-        .map_err(|e| WebError::PasskeyError(format!("Invalid signature: {e}")))?;
+        let db_creds = repo.get_fido2_credentials_by_user(user_id).await?;
+        let passkeys: Vec<(String, Passkey)> = db_creds
+            .into_iter()
+            .filter_map(|c| {
+                c.passkey_json.as_deref().and_then(|j| {
+                    serde_json::from_str::<Passkey>(j).ok().map(|pk| (c.credential_id, pk))
+                })
+            })
+            .collect();
 
-    // 4. Verify signature cryptographically
-    state.passkey_manager.verify_assertion(
-        &cred.public_key,
-        &auth_data,
-        &client_data_json,
-        &signature,
-        &payload.challenge,
-    )?;
+        if passkeys.is_empty() {
+            return Err(WebError::PasskeyError("No passkeys registered for that account".to_string()));
+        }
 
-    // 5. Update credential counter
-    repo.update_fido2_counter(&cred.credential_id, cred.counter.saturating_add(1))
-        .await?;
+        let discoverable_keys: Vec<DiscoverableKey> = passkeys
+            .iter()
+            .map(|(_, pk)| DiscoverableKey::from(pk))
+            .collect();
 
-    // 6. Issue authenticated session
+        let auth_result = state.passkey_manager.finish_discoverable_authentication(&cred, &discoverable_keys)?;
+
+        for (cred_id, mut pk) in passkeys {
+            if pk.update_credential(&auth_result).is_some() {
+                if let Ok(updated_json) = serde_json::to_string(&pk) {
+                    let _ = repo
+                        .update_fido2_passkey(&cred_id, i64::from(auth_result.counter()), &updated_json)
+                        .await;
+                }
+                break;
+            }
+        }
+
+        (user_id, None)
+    } else if let (Some(cred_id), Some(challenge), Some(cdj_b64), Some(ad_b64), Some(sig_b64)) = (
+        payload.credential_id,
+        payload.challenge,
+        payload.client_data_json_base64,
+        payload.auth_data_base64,
+        payload.signature_base64,
+    ) {
+        let _ = state.passkey_manager.verify_and_consume_challenge(&challenge)?;
+
+        let cred = repo
+            .get_fido2_credential_by_id(&cred_id)
+            .await?
+            .ok_or_else(|| WebError::PasskeyError("Unknown security credential".to_string()))?;
+
+        let client_data_json = BASE64_STANDARD
+            .decode(&cdj_b64)
+            .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&cdj_b64))
+            .map_err(|e| WebError::PasskeyError(format!("Invalid clientDataJSON: {e}")))?;
+
+        let auth_data = BASE64_STANDARD
+            .decode(&ad_b64)
+            .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&ad_b64))
+            .map_err(|e| WebError::PasskeyError(format!("Invalid authData: {e}")))?;
+
+        let signature = BASE64_STANDARD
+            .decode(&sig_b64)
+            .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(&sig_b64))
+            .map_err(|e| WebError::PasskeyError(format!("Invalid signature: {e}")))?;
+
+        state.passkey_manager.verify_assertion(
+            &cred.public_key,
+            &auth_data,
+            &client_data_json,
+            &signature,
+            &challenge,
+        )?;
+
+        (cred.user_id, Some((cred.credential_id, cred.counter.saturating_add(1))))
+    } else {
+        return Err(WebError::BadRequest("Missing credential data".to_string()));
+    };
+
+    if let Some((cid, new_counter)) = counter_to_update {
+        repo.update_fido2_counter(&cid, new_counter).await?;
+    }
+
     let user = repo
-        .get_user_by_id(cred.user_id)
+        .get_user_by_id(user_id)
         .await?
         .ok_or_else(|| WebError::NotFound("User not found".to_string()))?;
 

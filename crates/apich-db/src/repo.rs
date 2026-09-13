@@ -1751,12 +1751,13 @@ impl<'a> Repository<'a> {
         counter: i64,
         device_name: &str,
         aaguid: Option<&[u8]>,
+        passkey_json: Option<&str>,
     ) -> Result<Fido2Credential> {
         let id = Uuid::now_v7();
         let cred = sqlx::query_as::<_, Fido2Credential>(
             r"
-            INSERT INTO fido2_credentials (id, user_id, credential_id, public_key, counter, device_name, aaguid)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO fido2_credentials (id, user_id, credential_id, public_key, counter, device_name, aaguid, passkey_json)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             ",
         )
@@ -1767,6 +1768,7 @@ impl<'a> Repository<'a> {
         .bind(counter)
         .bind(device_name)
         .bind(aaguid)
+        .bind(passkey_json)
         .fetch_one(self.pool)
         .await?;
 
@@ -1823,6 +1825,44 @@ impl<'a> Repository<'a> {
         .bind(credential_id)
         .execute(self.pool)
         .await?;
+        Ok(())
+    }
+
+    /// Update FIDO2 passkey state, signature counter, and last used timestamp.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn update_fido2_passkey(
+        &self,
+        credential_id: &str,
+        counter: i64,
+        passkey_json: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE fido2_credentials SET counter = $1, passkey_json = $2, last_used_at = CURRENT_TIMESTAMP WHERE credential_id = $3",
+        )
+        .bind(counter)
+        .bind(passkey_json)
+        .bind(credential_id)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Delete a FIDO2 passkey credential owned by a user.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn delete_fido2_credential(
+        &self,
+        user_id: Uuid,
+        id: Uuid,
+    ) -> Result<()> {
+        sqlx::query("DELETE FROM fido2_credentials WHERE id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .execute(self.pool)
+            .await?;
         Ok(())
     }
 

@@ -47,6 +47,7 @@ pub fn PageShell(
                 <meta charset="UTF-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
                 <title>{full_title}</title>
+                <IslandScript />
                 <style>{EMBEDDED_CSS}</style>
             </head>
             <body>

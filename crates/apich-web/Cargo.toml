@@ -41,6 +41,8 @@ hex = "0.4"
 base64 = "0.22"
 jsonwebtoken = "9.3"
 p256 = { version = "0.14", features = ["ecdsa", "std"] }
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }
+url = "2"
 
 # Logging, Errors & HTTP
 tracing = "0.1"

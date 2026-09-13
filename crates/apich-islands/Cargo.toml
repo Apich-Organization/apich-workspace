@@ -25,6 +25,7 @@ web-sys = { version = "0.3", optional = true, features = [
     "TouchList",
     "Touch",
     "DomRect",
+    "DomException",
     "HtmlAnchorElement",
     "HtmlInputElement",
     "Navigator",
@@ -65,6 +66,7 @@ console_error_panic_hook = { version = "0.1", optional = true }
 gloo-net = { version = "0.6", optional = true }
 gloo-timers = { version = "0.3", optional = true, features = ["futures"] }
 base64 = { version = "0.22", optional = true }
+webauthn-rs-proto = { version = "0.5.5", features = ["wasm"], optional = true }
 
 [features]
 ssr = ["leptos/ssr"]
@@ -78,4 +80,5 @@ hydrate = [
     "dep:gloo-net",
     "dep:gloo-timers",
     "dep:base64",
+    "dep:webauthn-rs-proto",
 ]

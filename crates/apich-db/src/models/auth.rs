@@ -41,6 +41,8 @@ pub struct Fido2Credential {
     pub device_name: String,
     /// Authenticator Attestation GUID identifying the authenticator model.
     pub aaguid: Option<Vec<u8>>,
+    /// Complete serialized WebAuthn Passkey state JSON.
+    pub passkey_json: Option<String>,
     /// Registration timestamp of the credential.
     pub created_at: DateTime<Utc>,
     /// Timestamp when this passkey was last used to authenticate.

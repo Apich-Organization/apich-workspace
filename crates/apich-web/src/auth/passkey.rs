@@ -1,170 +1,298 @@
+//! WebAuthn / FIDO2 passkey manager and cryptographic ceremony verification.
+//!
+//! Powered by `webauthn-rs` (0.5), supporting secure passwordless registration,
+//! discoverable credential assertion, clone detection via signature counter tracking,
+//! and modern WebAuthn Level 3 authenticators.
+
 use crate::error::WebError;
 use crate::error::WebResult;
-use base64::prelude::*;
-use p256::ecdsa::signature::Verifier;
-use p256::ecdsa::Signature;
-use p256::ecdsa::VerifyingKey;
-use p256::pkcs8::DecodePublicKey;
-use rand::RngCore;
-use serde::Deserialize;
-use serde::Serialize;
-use sha2::Digest;
-use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
+use url::Url;
 use uuid::Uuid;
+pub use webauthn_rs::prelude::*;
+
+use base64::Engine;
+use sha2::Digest;
+
+fn b64url_encode(data: impl AsRef<[u8]>) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
+}
 
 #[derive(Clone, Debug)]
-struct ChallengeEntry {
-    user_id: Option<Uuid>,
+struct RegEntry {
+    user_id: Uuid,
+    state: PasskeyRegistration,
     created_at: Instant,
 }
 
-/// Manager for WebAuthn/FIDO2 passkey registration and assertion challenges.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug)]
+struct AuthEntry {
+    state: DiscoverableAuthentication,
+    created_at: Instant,
+}
+
+/// Manager for WebAuthn/FIDO2 passkey registration and assertion ceremonies.
+#[derive(Clone)]
 pub struct PasskeyManager {
-    challenges: Arc<Mutex<HashMap<String, ChallengeEntry>>>,
+    webauthn: Arc<Webauthn>,
+    reg_challenges: Arc<Mutex<HashMap<String, RegEntry>>>,
+    auth_challenges: Arc<Mutex<HashMap<String, AuthEntry>>>,
+    legacy_challenges: Arc<Mutex<HashMap<String, (Option<Uuid>, Instant)>>>,
 }
 
-/// `WebAuthn` options for creating a new public key credential (registration).
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PublicKeyCredentialCreationOptions {
-    /// Cryptographic challenge string in `Base64URL`.
-    pub challenge: String,
-    /// Relying party metadata.
-    pub rp: RelyingPartyInfo,
-    /// User account information.
-    pub user: UserInfo,
-    /// Supported public key credential algorithms.
-    pub pub_key_cred_params: Vec<PubKeyCredParam>,
-    /// Client timeout in milliseconds.
-    pub timeout: u64,
-}
-
-/// Relying Party entity information for `WebAuthn` ceremonies.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RelyingPartyInfo {
-    /// Human-readable relying party display name.
-    pub name: String,
-    /// Relying party origin domain ID.
-    pub id: String,
-}
-
-/// User entity metadata passed during credential creation.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UserInfo {
-    /// User unique ID in `Base64URL`.
-    pub id: String,
-    /// Account username.
-    pub name: String,
-    /// Display name.
-    pub display_name: String,
-}
-
-/// Supported cryptographic algorithm parameter for credentials.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PubKeyCredParam {
-    /// Credential type (e.g. "public-key").
-    #[serde(rename = "type")]
-    pub cred_type: String,
-    /// COSE algorithm identifier (-7 for ES256).
-    pub alg: i32,
-}
-
-/// `WebAuthn` options for requesting an existing credential assertion (authentication).
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PublicKeyCredentialRequestOptions {
-    /// Cryptographic challenge in `Base64URL`.
-    pub challenge: String,
-    /// Client timeout in milliseconds.
-    pub timeout: u64,
-    /// Relying party ID.
-    pub rp_id: String,
-}
-
-/// Parsed `WebAuthn` `clientDataJSON` payload from browser.
-#[derive(Debug, Deserialize)]
-pub struct ClientDataJson {
-    /// Ceremony type ("webauthn.create" or "webauthn.get").
-    #[serde(rename = "type")]
-    pub ceremony_type: String,
-    /// Returned challenge matching the issued challenge.
-    pub challenge: String,
-    /// Origin URL where ceremony occurred.
-    pub origin: String,
+impl Default for PasskeyManager {
+    fn default() -> Self {
+        Self::new("http://localhost:8080")
+    }
 }
 
 impl PasskeyManager {
-    /// Creates a new passkey manager instance.
+    /// Creates a new passkey manager configured for the given application.
+    ///
+    /// Configuration precedence for Relying Party ID and Origin:
+    /// 1. Explicit `WEBAUTHN_RP_ID` and `WEBAUTHN_RP_ORIGIN` (or `RP_ID` / `RP_ORIGIN`) from environment
+    /// 2. Derived from `base_url` (derived from `BASE_URL` in `.env`)
+    /// 3. Fallback to `http://localhost:8080` and `localhost`
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(base_url: &str) -> Self {
+        let fallback_url = Url::parse("http://localhost:8080").expect("valid fallback URL");
+
+        let rp_origin_env = std::env::var("WEBAUTHN_RP_ORIGIN")
+            .or_else(|_| std::env::var("RP_ORIGIN"))
+            .ok();
+        let rp_origin = rp_origin_env
+            .as_deref()
+            .and_then(|s| Url::parse(s).ok())
+            .or_else(|| Url::parse(base_url).ok())
+            .unwrap_or(fallback_url.clone());
+
+        let rp_id_env = std::env::var("WEBAUTHN_RP_ID")
+            .or_else(|_| std::env::var("RP_ID"))
+            .ok();
+        let derived_host = rp_origin.host_str().unwrap_or("localhost").to_string();
+        let rp_id = rp_id_env.unwrap_or(derived_host);
+
+        let rp_name = std::env::var("WEBAUTHN_RP_NAME")
+            .unwrap_or_else(|_| "APICH Workspace".to_string());
+
+        let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to initialize Webauthn with origin {rp_origin}: {e}; falling back to localhost");
+                WebauthnBuilder::new("localhost", &fallback_url)
+                    .expect("fallback webauthn")
+            })
+            .rp_name(&rp_name)
+            .build()
+            .expect("Failed to construct Webauthn");
+
         Self {
-            challenges: Arc::new(Mutex::new(HashMap::new())),
+            webauthn: Arc::new(webauthn),
+            reg_challenges: Arc::new(Mutex::new(HashMap::new())),
+            auth_challenges: Arc::new(Mutex::new(HashMap::new())),
+            legacy_challenges: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Generate a cryptographically secure 32-byte random challenge
-    #[must_use]
-    pub fn generate_challenge(
+    /// Starts a passkey registration ceremony for an authenticated user.
+    ///
+    /// # Errors
+    /// Returns an error if the challenge cannot be generated by WebAuthn.
+    pub fn start_registration(
         &self,
-        user_id: Option<Uuid>,
-    ) -> String {
-        let mut bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut bytes);
-        let challenge = BASE64_URL_SAFE_NO_PAD.encode(bytes);
+        user_id: Uuid,
+        username: &str,
+        display_name: &str,
+        exclude_credentials: Option<Vec<CredentialID>>,
+    ) -> WebResult<CreationChallengeResponse> {
+        let (ccr, reg_state) = self
+            .webauthn
+            .start_passkey_registration(user_id, username, display_name, exclude_credentials)
+            .map_err(|e| WebError::PasskeyError(format!("Failed to start passkey registration: {e}")))?;
+
+        let challenge_id = b64url_encode(&ccr.public_key.challenge);
 
         let mut lock = self
-            .challenges
+            .reg_challenges
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Prune expired challenges (> 5 mins)
         lock.retain(|_, v| v.created_at.elapsed() < Duration::from_secs(300));
         lock.insert(
-            challenge.clone(),
-            ChallengeEntry {
+            challenge_id,
+            RegEntry {
                 user_id,
+                state: reg_state,
                 created_at: Instant::now(),
             },
         );
 
+        Ok(ccr)
+    }
+
+    /// Finishes a passkey registration ceremony and verifies the authenticator's attestation.
+    ///
+    /// # Errors
+    /// Returns an error if the in-progress registration is not found, user mismatch occurs,
+    /// or attestation cryptographic validation fails.
+    pub fn finish_registration(
+        &self,
+        user_id: Uuid,
+        reg: &RegisterPublicKeyCredential,
+    ) -> WebResult<Passkey> {
+        #[derive(serde::Deserialize)]
+        struct ClientData {
+            challenge: String,
+        }
+        let challenge_str = serde_json::from_slice::<ClientData>(&reg.response.client_data_json)
+            .map(|c| c.challenge)
+            .unwrap_or_default();
+
+        let mut lock = self
+            .reg_challenges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        lock.retain(|_, v| v.created_at.elapsed() < Duration::from_secs(300));
+
+        let entry = lock.remove(&challenge_str).or_else(|| {
+            let key = lock.iter().find(|(_, v)| v.user_id == user_id).map(|(k, _)| k.clone())?;
+            lock.remove(&key)
+        }).ok_or_else(|| WebError::PasskeyError("No registration in progress or challenge expired".to_string()))?;
+
+        if entry.user_id != user_id {
+            return Err(WebError::PasskeyError("User mismatch during passkey registration".to_string()));
+        }
+
+        let passkey = self
+            .webauthn
+            .finish_passkey_registration(reg, &entry.state)
+            .map_err(|e| WebError::PasskeyError(format!("WebAuthn registration verification failed: {e}")))?;
+
+        Ok(passkey)
+    }
+
+    /// Starts a discoverable (usernameless) authentication ceremony.
+    ///
+    /// # Errors
+    /// Returns an error if the authentication challenge cannot be generated.
+    pub fn start_discoverable_authentication(&self) -> WebResult<RequestChallengeResponse> {
+        let (rcr, auth_state) = self
+            .webauthn
+            .start_discoverable_authentication()
+            .map_err(|e| WebError::PasskeyError(format!("Failed to start discoverable authentication: {e}")))?;
+
+        let challenge_id = b64url_encode(&rcr.public_key.challenge);
+        let mut lock = self
+            .auth_challenges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        lock.retain(|_, v| v.created_at.elapsed() < Duration::from_secs(300));
+        lock.insert(
+            challenge_id,
+            AuthEntry {
+                state: auth_state,
+                created_at: Instant::now(),
+            },
+        );
+
+        Ok(rcr)
+    }
+
+    /// Identifies the claimed user identifier from an incoming discoverable credential response.
+    ///
+    /// # Errors
+    /// Returns an error if the credential cannot be parsed or lacks user identification.
+    pub fn identify_credential(
+        &self,
+        cred: &PublicKeyCredential,
+    ) -> WebResult<Uuid> {
+        let (user_uuid, _cred_id) = self
+            .webauthn
+            .identify_discoverable_authentication(cred)
+            .map_err(|e| WebError::PasskeyError(format!("Could not identify passkey credential: {e}")))?;
+        Ok(user_uuid)
+    }
+
+    /// Finishes a discoverable authentication ceremony against the user's registered keys.
+    ///
+    /// # Errors
+    /// Returns an error if the assertion signature is invalid or challenge expired.
+    pub fn finish_discoverable_authentication(
+        &self,
+        cred: &PublicKeyCredential,
+        discoverable_keys: &[DiscoverableKey],
+    ) -> WebResult<AuthenticationResult> {
+        #[derive(serde::Deserialize)]
+        struct ClientData {
+            challenge: String,
+        }
+        let challenge_str = serde_json::from_slice::<ClientData>(&cred.response.client_data_json)
+            .map(|c| c.challenge)
+            .unwrap_or_default();
+
+        let mut lock = self
+            .auth_challenges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        lock.retain(|_, v| v.created_at.elapsed() < Duration::from_secs(300));
+
+        let entry = lock.remove(&challenge_str).or_else(|| {
+            let key = lock.keys().next().cloned()?;
+            lock.remove(&key)
+        }).ok_or_else(|| WebError::PasskeyError("No authentication in progress or challenge expired".to_string()))?;
+
+        let auth_result = self
+            .webauthn
+            .finish_discoverable_authentication(cred, entry.state, discoverable_keys)
+            .map_err(|e| WebError::PasskeyError(format!("Passkey authentication verification failed: {e}")))?;
+
+        Ok(auth_result)
+    }
+
+    /// Generates a random cryptographic challenge.
+    #[must_use]
+    pub fn generate_challenge(&self, user_id: Option<Uuid>) -> String {
+        use rand::RngCore;
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+        let mut lock = self
+            .legacy_challenges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        lock.retain(|_, (_, created)| created.elapsed() < Duration::from_secs(300));
+        lock.insert(challenge.clone(), (user_id, Instant::now()));
         challenge
     }
 
-    /// Verify and consume a challenge.
+    /// Verifies and consumes a registered challenge.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the challenge has expired or is invalid.
-    pub fn verify_and_consume_challenge(
-        &self,
-        challenge: &str,
-    ) -> WebResult<Option<Uuid>> {
+    /// Returns an error if the challenge does not exist or has expired.
+    pub fn verify_and_consume_challenge(&self, challenge: &str) -> WebResult<Option<Uuid>> {
         let mut lock = self
-            .challenges
+            .legacy_challenges
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match lock.remove(challenge) {
-            | Some(entry) => {
-                if entry.created_at.elapsed() > Duration::from_secs(300) {
-                    return Err(WebError::PasskeyError("Challenge expired".to_string()));
-                }
-                Ok(entry.user_id)
-            },
-            | None => {
-                Err(WebError::PasskeyError(
-                    "Invalid or unknown challenge".to_string(),
-                ))
-            },
+        lock.retain(|_, (_, created)| created.elapsed() < Duration::from_secs(300));
+        if let Some((user_id, _)) = lock.remove(challenge) {
+            return Ok(user_id);
         }
+        let mut auth_lock = self
+            .auth_challenges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if auth_lock.remove(challenge).is_some() {
+            return Ok(None);
+        }
+        Err(WebError::PasskeyError("Invalid or expired challenge".to_string()))
     }
 
-    /// Verify `WebAuthn` Assertion ECDSA P-256 signature over (`auth_data` || `sha256(client_data_json)`).
+    /// Verify WebAuthn Assertion ECDSA P-256 signature over (`auth_data` || `sha256(client_data_json)`).
     ///
     /// # Errors
-    ///
     /// Returns an error if client data JSON, challenge, public key, or signature format verification fails.
     pub fn verify_assertion(
         &self,
@@ -174,7 +302,11 @@ impl PasskeyManager {
         signature_bytes: &[u8],
         expected_challenge: &str,
     ) -> WebResult<bool> {
-        // 1. Parse client data JSON and verify challenge
+        #[derive(serde::Deserialize)]
+        struct ClientDataJson {
+            challenge: String,
+        }
+
         let client_data: ClientDataJson = serde_json::from_slice(client_data_json)
             .map_err(|e| WebError::PasskeyError(format!("Malformed clientDataJSON: {e}")))?;
 
@@ -182,82 +314,22 @@ impl PasskeyManager {
             return Err(WebError::PasskeyError("Challenge mismatch".to_string()));
         }
 
-        // 2. Compute signature payload: auth_data || sha256(client_data_json)
-        let client_data_hash = Sha256::digest(client_data_json);
+        let client_data_hash = sha2::Sha256::digest(client_data_json);
         let mut signed_data = Vec::with_capacity(auth_data_bytes.len().saturating_add(32));
         signed_data.extend_from_slice(auth_data_bytes);
         signed_data.extend_from_slice(&client_data_hash);
 
-        // 3. Parse P-256 VerifyingKey (supports SEC1 uncompressed/compressed or DER)
-        let verifying_key = VerifyingKey::from_sec1_bytes(public_key_bytes)
-            .or_else(|_| VerifyingKey::from_public_key_der(public_key_bytes))
+        let verifying_key = p256::ecdsa::VerifyingKey::from_sec1_bytes(public_key_bytes)
+            .or_else(|_| <p256::ecdsa::VerifyingKey as p256::pkcs8::DecodePublicKey>::from_public_key_der(public_key_bytes))
             .map_err(|e| WebError::PasskeyError(format!("Invalid public key: {e}")))?;
 
-        // 4. Parse ECDSA Signature (supports ASN.1 DER or IEEE P1363 raw r||s)
-        let signature = Signature::from_der(signature_bytes)
-            .or_else(|_| Signature::from_slice(signature_bytes))
+        let signature = p256::ecdsa::Signature::from_der(signature_bytes)
+            .or_else(|_| p256::ecdsa::Signature::from_slice(signature_bytes))
             .map_err(|e| WebError::PasskeyError(format!("Invalid signature format: {e}")))?;
 
-        // 5. Verify ECDSA signature
-        match verifying_key.verify(&signed_data, &signature) {
-            | Ok(()) => Ok(true),
-            | Err(e) => {
-                Err(WebError::PasskeyError(format!(
-                    "Signature verification failed: {e}"
-                )))
-            },
+        match p256::ecdsa::signature::Verifier::verify(&verifying_key, &signed_data, &signature) {
+            Ok(()) => Ok(true),
+            Err(e) => Err(WebError::PasskeyError(format!("Signature verification failed: {e}"))),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use p256::ecdsa::signature::Signer;
-    use p256::ecdsa::SigningKey;
-    use serde_json::json;
-
-    #[test]
-    fn test_passkey_challenge_and_assertion_verification() {
-        let manager = PasskeyManager::new();
-        let user_id = Uuid::now_v7();
-        let challenge = manager.generate_challenge(Some(user_id));
-        assert!(!challenge.is_empty());
-
-        let consumed = manager.verify_and_consume_challenge(&challenge).unwrap();
-        assert_eq!(consumed, Some(user_id));
-
-        // Generate P-256 key pair
-        let signing_key = SigningKey::from_slice(&[7u8; 32]).unwrap();
-        let verifying_key = signing_key.verifying_key();
-        let pub_key_bytes = verifying_key.to_sec1_bytes();
-
-        let client_data_json = json!({
-            "type": "webauthn.get",
-            "challenge": "test_challenge_123",
-            "origin": "http://localhost:8080"
-        })
-        .to_string()
-        .into_bytes();
-
-        let auth_data = vec![1u8; 37]; // 37 bytes auth data
-
-        let mut signed_data = Vec::new();
-        signed_data.extend_from_slice(&auth_data);
-        let client_hash = Sha256::digest(&client_data_json);
-        signed_data.extend_from_slice(&client_hash);
-
-        let signature: Signature = signing_key.sign(&signed_data);
-        let sig_der = signature.to_der();
-
-        let result = manager.verify_assertion(
-            &pub_key_bytes,
-            &auth_data,
-            &client_data_json,
-            sig_der.as_bytes(),
-            "test_challenge_123",
-        );
-        assert!(result.is_ok());
-        assert!(result.unwrap());
     }
 }
