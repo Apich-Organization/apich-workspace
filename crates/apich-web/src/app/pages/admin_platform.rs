@@ -1,6 +1,7 @@
 use crate::app::components::ActiveNav;
 use crate::app::components::AppShell;
 use crate::ui::i18n::I18n;
+use apich_db::Invitation;
 use apich_db::OAuthClient;
 use apich_db::SystemSettings;
 use apich_db::User;
@@ -11,6 +12,7 @@ pub fn AdminPlatformPage(
     user: User,
     settings: SystemSettings,
     sso_clients: Vec<OAuthClient>,
+    invitations: Vec<Invitation>,
     notice: Option<String>,
     error: Option<String>,
     i18n: I18n,
@@ -35,6 +37,87 @@ pub fn AdminPlatformPage(
         "•••••••• (Password configured - leave empty to keep unchanged)".to_string()
     } else {
         "Enter SMTP password".to_string()
+    };
+
+    let now = chrono::Utc::now();
+    let invite_rows = if invitations.is_empty() {
+        view! { <p class="text-muted" style="font-size:0.85rem; padding:1rem 0;">"No invitation codes created yet."</p> }.into_any()
+    } else {
+        let rows = invitations
+            .into_iter()
+            .map(|inv| {
+                let is_expired = now > inv.expires_at;
+                let is_exhausted = inv.used_count >= inv.max_uses;
+                let (badge_cls, status_text) = if is_expired {
+                    ("badge badge-viewer", "Expired")
+                } else if is_exhausted {
+                    ("badge badge-viewer", "Exhausted")
+                } else {
+                    ("badge badge-active", "Active")
+                };
+
+                let recipient_text = inv
+                    .email
+                    .filter(|e| !e.trim().is_empty())
+                    .unwrap_or_else(|| "Open (Anyone)".to_string());
+                let expires_str = inv.expires_at.format("%Y-%m-%d %H:%M").to_string();
+                let invite_id = inv.id.to_string();
+
+                view! {
+                    <tr style="border-bottom:1px solid var(--border-subtle);">
+                        <td style="padding:10px 8px;">
+                            <code style="font-weight:600; font-size:0.95rem; color:var(--primary); background:var(--bg-muted); padding:3px 8px; border-radius:4px; border:1px solid var(--border-subtle);">
+                                {inv.token.clone()}
+                            </code>
+                        </td>
+                        <td style="padding:10px 8px;">
+                            <span class=badge_cls>{status_text}</span>
+                        </td>
+                        <td style="padding:10px 8px; font-weight:600;">
+                            {format!("{} / {}", inv.used_count, inv.max_uses)}
+                        </td>
+                        <td style="padding:10px 8px;">
+                            <span class="text-muted" style="font-size:0.85rem;">{recipient_text}</span>
+                        </td>
+                        <td style="padding:10px 8px;">
+                            <span style="text-transform:capitalize; font-size:0.85rem;">{inv.role}</span>
+                        </td>
+                        <td style="padding:10px 8px; font-size:0.85rem;" class="text-muted">
+                            {expires_str}
+                        </td>
+                        <td style="padding:10px 8px; text-align:right;">
+                            <form method="post" action="/admin/invitations/delete" style="display:inline;">
+                                <input type="hidden" name="id" value=invite_id />
+                                <button type="submit" class="btn btn-danger btn-sm" style="padding:2px 8px; font-size:0.75rem;">
+                                    {i18n.revoke_btn()}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            })
+            .collect::<Vec<_>>();
+
+        view! {
+            <div style="overflow-x:auto; margin-top:1rem;">
+                <table class="table" style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border-subtle); text-align:left; font-size:0.8rem; color:var(--text-muted);">
+                            <th style="padding:8px;">"Code"</th>
+                            <th style="padding:8px;">"Status"</th>
+                            <th style="padding:8px;">"Uses"</th>
+                            <th style="padding:8px;">"Recipient"</th>
+                            <th style="padding:8px;">"Role"</th>
+                            <th style="padding:8px;">"Expires At"</th>
+                            <th style="padding:8px; text-align:right;">"Action"</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows}
+                    </tbody>
+                </table>
+            </div>
+        }.into_any()
     };
 
     let sso_rows = if sso_clients.is_empty() {
@@ -171,6 +254,51 @@ pub fn AdminPlatformPage(
                             <button type="submit" class="btn btn-secondary">{i18n.send_test_email()}</button>
                         </form>
                     </div>
+                </div>
+
+                <div class="section-card" style="grid-column: span 3;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
+                        <div>
+                            <h2 class="section-title" style="margin-bottom:0.25rem;">{i18n.invitation_codes_title()}</h2>
+                            <p class="text-muted" style="font-size:0.85rem;">{i18n.invitation_codes_desc()}</p>
+                        </div>
+                    </div>
+
+                    <form method="post" action="/admin/invitations/new" style="background:var(--bg-muted); padding:1.25rem; border-radius:8px; border:1px solid var(--border-subtle); margin-bottom:1.5rem;">
+                        <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:1rem; color:var(--text-main);">"Create New Invitation Code"</h3>
+                        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 2fr 1fr; gap:0.75rem; align-items:flex-end;">
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.8rem;">{i18n.code_optional_hint()}</label>
+                                <input type="text" name="code" placeholder="e.g. LAB-2026-FALL" class="form-control" />
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.8rem;">{i18n.max_uses_label()}</label>
+                                <input type="number" name="max_uses" min="1" value="1" required=true class="form-control" />
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.8rem;">{i18n.expires_in_days_label()}</label>
+                                <input type="number" name="expires_in_days" min="1" max="365" value="7" required=true class="form-control" />
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.8rem;">{i18n.email_restriction_hint()}</label>
+                                <input type="email" name="email" placeholder="researcher@lab.org" class="form-control" />
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label style="font-size:0.8rem;">"Role"</label>
+                                <select name="role" class="form-control">
+                                    <option value="member">"Member"</option>
+                                    <option value="guest">"Guest"</option>
+                                    <option value="admin">"Admin"</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:1rem;">
+                            "+ " {i18n.generate_code_btn()}
+                        </button>
+                    </form>
+
+                    <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">"Active & Past Invitation Codes"</h3>
+                    {invite_rows}
                 </div>
 
                 <div class="section-card" style="grid-column: span 3;">

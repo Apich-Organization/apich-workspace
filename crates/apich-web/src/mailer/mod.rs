@@ -84,6 +84,28 @@ impl MailerService {
         self.send_mail(settings, to_email, &subject, &body).await
     }
 
+    /// Send a welcome email to a newly registered user
+    pub async fn send_welcome_email(
+        &self,
+        settings: &SystemSettings,
+        to_email: &str,
+        username: &str,
+        display_name: &str,
+        base_url: &str,
+    ) -> WebResult<()> {
+        let subject = "Welcome to APICH Technical & Academic Workspace".to_string();
+        let body = format!(
+            "Hello {display_name},\n\n\
+            Welcome to APICH Technical & Academic Workspace! Your account has been created successfully.\n\n\
+            Username: {username}\n\
+            Login URL: {base_url}/login\n\n\
+            You can now start managing research notes, Typst & LaTeX papers, and collaborative slide decks.\n\n\
+            Best regards,\n\
+            The APICH Team"
+        );
+        self.send_mail(settings, to_email, &subject, &body).await
+    }
+
     /// Send a general email, dispatching via real SMTP if enabled or recording to in-memory queue
     pub async fn send_mail(
         &self,

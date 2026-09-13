@@ -2168,11 +2168,12 @@ impl<'a> Repository<'a> {
     ) -> Result<Invitation> {
         let id = Uuid::now_v7();
         let role = dto.role.unwrap_or_else(|| "member".to_string());
+        let max_uses = dto.max_uses.unwrap_or(1).max(1);
 
         let invite = sqlx::query_as::<_, Invitation>(
             r"
-            INSERT INTO invitations (id, token, email, org_id, team_id, role, inviter_id, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO invitations (id, token, email, org_id, team_id, role, inviter_id, max_uses, used_count, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)
             RETURNING *
             ",
         )
@@ -2183,6 +2184,7 @@ impl<'a> Repository<'a> {
         .bind(dto.team_id)
         .bind(role)
         .bind(dto.inviter_id)
+        .bind(max_uses)
         .bind(dto.expires_at)
         .fetch_one(self.pool)
         .await?;
@@ -2199,7 +2201,7 @@ impl<'a> Repository<'a> {
         token: &str,
     ) -> Result<Option<Invitation>> {
         let invite = sqlx::query_as::<_, Invitation>(
-            "SELECT * FROM invitations WHERE token = $1 AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP",
+            "SELECT * FROM invitations WHERE token = $1 AND used_count < max_uses AND expires_at > CURRENT_TIMESTAMP",
         )
         .bind(token)
         .fetch_optional(self.pool)
@@ -2207,7 +2209,7 @@ impl<'a> Repository<'a> {
         Ok(invite)
     }
 
-    /// Mark invitation used.
+    /// Mark invitation used by incrementing `used_count` and updating `used_at`.
     ///
     /// # Errors
     /// Returns an error if the database query or operation fails.
@@ -2215,8 +2217,35 @@ impl<'a> Repository<'a> {
         &self,
         token: &str,
     ) -> Result<()> {
-        sqlx::query("UPDATE invitations SET used_at = CURRENT_TIMESTAMP WHERE token = $1")
-            .bind(token)
+        sqlx::query(
+            "UPDATE invitations SET used_count = used_count + 1, used_at = CURRENT_TIMESTAMP WHERE token = $1 AND used_count < max_uses",
+        )
+        .bind(token)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List all invitations ordered by creation date.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn list_invitations(&self) -> Result<Vec<Invitation>> {
+        let list = sqlx::query_as::<_, Invitation>(
+            "SELECT * FROM invitations ORDER BY created_at DESC",
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(list)
+    }
+
+    /// Delete or revoke an invitation by id.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn delete_invitation(&self, id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM invitations WHERE id = $1")
+            .bind(id)
             .execute(self.pool)
             .await?;
         Ok(())

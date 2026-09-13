@@ -157,10 +157,10 @@ pub struct UpdateSystemSettingsDto {
 pub struct Invitation {
     /// Unique invitation identifier.
     pub id: Uuid,
-    /// Secure random token passed via invitation URL.
+    /// Secure random token or custom code passed via invitation URL or entered directly.
     pub token: String,
-    /// Invited email address.
-    pub email: String,
+    /// Optional invited email address (if restricted to a specific recipient).
+    pub email: Option<String>,
     /// Organization to join upon acceptance.
     pub org_id: Option<Uuid>,
     /// Team to join upon acceptance.
@@ -169,9 +169,13 @@ pub struct Invitation {
     pub role: String,
     /// ID of the user who issued the invitation.
     pub inviter_id: Option<Uuid>,
+    /// Maximum number of times this invitation code can be redeemed.
+    pub max_uses: i32,
+    /// Number of times this invitation code has been redeemed.
+    pub used_count: i32,
     /// Expiration timestamp of the invitation.
     pub expires_at: DateTime<Utc>,
-    /// Timestamp when the invitation was redeemed, if used.
+    /// Timestamp when the invitation was last redeemed, if used.
     pub used_at: Option<DateTime<Utc>>,
     /// Creation timestamp of the invitation.
     pub created_at: DateTime<Utc>,
@@ -180,8 +184,10 @@ pub struct Invitation {
 /// Data transfer object for creating a new invitation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateInvitationDto {
-    /// Recipient email address.
-    pub email: String,
+    /// Optional custom invitation token/code. Generated if None.
+    pub token: Option<String>,
+    /// Optional recipient email address. If None, code can be redeemed by any user.
+    pub email: Option<String>,
     /// Target organization ID.
     pub org_id: Option<Uuid>,
     /// Target team ID.
@@ -190,6 +196,8 @@ pub struct CreateInvitationDto {
     pub role: Option<String>,
     /// ID of inviting user.
     pub inviter_id: Option<Uuid>,
+    /// Maximum number of uses allowed (defaults to 1).
+    pub max_uses: Option<i32>,
     /// Expiration timestamp.
     pub expires_at: DateTime<Utc>,
 }

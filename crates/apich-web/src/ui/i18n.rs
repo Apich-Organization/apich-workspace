@@ -1064,6 +1064,76 @@ impl I18n {
         }
     }
 
+    pub const fn confirm_password_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Confirm Password",
+            | Lang::Zh => "确认密码",
+        }
+    }
+
+    pub const fn passwords_mismatch(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Passwords do not match",
+            | Lang::Zh => "两次输入的密码不一致",
+        }
+    }
+
+    pub const fn invitation_codes_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Invitation Codes",
+            | Lang::Zh => "邀请码管理",
+        }
+    }
+
+    pub const fn invitation_codes_desc(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Generate and manage multi-use invitation codes with expiration dates and usage limits",
+            | Lang::Zh => "生成并管理支持多人员使用次数与有效期的注册邀请码",
+        }
+    }
+
+    pub const fn generate_code_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Generate Invitation Code",
+            | Lang::Zh => "生成新邀请码",
+        }
+    }
+
+    pub const fn max_uses_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Max Uses",
+            | Lang::Zh => "最大使用次数",
+        }
+    }
+
+    pub const fn expires_in_days_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Validity (Days)",
+            | Lang::Zh => "有效天数",
+        }
+    }
+
+    pub const fn code_optional_hint(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Custom Code (Leave empty to auto-generate)",
+            | Lang::Zh => "自定义邀请码（留空则自动生成）",
+        }
+    }
+
+    pub const fn email_restriction_hint(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Restrict to Email (Optional, leave empty for open sharing)",
+            | Lang::Zh => "指定邮箱（选填，留空则允许任何人凭码注册）",
+        }
+    }
+
+    pub const fn revoke_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Revoke",
+            | Lang::Zh => "作废",
+        }
+    }
+
     pub const fn submit_login(&self) -> &'static str {
         match self.lang {
             | Lang::En => "Sign In",

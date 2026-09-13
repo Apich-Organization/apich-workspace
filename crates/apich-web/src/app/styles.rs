@@ -876,6 +876,14 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
 .alert-danger { background: var(--danger-bg); border-color: var(--danger-border); color: #991b1b; }
 .alert-success { background: var(--success-bg); border-color: var(--success-border); color: #15803d; box-shadow: inset 3px 0 0 var(--accent-teal); }
 .alert-info { background: var(--primary-light); border-color: var(--primary-border); color: #1e40af; }
+.pat-token-banner {
+    background: var(--success-bg);
+    border: 1px solid var(--success-border);
+    box-shadow: inset 4px 0 0 var(--accent-teal);
+    border-radius: var(--radius-md);
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1.5rem;
+}
 
 /* Auth Pages - Tabbed Login & Registration */
 .auth-page {

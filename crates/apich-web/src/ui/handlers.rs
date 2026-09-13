@@ -60,6 +60,7 @@ pub struct FormRegister {
     pub display_name: String,
     pub email: String,
     pub password: String,
+    pub confirm_password: Option<String>,
     pub invite_token: Option<String>,
     pub create_org: Option<String>,
     pub org_name: Option<String>,
@@ -446,6 +447,8 @@ pub fn build_ui_router() -> Router<AppState> {
             post(update_platform_settings_form),
         )
         .route("/admin/platform/smtp-test", post(test_smtp_form))
+        .route("/admin/invitations/new", post(create_invitation_form))
+        .route("/admin/invitations/delete", post(delete_invitation_form))
         // Template Library -- kept in its own module/router (template_handlers.rs) rather than
         // added inline here; this file is already large and the template library is a
         // self-contained feature with no other handler here depending on it.
@@ -649,7 +652,16 @@ async fn register_form(
         return Redirect::to("/register?error=Self-serve registration is disabled").into_response();
     }
 
-    if settings.registration_mode == "invite_only" {
+    if payload.confirm_password.as_deref() != Some(&payload.password) {
+        return Redirect::to("/register?error=Passwords do not match").into_response();
+    }
+
+    let has_invite = payload
+        .invite_token
+        .as_deref()
+        .is_some_and(|t| !t.trim().is_empty());
+
+    let invite_to_mark = if settings.registration_mode == "invite_only" || has_invite {
         let token = match payload
             .invite_token
             .as_deref()
@@ -657,17 +669,23 @@ async fn register_form(
         {
             | Some(t) => t.trim(),
             | None => {
-                return Redirect::to("/register?error=Invitation code required").into_response()
+                return Redirect::to("/register?error=Invitation code required").into_response();
             },
         };
         let Some(invite) = repo.get_invitation_by_token(token).await.ok().flatten() else {
-            return Redirect::to("/register?error=Invalid or expired invitation").into_response();
+            return Redirect::to("/register?error=Invalid, expired, or exhausted invitation code").into_response();
         };
-        if invite.email.to_lowercase() != payload.email.to_lowercase() {
-            return Redirect::to("/register?error=Email mismatch with invitation").into_response();
+        if let Some(ref req_email) = invite.email {
+            if !req_email.trim().is_empty()
+                && req_email.to_lowercase() != payload.email.to_lowercase()
+            {
+                return Redirect::to("/register?error=Email mismatch with invitation code").into_response();
+            }
         }
-        let _ = repo.mark_invitation_used(&invite.token).await;
-    }
+        Some(invite)
+    } else {
+        None
+    };
 
     let Ok(pwd_hash) = hash_password(&payload.password) else {
         return Redirect::to("/register?error=Password hashing failed").into_response();
@@ -687,6 +705,21 @@ async fn register_form(
 
     match user {
         | Ok(u) => {
+            if let Some(invite) = invite_to_mark {
+                let _ = repo.mark_invitation_used(&invite.token).await;
+            }
+
+            let _ = state
+                .mailer
+                .send_welcome_email(
+                    &settings,
+                    &u.email,
+                    &u.username,
+                    &u.display_name,
+                    &state.base_url,
+                )
+                .await;
+
             if payload.create_org.as_deref() == Some("1")
                 || payload.create_org.as_deref() == Some("on")
                 || payload.create_org.as_deref() == Some("true")
@@ -3900,6 +3933,7 @@ async fn admin_platform_page(
     let repo = state.db.repository();
     let settings = repo.get_system_settings().await.unwrap_or_default();
     let sso_clients = repo.list_oauth_clients().await.unwrap_or_default();
+    let invitations = repo.list_invitations().await.unwrap_or_default();
     let notice = params.get("notice").cloned();
     let error = params.get("error").cloned();
 
@@ -3909,6 +3943,7 @@ async fn admin_platform_page(
                 user=user
                 settings=settings
                 sso_clients=sso_clients
+                invitations=invitations
                 notice=notice
                 error=error
                 i18n=i18n
@@ -4007,6 +4042,78 @@ async fn test_smtp_form(
             )
         },
         | Err(e) => redirect_error("/admin/platform", format!("SMTP delivery error: {e}")),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateInvitationForm {
+    pub code: Option<String>,
+    pub max_uses: Option<i32>,
+    pub expires_in_days: Option<i64>,
+    pub email: Option<String>,
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteInvitationForm {
+    pub id: Uuid,
+}
+
+async fn create_invitation_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<CreateInvitationForm>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Administrator access required").into_response();
+    }
+    let repo = state.db.repository();
+    let code = payload
+        .code
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| Uuid::new_v4().simple().to_string());
+    let days = payload.expires_in_days.unwrap_or(7).clamp(1, 365);
+    let expires_at = Utc::now()
+        .checked_add_signed(chrono::Duration::days(days))
+        .unwrap_or_else(Utc::now);
+    let max_uses = payload.max_uses.unwrap_or(1).max(1);
+    let email = payload.email.filter(|s| !s.trim().is_empty());
+
+    let dto = apich_db::CreateInvitationDto {
+        token: Some(code.clone()),
+        email,
+        org_id: None,
+        team_id: None,
+        role: payload.role.filter(|s| !s.trim().is_empty()),
+        inviter_id: Some(user.id),
+        max_uses: Some(max_uses),
+        expires_at,
+    };
+
+    match repo.create_invitation(&code, dto).await {
+        Ok(_) => redirect_notice("/admin/platform", "Invitation code generated successfully"),
+        Err(e) => redirect_error("/admin/platform", e),
+    }
+}
+
+async fn delete_invitation_form(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<DeleteInvitationForm>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+    if !user.is_platform_admin {
+        return (StatusCode::FORBIDDEN, "Administrator access required").into_response();
+    }
+    let repo = state.db.repository();
+    match repo.delete_invitation(payload.id).await {
+        Ok(()) => redirect_notice("/admin/platform", "Invitation code revoked"),
+        Err(e) => redirect_error("/admin/platform", e),
     }
 }
 

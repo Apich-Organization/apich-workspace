@@ -81,6 +81,11 @@ impl MigrationManager {
             name: "007_template_library",
             sql: TEMPLATE_LIBRARY_SQL,
         });
+        manager.register(Migration {
+            version: 8,
+            name: "008_invitation_codes_enhancement",
+            sql: INVITATION_CODES_ENHANCEMENT_SQL,
+        });
         manager
     }
 
@@ -663,11 +668,13 @@ ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS invitations (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     token VARCHAR(128) UNIQUE NOT NULL,
-    email VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
     org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
     team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     role VARCHAR(32) NOT NULL DEFAULT 'member',
     inviter_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    max_uses INT NOT NULL DEFAULT 1,
+    used_count INT NOT NULL DEFAULT 0,
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -845,3 +852,15 @@ CREATE TABLE IF NOT EXISTS template_versions (
 );
 CREATE INDEX IF NOT EXISTS idx_template_versions_template ON template_versions(template_id, created_at DESC);
 "#;
+
+/// SQL schema migration 008: Invitation code enhancements (multi-use support and optional email restriction)
+pub const INVITATION_CODES_ENHANCEMENT_SQL: &str = r"
+-- 008: Multi-use invitation codes with configurable usage limits
+ALTER TABLE invitations
+    ADD COLUMN IF NOT EXISTS max_uses INT NOT NULL DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS used_count INT NOT NULL DEFAULT 0;
+
+ALTER TABLE invitations
+    ALTER COLUMN email DROP NOT NULL;
+";
+

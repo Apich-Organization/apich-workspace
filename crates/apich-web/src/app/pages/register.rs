@@ -106,6 +106,10 @@ pub fn RegisterPage(
                             <label for="password">{i18n.password_label()}</label>
                             <input type="password" id="password" name="password" required=true placeholder="••••••••••••" class="form-control" />
                         </div>
+                        <div class="form-group">
+                            <label for="confirm_password">{i18n.confirm_password_label()}</label>
+                            <input type="password" id="confirm_password" name="confirm_password" required=true placeholder="••••••••••••" class="form-control" />
+                        </div>
                         {invite_field}
 
                         <OrgSignupFieldsIsland

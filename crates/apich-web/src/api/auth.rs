@@ -46,6 +46,7 @@ pub struct RegisterRequest {
     pub username: String,
     pub email: String,
     pub password: String,
+    pub confirm_password: Option<String>,
     pub display_name: String,
     pub invite_token: Option<String>,
 }
@@ -70,8 +71,19 @@ async fn register(
     let repo = state.db.repository();
     let settings = repo.get_system_settings().await?;
 
-    // Verify registration mode
-    match settings.registration_mode.as_str() {
+    if let Some(ref confirm) = payload.confirm_password {
+        if confirm != &payload.password {
+            return Err(WebError::BadRequest("Passwords do not match".to_string()));
+        }
+    }
+
+    // Verify registration mode and invitation code
+    let has_invite = payload
+        .invite_token
+        .as_deref()
+        .is_some_and(|t| !t.trim().is_empty());
+
+    let invite_to_mark = match settings.registration_mode.as_str() {
         | "admin_only" => {
             return Err(WebError::Forbidden(
                 "Self-serve registration is disabled on this platform".to_string(),
@@ -82,20 +94,43 @@ async fn register(
                 WebError::Forbidden("An invitation code is required to register".to_string())
             })?;
             let invite = repo.get_invitation_by_token(token).await?.ok_or_else(|| {
-                WebError::BadRequest("Invalid or expired invitation token".to_string())
+                WebError::BadRequest("Invalid, expired, or exhausted invitation code".to_string())
             })?;
 
-            if invite.email.to_lowercase() != payload.email.to_lowercase() {
-                return Err(WebError::BadRequest(
-                    "Registration email does not match invitation recipient".to_string(),
-                ));
+            if let Some(ref req_email) = invite.email {
+                if !req_email.trim().is_empty()
+                    && req_email.to_lowercase() != payload.email.to_lowercase()
+                {
+                    return Err(WebError::BadRequest(
+                        "Registration email does not match invitation recipient".to_string(),
+                    ));
+                }
             }
-
-            // Mark invitation used
-            repo.mark_invitation_used(token).await?;
+            Some(invite)
         },
-        | _ => {}, // "open" mode allowed
-    }
+        | _ => {
+            if has_invite {
+                let token = payload.invite_token.as_deref().unwrap_or_default();
+                let invite = repo.get_invitation_by_token(token).await?.ok_or_else(|| {
+                    WebError::BadRequest(
+                        "Invalid, expired, or exhausted invitation code".to_string(),
+                    )
+                })?;
+                if let Some(ref req_email) = invite.email {
+                    if !req_email.trim().is_empty()
+                        && req_email.to_lowercase() != payload.email.to_lowercase()
+                    {
+                        return Err(WebError::BadRequest(
+                            "Registration email does not match invitation recipient".to_string(),
+                        ));
+                    }
+                }
+                Some(invite)
+            } else {
+                None
+            }
+        },
+    };
 
     if repo
         .get_user_by_username(&payload.username)
@@ -120,6 +155,22 @@ async fn register(
             storage_quota_bytes: None,
         })
         .await?;
+
+    if let Some(invite) = invite_to_mark {
+        repo.mark_invitation_used(&invite.token).await?;
+    }
+
+    // Send welcome email
+    let _ = state
+        .mailer
+        .send_welcome_email(
+            &settings,
+            &user.email,
+            &user.username,
+            &user.display_name,
+            &state.base_url,
+        )
+        .await;
 
     // Create initial session
     let token = generate_session_token();

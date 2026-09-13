@@ -69,12 +69,144 @@ pub fn SettingsPage(
         view! { <div class="passkey-list">{items}</div> }.into_any()
     };
 
-    let new_pat_banner = new_pat_token.map(|token| view! {
-        <div class="alert alert-success" style="font-family:var(--font-mono); word-break:break-all;">
-            <strong>"New token created. Copy it now — it will not be shown again:"</strong><br/>
-            {token}
+    let (initial_pat_display, initial_pat_token) = match new_pat_token {
+        | Some(token) => ("display:block;", token),
+        | None => ("display:none;", String::new()),
+    };
+
+    let new_pat_banner = view! {
+        <div id="new-pat-container" class="pat-token-banner" style=initial_pat_display>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.75rem;">
+                <div>
+                    <div style="font-weight:600; font-size:0.95rem; color:#15803d; display:flex; align-items:center; gap:0.4rem;">
+                        <span>"🔑"</span>
+                        <span>{if i18n.is_zh() { "个人访问令牌已生成" } else { "New Personal Access Token Generated" }}</span>
+                    </div>
+                    <p style="margin:0.25rem 0 0 0; font-size:0.83rem; color:var(--text-muted);">
+                        {if i18n.is_zh() {
+                            "请务必立即复制并妥善保存。在您离开本页面之前，该令牌会一直显示；一旦离开页面，将无法再次查看。"
+                        } else {
+                            "Make sure to copy your personal access token now. It will remain on this page until you leave, but cannot be shown again."
+                        }}
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    id="dismiss-pat-token-btn"
+                    title=if i18n.is_zh() { "关闭" } else { "Dismiss" }
+                    style="background:none; border:none; color:var(--text-muted); font-size:1.25rem; cursor:pointer; line-height:1; padding:2px 6px; border-radius:4px; opacity:0.7;"
+                >
+                    "×"
+                </button>
+            </div>
+            <div style="display:flex; gap:0.6rem; align-items:center;">
+                <input
+                    type="text"
+                    id="new-pat-token-input"
+                    readonly=true
+                    value=initial_pat_token
+                    class="form-control"
+                    style="font-family:var(--font-mono); font-size:0.88rem; font-weight:600; background:var(--bg-surface); color:var(--text-main); letter-spacing:0.3px; padding:0.5rem 0.75rem; border:1px solid var(--border-subtle); flex:1; border-radius:6px;"
+                    onfocus="this.select()"
+                    onclick="this.select()"
+                />
+                <button
+                    type="button"
+                    id="copy-pat-token-btn"
+                    class="btn btn-primary btn-sm"
+                    style="display:inline-flex; align-items:center; gap:0.35rem; font-weight:600; padding:0.5rem 0.95rem; white-space:nowrap;"
+                >
+                    <span id="copy-pat-icon">"📋"</span>
+                    <span id="copy-pat-text">{if i18n.is_zh() { "复制令牌" } else { "Copy Token" }}</span>
+                </button>
+            </div>
+            <div style="margin-top:0.6rem; font-size:0.8rem; color:var(--text-muted);">
+                {if i18n.is_zh() {
+                    "💡 提示：使用 Git 通过 HTTPS 克隆或推送项目时，请使用此令牌作为密码。"
+                } else {
+                    "💡 Tip: Use this token as your password when cloning or pushing with Git over HTTPS."
+                }}
+            </div>
         </div>
-    });
+        <script>
+        {r"
+        (function() {
+            const box = document.getElementById('new-pat-container');
+            const input = document.getElementById('new-pat-token-input');
+            const copyBtn = document.getElementById('copy-pat-token-btn');
+            const copyText = document.getElementById('copy-pat-text');
+            const copyIcon = document.getElementById('copy-pat-icon');
+            const dismissBtn = document.getElementById('dismiss-pat-token-btn');
+            const storageKey = 'apich_active_pat_token';
+
+            if (!box || !input) return;
+
+            if (input.value && input.value.trim().length > 0) {
+                sessionStorage.setItem(storageKey, input.value.trim());
+                if (window.history && window.history.replaceState) {
+                    window.history.replaceState({}, document.title, window.location.pathname + (window.location.hash || '#pat'));
+                }
+            } else {
+                const stored = sessionStorage.getItem(storageKey);
+                if (stored && stored.trim().length > 0) {
+                    input.value = stored.trim();
+                    box.style.display = 'block';
+                }
+            }
+
+            if (copyBtn) {
+                copyBtn.onclick = function() {
+                    if (!input.value) return;
+                    const textToCopy = input.value;
+                    const onCopied = function() {
+                        if (copyText) copyText.textContent = 'Copied!';
+                        if (copyIcon) copyIcon.textContent = '✓';
+                        copyBtn.style.background = 'var(--accent-teal, #10b981)';
+                        copyBtn.style.borderColor = 'var(--accent-teal, #10b981)';
+                        setTimeout(function() {
+                            if (copyText) copyText.textContent = 'Copy Token';
+                            if (copyIcon) copyIcon.textContent = '📋';
+                            copyBtn.style.background = '';
+                            copyBtn.style.borderColor = '';
+                        }, 2500);
+                    };
+
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(textToCopy).then(onCopied).catch(function() {
+                            input.select();
+                            document.execCommand('copy');
+                            onCopied();
+                        });
+                    } else {
+                        input.select();
+                        document.execCommand('copy');
+                        onCopied();
+                    }
+                };
+            }
+
+            if (dismissBtn) {
+                dismissBtn.onclick = function() {
+                    sessionStorage.removeItem(storageKey);
+                    box.style.display = 'none';
+                };
+            }
+
+            document.addEventListener('click', function(e) {
+                const anchor = e.target && e.target.closest ? e.target.closest('a') : null;
+                if (anchor && anchor.href) {
+                    try {
+                        const targetUrl = new URL(anchor.href, window.location.origin);
+                        if (targetUrl.origin === window.location.origin && targetUrl.pathname !== '/settings') {
+                            sessionStorage.removeItem(storageKey);
+                        }
+                    } catch (_) {}
+                }
+            });
+        })();
+        "}
+        </script>
+    };
 
     let no_pats_text = "No personal access tokens yet.";
     let pat_list = if pats.is_empty() {

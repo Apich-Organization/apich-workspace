@@ -1,3 +1,7 @@
+//! End-to-end integration tests for apich-web.
+//!
+//! Validates authentication, RBAC, invitations, project lifecycle, and admin APIs.
+
 use apich_db::CreateOAuthClientDto;
 use apich_db::CreateOrganizationDto;
 use apich_db::CreateTeamDto;
@@ -1014,6 +1018,184 @@ async fn test_fullstack_web_e2e_lifecycle() {
         .await
         .expect("Failed to test reuse token");
     assert_ne!(reused_res.status(), StatusCode::OK);
+
+    // Verify Charlie received a welcome email upon registration
+    let sent_emails_after_reg = state.mailer.get_sent_emails();
+    let charlie_welcome = sent_emails_after_reg
+        .iter()
+        .find(|e| e.to == "charlie@apich.org" && e.subject.contains("Welcome"))
+        .expect("Welcome email should be sent upon registration");
+    assert!(charlie_welcome.body.contains("charlie_researcher"));
+
+    // Dual password confirmation: registration with mismatched passwords rejected
+    let mismatch_res = client
+        .post(format!("{}/api/auth/register", base_url))
+        .json(&json!({
+            "username": "mismatch_user",
+            "email": "mismatch@apich.org",
+            "password": "Password123!",
+            "confirm_password": "DifferentPassword123!",
+            "display_name": "Mismatch User",
+            "invite_token": invite_token
+        }))
+        .send()
+        .await
+        .expect("Failed to send mismatch registration");
+    assert_eq!(mismatch_res.status(), StatusCode::BAD_REQUEST);
+
+    // Admin login to create and verify multi-use invitation codes
+    let admin_login_res = client
+        .post(format!("{}/api/auth/login", base_url))
+        .json(&json!({
+            "username": "alice_admin",
+            "password": "AliceAdmin123!"
+        }))
+        .send()
+        .await
+        .expect("Failed to login as admin");
+    assert_eq!(admin_login_res.status(), StatusCode::OK);
+
+    // Create a multi-use invitation (max_uses = 3, 7 days valid)
+    let multi_res = client
+        .post(format!("{}/api/admin/invitations", base_url))
+        .json(&json!({
+            "code": "LAB-2026-MULTI",
+            "max_uses": 3,
+            "expires_in_days": 7,
+            "role": "member"
+        }))
+        .send()
+        .await
+        .expect("Failed to create multi-use invitation");
+    assert_eq!(multi_res.status(), StatusCode::OK);
+    let multi_body: Value = multi_res.json().await.unwrap();
+    assert_eq!(multi_body["token"], "LAB-2026-MULTI");
+    assert_eq!(multi_body["max_uses"], 3);
+    assert_eq!(multi_body["used_count"], 0);
+
+    // Verify GET /api/admin/invitations lists the new code
+    let list_res = client
+        .get(format!("{}/api/admin/invitations", base_url))
+        .send()
+        .await
+        .expect("Failed to list invitations");
+    assert_eq!(list_res.status(), StatusCode::OK);
+    let list_body: Vec<Value> = list_res.json().await.unwrap();
+    assert!(list_body.iter().any(|inv| inv["token"] == "LAB-2026-MULTI"));
+
+    // Register User 1 with multi-use code and dual passwords (usage becomes 1/3)
+    let user1_res = client
+        .post(format!("{}/api/auth/register", base_url))
+        .json(&json!({
+            "username": "multi_user_one",
+            "email": "user1@apich.org",
+            "password": "User1Password123!",
+            "confirm_password": "User1Password123!",
+            "display_name": "Multi User One",
+            "invite_token": "LAB-2026-MULTI"
+        }))
+        .send()
+        .await
+        .expect("Failed to register user 1");
+    assert_eq!(user1_res.status(), StatusCode::OK);
+
+    // Register User 2 with multi-use code (usage becomes 2/3)
+    let user2_res = client
+        .post(format!("{}/api/auth/register", base_url))
+        .json(&json!({
+            "username": "multi_user_two",
+            "email": "user2@apich.org",
+            "password": "User2Password123!",
+            "confirm_password": "User2Password123!",
+            "display_name": "Multi User Two",
+            "invite_token": "LAB-2026-MULTI"
+        }))
+        .send()
+        .await
+        .expect("Failed to register user 2");
+    assert_eq!(user2_res.status(), StatusCode::OK);
+
+    // Register User 3 with multi-use code (usage reaches 3/3)
+    let user3_res = client
+        .post(format!("{}/api/auth/register", base_url))
+        .json(&json!({
+            "username": "multi_user_three",
+            "email": "user3@apich.org",
+            "password": "User3Password123!",
+            "confirm_password": "User3Password123!",
+            "display_name": "Multi User Three",
+            "invite_token": "LAB-2026-MULTI"
+        }))
+        .send()
+        .await
+        .expect("Failed to register user 3");
+    assert_eq!(user3_res.status(), StatusCode::OK);
+
+    // Attempting User 4 with exhausted code -> rejected
+    let user4_res = client
+        .post(format!("{}/api/auth/register", base_url))
+        .json(&json!({
+            "username": "multi_user_four",
+            "email": "user4@apich.org",
+            "password": "User4Password123!",
+            "confirm_password": "User4Password123!",
+            "display_name": "Multi User Four",
+            "invite_token": "LAB-2026-MULTI"
+        }))
+        .send()
+        .await
+        .expect("Failed to send user 4 registration");
+    assert_eq!(user4_res.status(), StatusCode::BAD_REQUEST);
+
+    // Test Revocation: Admin creates an invitation and immediately revokes it
+    let admin_login_again = client
+        .post(format!("{}/api/auth/login", base_url))
+        .json(&json!({
+            "username": "alice_admin",
+            "password": "AliceAdmin123!"
+        }))
+        .send()
+        .await
+        .expect("Failed to re-login as admin");
+    assert_eq!(admin_login_again.status(), StatusCode::OK);
+
+    let revokable_res = client
+        .post(format!("{}/api/admin/invitations", base_url))
+        .json(&json!({
+            "code": "REVOKE-TEST-CODE",
+            "max_uses": 5,
+            "expires_in_days": 14
+        }))
+        .send()
+        .await
+        .expect("Failed to create revokable invitation");
+    assert_eq!(revokable_res.status(), StatusCode::OK);
+    let revokable_body: Value = revokable_res.json().await.unwrap();
+    let revokable_id = revokable_body["id"].as_str().unwrap();
+
+    // Delete/Revoke invitation via DELETE /api/admin/invitations/:id
+    let delete_res = client
+        .delete(format!("{}/api/admin/invitations/{}", base_url, revokable_id))
+        .send()
+        .await
+        .expect("Failed to delete invitation");
+    assert_eq!(delete_res.status(), StatusCode::OK);
+
+    // Redeeming the deleted/revoked code fails
+    let use_revoked_res = client
+        .post(format!("{}/api/auth/register", base_url))
+        .json(&json!({
+            "username": "revoked_code_user",
+            "email": "revoked@apich.org",
+            "password": "Password123!",
+            "confirm_password": "Password123!",
+            "display_name": "Revoked Code User",
+            "invite_token": "REVOKE-TEST-CODE"
+        }))
+        .send()
+        .await
+        .expect("Failed to test revoked registration");
+    assert_eq!(use_revoked_res.status(), StatusCode::BAD_REQUEST);
 
     // ========================================================================
     // TEST 7: Leptos SSR Frontend Page Renders, i18n & Admin Management Flows
