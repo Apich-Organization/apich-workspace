@@ -574,6 +574,21 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     margin-bottom: var(--space-5);
     box-shadow: var(--shadow-sm);
 }
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+    margin-bottom: var(--space-5);
+}
+@media (max-width: 1024px) {
+    .detail-grid {
+        grid-template-columns: 1fr;
+    }
+    .detail-grid > .section-card {
+        grid-column: span 1 !important;
+    }
+}
 .section-header {
     margin-bottom: 1.25rem;
     display: flex;
@@ -832,6 +847,14 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     box-shadow: 0 0 0 3px var(--primary-ring);
 }
 .form-control.readonly { background: var(--bg-muted); cursor: not-allowed; color: var(--text-muted); }
+select.form-control {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 14px 14px;
+    padding-right: 2rem;
+}
 /* Every use of this is an "input + submit button" row (branch create, merge, milestone, git
    remote, ignore rule, knowledge search). The columns used to be `1fr 1fr`, which on a wide
    screen gave the *button* half the card -- a huge stretched button marooned at the right edge,

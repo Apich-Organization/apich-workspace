@@ -173,17 +173,17 @@ pub fn AdminPlatformPage(
                     <p class="text-muted" style="font-size:0.85rem; margin-top:0.25rem; margin-bottom:1rem;">
                         {i18n.registration_policy_subtitle()}
                     </p>
-                    <form method="post" action="/admin/platform/settings">
+                    <form method="post" action="/admin/platform/settings" style="max-width:380px;">
                         <input type="hidden" name="section" value="registration" />
-                        <div class="form-group">
-                            <label>{i18n.registration_mode_label()}</label>
-                            <select name="registration_mode" class="form-control" style="margin-top:0.5rem;">
+                        <div class="form-group" style="margin-bottom:1rem;">
+                            <label for="registration_mode" style="font-weight:600; font-size:0.85rem;">{i18n.registration_mode_label()}</label>
+                            <select id="registration_mode" name="registration_mode" class="form-control" style="max-width:360px; margin-top:0.35rem; padding:0.45rem 0.75rem; font-size:0.875rem;">
                                 <option value="invite_only" selected=settings.registration_mode == "invite_only">{i18n.registration_mode_invite()}</option>
                                 <option value="open" selected=settings.registration_mode == "open">{i18n.registration_mode_open()}</option>
                                 <option value="admin_only" selected=settings.registration_mode == "admin_only">"Platform Administrator Only"</option>
                             </select>
                         </div>
-                        <button type="submit" class="btn btn-primary" style="margin-top:0.5rem;">{i18n.save_policy()}</button>
+                        <button type="submit" class="btn btn-primary btn-sm" style="padding:0.45rem 1rem;">{i18n.save_policy()}</button>
                     </form>
                 </div>
 
