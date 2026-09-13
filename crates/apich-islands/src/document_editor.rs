@@ -361,13 +361,33 @@ pub fn DocumentEditorIsland(
         }.into_any()
     };
 
+    // Real browser fullscreen for the presentation overlay. The overlay alone only covers the
+    // page -- browser chrome, tabs, and the OS bar all stay visible, which is not what anyone
+    // means by "present". F11 can't fill the gap either: this island's own keydown handler binds
+    // F11 to *opening* the overlay and calls `prevent_default()`, so the browser's native
+    // fullscreen never fires. Hence an explicit control, driving the Fullscreen API directly.
+    let stage_ref = NodeRef::<leptos::html::Div>::new();
+    let is_fullscreen = RwSignal::new(false);
+    wire_fullscreen_listener(is_fullscreen);
+
     let presentation_modal = is_slide.then(|| {
         view! {
             <div
+                node_ref=stage_ref
                 style:display=move || if presenting.get() { "flex" } else { "none" }
                 style="position:fixed; inset:0; background:#0f172a; z-index:9999; flex-direction:column; justify-content:center; align-items:center; padding:2rem;"
             >
-                <button type="button" on:click=move |_| presenting.set(false) style="position:absolute; top:1.5rem; right:2rem; background:none; border:none; color:#fff; font-size:1.75rem; cursor:pointer;">"×"</button>
+                <div style="position:absolute; top:1.5rem; right:2rem; display:flex; align-items:center; gap:0.5rem;">
+                    <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        title="Fill the whole screen (Esc or this button to exit)"
+                        on:click=move |_| toggle_fullscreen(stage_ref, is_fullscreen)
+                    >
+                        {move || if is_fullscreen.get() { "⤢ Exit full screen" } else { "⛶ Full screen" }}
+                    </button>
+                    <button type="button" on:click=move |_| { exit_fullscreen_if_active(is_fullscreen); presenting.set(false); } style="background:none; border:none; color:#fff; font-size:1.75rem; cursor:pointer; line-height:1;" title="Close presentation">"×"</button>
+                </div>
                 <div style="background:#ffffff; width:90%; max-width:1100px; aspect-ratio:16/9; border-radius:16px; padding:2.5rem; display:flex; flex-direction:column; justify-content:center; overflow:hidden;">
                     <div
                         style="width:100%; height:100%; display:flex; justify-content:center; align-items:center;"
@@ -420,6 +440,73 @@ pub fn DocumentEditorIsland(
         {presentation_modal}
     }
 }
+
+/// Puts the presentation stage into (or out of) real browser fullscreen.
+///
+/// `Element::request_fullscreen()` returns a `Promise` that rejects if the call didn't originate
+/// in a user gesture; it's called straight from the click handler, so that holds. The result is
+/// ignored deliberately -- a rejection just means the browser declined, and the overlay is still
+/// perfectly usable at page size.
+#[cfg(feature = "hydrate")]
+fn toggle_fullscreen(
+    stage_ref: NodeRef<leptos::html::Div>,
+    is_fullscreen: RwSignal<bool>,
+) {
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    if doc.fullscreen_element().is_some() {
+        doc.exit_fullscreen();
+        is_fullscreen.set(false);
+        return;
+    }
+    if let Some(el) = stage_ref.get_untracked() {
+        let _ = el.request_fullscreen();
+        is_fullscreen.set(true);
+    }
+}
+#[cfg(not(feature = "hydrate"))]
+const fn toggle_fullscreen(
+    _stage_ref: NodeRef<leptos::html::Div>,
+    _is_fullscreen: RwSignal<bool>,
+) {
+}
+
+/// Leaves fullscreen when the presentation is closed, so dismissing the overlay never strands
+/// the browser in a fullscreen state with nothing presenting in it.
+#[cfg(feature = "hydrate")]
+fn exit_fullscreen_if_active(is_fullscreen: RwSignal<bool>) {
+    if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+        if doc.fullscreen_element().is_some() {
+            doc.exit_fullscreen();
+        }
+    }
+    is_fullscreen.set(false);
+}
+#[cfg(not(feature = "hydrate"))]
+const fn exit_fullscreen_if_active(_is_fullscreen: RwSignal<bool>) {}
+
+/// Keeps the button's label honest when fullscreen is left by a route this component didn't
+/// drive -- pressing Esc, or the browser's own exit affordance -- which fires
+/// `fullscreenchange` without ever going through `toggle_fullscreen`.
+#[cfg(feature = "hydrate")]
+fn wire_fullscreen_listener(is_fullscreen: RwSignal<bool>) {
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsCast;
+
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let doc_for_cb = doc.clone();
+    let closure = Closure::<dyn Fn()>::new(move || {
+        is_fullscreen.set(doc_for_cb.fullscreen_element().is_some());
+    });
+    let _ = doc
+        .add_event_listener_with_callback("fullscreenchange", closure.as_ref().unchecked_ref());
+    closure.forget();
+}
+#[cfg(not(feature = "hydrate"))]
+const fn wire_fullscreen_listener(_is_fullscreen: RwSignal<bool>) {}
 
 /// Click-to-jump for the Typst/slide SVG preview (`<a href="sync:line:N">`, embedded by
 /// `DocumentRenderer::annotate_typst_lines_for_reverse_search`) and the plain markdown preview
@@ -829,7 +916,16 @@ fn wire_keyboard_shortcuts(
                 presenting.set(true);
                 current_slide.set(1);
             } else if key == "Escape" {
-                presenting.set(false);
+                // In fullscreen, the browser already consumes Esc to leave fullscreen -- closing
+                // the presentation on that same keypress would drop the presenter out of the deck
+                // entirely when they only meant to un-fullscreen it. Only close when there's no
+                // fullscreen for Esc to have been about.
+                let in_fullscreen = web_sys::window()
+                    .and_then(|w| w.document())
+                    .is_some_and(|d| d.fullscreen_element().is_some());
+                if !in_fullscreen {
+                    presenting.set(false);
+                }
             } else if (key == "ArrowRight" || key == " ") && presenting.get_untracked() {
                 {
                     let n = pages.with(|p| p.len().max(1));

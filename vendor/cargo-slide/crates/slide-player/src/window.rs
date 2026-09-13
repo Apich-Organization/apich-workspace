@@ -882,6 +882,26 @@ fn is_mouse_left_physically_down() -> bool {
     false
 }
 
+/// minifb's Wayland backend has no fullscreen API: it can only fake fullscreen by resizing
+/// to a borderless, screen-sized window, which leaves compositor panels/taskbars on top.
+/// Real fullscreen (panels hidden) requires the EWMH `_NET_WM_STATE_FULLSCREEN` protocol,
+/// which only works for X11/XWayland clients. minifb tries Wayland first and only falls
+/// back to X11 if Wayland is unavailable, so when an X server is reachable (XWayland),
+/// force that fallback by hiding `WAYLAND_DISPLAY` before any window is created. Compositors
+/// generally grant real fullscreen (panels hidden) to XWayland clients just like native ones.
+#[cfg(target_os = "linux")]
+fn prefer_xwayland_for_fullscreen() {
+    if std::env::var_os("DISPLAY").is_some() {
+        // SAFETY: called once, before any window (and thus any other thread) is created.
+        unsafe {
+            std::env::remove_var("WAYLAND_DISPLAY");
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+const fn prefer_xwayland_for_fullscreen() {}
+
 fn apply_native_fullscreen(
     window_handle: *mut std::ffi::c_void,
     fullscreen: bool,
@@ -891,8 +911,15 @@ fn apply_native_fullscreen(
     if window_handle.is_null() {
         return;
     }
+    // minifb prefers Wayland whenever `WAYLAND_DISPLAY` is set, falling back to X11 only if
+    // Wayland surface creation fails. On Wayland, `get_window_handle()` returns a `wl_surface`
+    // pointer rather than an X11 `Window` ID, so treating it as one and issuing raw Xlib calls
+    // against it is undefined behavior (observed as a fatal `BadWindow` X error). Only attempt
+    // the X11 EWMH fullscreen dance when we know minifb is actually X11-backed.
     #[cfg(target_os = "linux")]
-    set_x11_fullscreen(window_handle, fullscreen, width, height);
+    if std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        set_x11_fullscreen(window_handle, fullscreen, width, height);
+    }
 
     #[cfg(windows)]
     set_windows_fullscreen(window_handle, fullscreen, width, height);
@@ -939,7 +966,6 @@ fn create_window(
     if fullscreen {
         window.set_position(0, 0);
     }
-    apply_native_fullscreen(window.get_window_handle(), fullscreen, width, height);
 
     Ok(window)
 }
@@ -1017,6 +1043,7 @@ impl SlidePlayer {
 
     /// Run the presentation player event loop
     pub fn run(mut self) -> Result<()> {
+        prefer_xwayland_for_fullscreen();
         init_dpi_awareness();
         if self.deck.slides.is_empty() {
             return Err(SlideError::Format(

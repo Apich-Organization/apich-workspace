@@ -40,7 +40,8 @@ impl ProjectManager {
     /// machine that runs it. Kept in the allow-list for a headless consumer of the deck's data
     /// (not this UI's own picker default -- see `apich_islands::SlideBuildIsland`'s doc comment).
     pub const SLIDE_BUILD_TARGETS: &'static [(&'static str, &'static str)] = &[
-        ("host", "This server's own platform (Linux, native)"),
+        ("host", "This server's own platform (Linux x86_64, native)"),
+        ("aarch64-unknown-linux-gnu", "Linux ARM64 (glibc)"),
         ("x86_64-pc-windows-gnu", "Windows x86_64"),
         ("aarch64-pc-windows-gnullvm", "Windows ARM64"),
         ("x86_64-unknown-linux-musl", "Linux x86_64 (musl, static -- cannot open a window)"),

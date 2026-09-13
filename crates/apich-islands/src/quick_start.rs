@@ -107,7 +107,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
         view! {
             <div class="quick-start-menu">
                 <button type="button" class="btn btn-secondary">"⚡ Quick Start ▾"</button>
-                <div class="quick-start-dropdown">{triggers}</div>
+                <div class="quick-start-dropdown"><div class="quick-start-panel">{triggers}</div></div>
             </div>
         }
         .into_any()

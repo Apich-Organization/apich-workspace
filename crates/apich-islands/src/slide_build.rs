@@ -49,6 +49,23 @@ pub fn SlideBuildIsland(
     let project_id = StoredValue::new(project_id);
     let file_path = StoredValue::new(file_path);
 
+    // The build is a real server-side background job (`SlideBuildRegistry`, which keeps a
+    // finished job available for two hours) -- the only thing that was ever lost by navigating
+    // away was the *client's* memory of the job id, leaving a build that was still running with
+    // nothing watching it. Stashing the id in `localStorage`, keyed per project+file, lets this
+    // component re-attach to a build already in flight when the user comes back, whether it's
+    // still running (resume the progress bar) or has since finished (offer the download).
+    resume_build(ResumeArgs {
+        project_id: project_id.with_value(Clone::clone),
+        file_path: file_path.with_value(Clone::clone),
+        job_id,
+        status_text,
+        percent,
+        is_running,
+        is_done,
+        error_msg,
+    });
+
     let start_build = move |_| {
         is_running.set(true);
         is_done.set(false);
@@ -92,28 +109,28 @@ pub fn SlideBuildIsland(
             <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
                 <select
                     class="form-control"
-                    style="width:auto; font-size:0.8rem; padding:0.3rem 0.5rem;"
+                    style="width:auto; max-width:190px; font-size:0.8rem; padding:0.3rem 0.5rem;"
+                    title="Which platform the presentation binary should run on"
                     disabled=move || is_running.get()
                     prop:value=move || target.get()
                     on:change=move |ev| target.set(event_target_value(&ev))
                 >
-                    <option value="host">"Linux (native, recommended -- opens a real window)"</option>
-                    <option value="x86_64-pc-windows-gnu">"Windows x86_64"</option>
-                    <option value="aarch64-pc-windows-gnullvm">"Windows ARM64"</option>
-                    <option value="x86_64-unknown-linux-musl">"Linux x86_64 (musl, static -- cannot open a window, headless use only)"</option>
-                    <option value="aarch64-unknown-linux-musl">"Linux ARM64 (musl, static -- cannot open a window, headless use only)"</option>
+                    <option value="host">"Linux (Intel/AMD)"</option>
+                    <option value="aarch64-unknown-linux-gnu">"Linux (ARM)"</option>
+                    <option value="x86_64-pc-windows-gnu">"Windows (Intel/AMD)"</option>
+                    <option value="aarch64-pc-windows-gnullvm">"Windows (ARM)"</option>
                 </select>
                 <button
                     type="button"
                     class="btn btn-secondary btn-sm"
                     disabled=move || is_running.get()
                     on:click=start_build
-                    title="Compiles a standalone presentation binary for the chosen platform. Cross-compiled targets can take several minutes on first build."
+                    title="Builds a standalone presentation you can run on the chosen platform. This keeps running if you leave the page -- come back any time to check on it. The first build for a platform can take a few minutes."
                 >
-                    {move || if is_running.get() { "⏳ Building...".to_string() } else { "⬇️ Build & Download Binary".to_string() }}
+                    {move || if is_running.get() { "⏳ Building...".to_string() } else { "⬇️ Build presentation".to_string() }}
                 </button>
                 {move || download_href().map(|href| view! {
-                    <a href=href class="btn btn-primary btn-sm">"✅ Download binary"</a>
+                    <a href=href class="btn btn-primary btn-sm">"✅ Ready — download"</a>
                 })}
             </div>
             {move || is_running.get().then(|| view! {
@@ -127,11 +144,131 @@ pub fn SlideBuildIsland(
             {move || (is_running.get()).then(|| view! {
                 <span style="font-size:0.75rem; color:var(--text-sub);">{move || status_text.get()}</span>
             })}
+            // Reassurance that navigating away is safe -- the build really does continue, and
+            // this component picks it back up on return (see `resume_build`).
+            {move || is_running.get().then(|| view! {
+                <span style="font-size:0.72rem; color:var(--text-light);">
+                    "You can keep working or leave this page — the build carries on."
+                </span>
+            })}
             {move || error_msg.get().map(|msg| view! {
                 <div class="alert alert-danger" style="font-size:0.8rem; padding:0.5rem 0.75rem; max-width:480px; white-space:pre-wrap;">{msg}</div>
             })}
         </div>
     }
+}
+
+struct ResumeArgs {
+    project_id: String,
+    file_path: String,
+    job_id: RwSignal<Option<String>>,
+    status_text: RwSignal<String>,
+    percent: RwSignal<u8>,
+    is_running: RwSignal<bool>,
+    is_done: RwSignal<bool>,
+    error_msg: RwSignal<Option<String>>,
+}
+
+/// `localStorage` key for the in-flight build of one specific file. Per project+file, so two
+/// decks in the same project (or the same file name across projects) never adopt each other's
+/// build.
+#[cfg(feature = "hydrate")]
+fn job_storage_key(
+    project_id: &str,
+    file_path: &str,
+) -> String {
+    format!("apich-slide-build:{project_id}:{file_path}")
+}
+
+#[cfg(feature = "hydrate")]
+fn local_storage() -> Option<web_sys::Storage> {
+    // Wrapped because `local_storage()` itself throws (not just returns `None`) when site data
+    // is blocked, e.g. in some private-browsing modes.
+    web_sys::window().and_then(|w| w.local_storage().ok().flatten())
+}
+
+#[cfg(feature = "hydrate")]
+fn remember_job(
+    project_id: &str,
+    file_path: &str,
+    job: &str,
+) {
+    if let Some(store) = local_storage() {
+        let _ = store.set_item(&job_storage_key(project_id, file_path), job);
+    }
+}
+
+#[cfg(feature = "hydrate")]
+fn forget_job(
+    project_id: &str,
+    file_path: &str,
+) {
+    if let Some(store) = local_storage() {
+        let _ = store.remove_item(&job_storage_key(project_id, file_path));
+    }
+}
+
+/// Re-attaches to a build already in flight (or already finished) for this file, so leaving the
+/// page and coming back shows live progress -- or a ready download -- instead of a reset button
+/// with no sign the build ever happened. Called once as the island mounts.
+#[cfg(feature = "hydrate")]
+fn resume_build(args: ResumeArgs) {
+    let ResumeArgs {
+        project_id,
+        file_path,
+        job_id,
+        status_text,
+        percent,
+        is_running,
+        is_done,
+        error_msg,
+    } = args;
+
+    // Must run from an `Effect`, not straight from the island body. The body executes *during*
+    // hydration, when Leptos is matching its reactive graph onto the server-rendered DOM and
+    // takes that markup to be already current -- signal writes made there never get patched
+    // into the existing nodes, so the component kept rendering the idle "Build presentation"
+    // state even with a live job id in storage and the server reporting it as running
+    // (reproduced exactly that way). An `Effect` runs only after hydration has finished, so
+    // these writes land as real updates. Same reason `terminal.rs` flips its `hydrated` flag
+    // from an `Effect` rather than inline.
+    Effect::new(move |_| {
+        let Some(job) = local_storage()
+            .and_then(|s| {
+                s.get_item(&job_storage_key(&project_id, &file_path))
+                    .ok()
+                    .flatten()
+            })
+            .filter(|j| !j.is_empty())
+        else {
+            return;
+        };
+
+        job_id.set(Some(job.clone()));
+        is_running.set(true);
+        status_text.set("Reconnecting to build...".to_string());
+
+        let (project_id, file_path) = (project_id.clone(), file_path.clone());
+        wasm_bindgen_futures::spawn_local(async move {
+            poll_until_finished(PollArgs {
+                project_id,
+                file_path,
+                job,
+                job_id,
+                status_text,
+                percent,
+                is_running,
+                is_done,
+                error_msg,
+            })
+            .await;
+        });
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn resume_build(args: ResumeArgs) {
+    args.is_running.set(false);
 }
 
 #[cfg(feature = "hydrate")]
@@ -177,43 +314,104 @@ fn start_build_request(
             return;
         };
         job_id.set(Some(job.clone()));
+        remember_job(&project_id, &file_path, &job);
 
-        loop {
-            gloo_timers::future::TimeoutFuture::new(1500).await;
-            let poll_result = gloo_net::http::Request::get(&format!(
-                "/projects/{}/editor/slide-binary/status?job={}",
-                project_id, job
-            ))
-            .send()
-            .await;
-
-            let Ok(resp) = poll_result else { continue };
-            let Ok(data) = resp.json::<BuildStatusResponse>().await else {
-                continue;
-            };
-
-            match data.status.as_str() {
-                | "running" => {
-                    percent.set(data.percent.unwrap_or(0));
-                    status_text.set(data.message.unwrap_or_default());
-                },
-                | "done" => {
-                    percent.set(100);
-                    is_running.set(false);
-                    is_done.set(true);
-                    break;
-                },
-                | "failed" => {
-                    error_msg.set(Some(
-                        data.error.unwrap_or_else(|| "Build failed".to_string()),
-                    ));
-                    is_running.set(false);
-                    break;
-                },
-                | _ => {},
-            }
-        }
+        poll_until_finished(PollArgs {
+            project_id,
+            file_path,
+            job,
+            job_id,
+            status_text,
+            percent,
+            is_running,
+            is_done,
+            error_msg,
+        })
+        .await;
     });
+}
+
+struct PollArgs {
+    project_id: String,
+    file_path: String,
+    job: String,
+    job_id: RwSignal<Option<String>>,
+    status_text: RwSignal<String>,
+    percent: RwSignal<u8>,
+    is_running: RwSignal<bool>,
+    is_done: RwSignal<bool>,
+    error_msg: RwSignal<Option<String>>,
+}
+
+/// Polls one job to completion, driving the progress signals. Shared by a freshly started build
+/// and by one re-attached to on page load (`resume_build`), so both behave identically.
+///
+/// Not `Send`, and never needs to be: it only ever runs under `spawn_local` on the browser's
+/// single-threaded event loop, and it awaits `TimeoutFuture`, which isn't `Send` either.
+#[cfg(feature = "hydrate")]
+#[allow(clippy::future_not_send)]
+async fn poll_until_finished(args: PollArgs) {
+    let PollArgs {
+        project_id,
+        file_path,
+        job,
+        job_id,
+        status_text,
+        percent,
+        is_running,
+        is_done,
+        error_msg,
+    } = args;
+    loop {
+        let poll_result = gloo_net::http::Request::get(&format!(
+            "/projects/{}/editor/slide-binary/status?job={}",
+            project_id, job
+        ))
+        .send()
+        .await;
+
+        let Ok(resp) = poll_result else {
+            gloo_timers::future::TimeoutFuture::new(1500).await;
+            continue;
+        };
+        // A job the server no longer knows about (expired past its retention window, or a
+        // stale id left in storage from a previous session) must clear the stored id, or this
+        // component would retry it forever on every page load.
+        if resp.status() == 404 {
+            forget_job(&project_id, &file_path);
+            job_id.set(None);
+            is_running.set(false);
+            return;
+        }
+        let Ok(data) = resp.json::<BuildStatusResponse>().await else {
+            gloo_timers::future::TimeoutFuture::new(1500).await;
+            continue;
+        };
+
+        match data.status.as_str() {
+            | "running" => {
+                is_running.set(true);
+                percent.set(data.percent.unwrap_or(0));
+                status_text.set(data.message.unwrap_or_default());
+            },
+            | "done" => {
+                percent.set(100);
+                is_running.set(false);
+                is_done.set(true);
+                return;
+            },
+            | "failed" => {
+                error_msg.set(Some(
+                    data.error.unwrap_or_else(|| "Build failed".to_string()),
+                ));
+                is_running.set(false);
+                forget_job(&project_id, &file_path);
+                return;
+            },
+            | _ => {},
+        }
+        gloo_timers::future::TimeoutFuture::new(1500).await;
+    }
 }
 
 #[cfg(not(feature = "hydrate"))]

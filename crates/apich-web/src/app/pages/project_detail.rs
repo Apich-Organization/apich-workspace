@@ -201,18 +201,22 @@ pub fn ProjectDetailPage(
 }
 
 fn render_hub_links_bar(links: &EffectiveHubLinks) -> impl IntoView {
+    // Each service gets its own accent (see the `.hub-*` rules in `styles.rs`) so the four are
+    // distinguishable at a glance rather than reading as one undifferentiated row of links.
     let items: Vec<_> = [
-        ("💬", "Chat", &links.chat_url),
-        ("📹", "Meeting", &links.meeting_url),
-        ("💾", "Drive", &links.drive_url),
-        ("🤖", "AI Agent", &links.ai_agent_url),
+        ("💬", "Chat", "hub-chat", &links.chat_url),
+        ("📹", "Meeting", "hub-meeting", &links.meeting_url),
+        ("💾", "Drive", "hub-drive", &links.drive_url),
+        ("🤖", "AI Agent", "hub-ai", &links.ai_agent_url),
     ]
     .into_iter()
-    .filter_map(|(icon, label, url)| {
+    .filter_map(|(icon, label, tone, url)| {
         url.as_ref().map(|u| {
             view! {
-                <a href=u.clone() target="_blank" class="hub-link-chip">
-                    <span>{icon}</span><span>{label}</span>
+                <a href=u.clone() target="_blank" class=format!("hub-link-chip {tone}")>
+                    <span class="hub-link-icon">{icon}</span>
+                    <span class="hub-link-label">{label}</span>
+                    <span class="hub-link-arrow">"↗"</span>
                 </a>
             }
         })
@@ -824,7 +828,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                     <label>{i18n.select_merge_target()}" (" {curr.clone()} ")"</label>
                     <select name="branch" class="form-control">{branch_options}</select>
                 </div>
-                <button type="submit" class="btn btn-primary" style="height:38px;">{i18n.run_merge()}</button>
+                <button type="submit" class="btn btn-primary">{i18n.run_merge()}</button>
             </form>
         }.into_any()
     } else {
@@ -958,7 +962,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                     <label>"New branch name"</label>
                     <input type="text" name="name" placeholder="feature-branch" required=true class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary" style="height:38px;">"Create Branch"</button>
+                <button type="submit" class="btn btn-secondary">"Create Branch"</button>
             </form>
 
             <h3 class="card-subtitle">"Merge into "<code style="color:var(--primary); font-weight:600;">{curr.clone()}</code></h3>
@@ -1027,7 +1031,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                     <label>"Description"</label>
                     <input type="text" name="desc" placeholder="Optional description" class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary" style="height:38px;">"Mark Current HEAD"</button>
+                <button type="submit" class="btn btn-secondary">"Mark HEAD"</button>
             </form>
         </div>
 
@@ -1079,7 +1083,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                     <label>"Remote URL"</label>
                     <input type="text" name="url" placeholder="https://github.com/user/repo.git" required=true class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary" style="height:38px;">"Add Remote"</button>
+                <button type="submit" class="btn btn-secondary">"Add Remote"</button>
             </form>
 
             <h3 class="card-subtitle">"Sync with remote"</h3>
@@ -1180,7 +1184,7 @@ fn render_ignore_section(
                     <label>"New rule"</label>
                     <input type="text" name="rule" placeholder="*.tmp or !keep-me.csv" required=true class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary" style="height:38px;">"Add Rule"</button>
+                <button type="submit" class="btn btn-secondary">"Add Rule"</button>
             </form>
 
             <h3 class="card-subtitle">".gitignore"</h3>
@@ -1259,7 +1263,7 @@ fn render_sharing_tab(
                             <span style="font-size:0.75rem; color:var(--text-sub);">{m.email}</span>
                         </div>
                     </div>
-                    <div style="display:flex; align-items:center; gap:0.75rem;">{role_badge}{remove}</div>
+                    <div class="row-actions">{role_badge}{remove}</div>
                 </div>
             }
         })
@@ -1276,7 +1280,7 @@ fn render_sharing_tab(
                 // remaining width of the card -- a Save button several times wider than the
                 // controls it applies to. Sized to its own content instead, with the `1fr`
                 // moved to a trailing spacer column so the row still fills the card.
-                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: auto 200px auto 1fr; gap:0.75rem; align-items:center;">
+                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: auto 200px auto; gap:0.75rem; align-items:center; justify-content:start; max-width:720px;">
                     <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; font-weight:600;">
                         <input type="checkbox" name="is_public" value="true" checked=is_public />
                         "Enabled"
@@ -1307,7 +1311,7 @@ fn render_sharing_tab(
         view! {
             <div class="section-card" style="margin-top:1.5rem;">
                 <h3 class="card-subtitle">{i18n.add_collaborator()}</h3>
-                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: 2fr 2fr auto; gap:1rem; align-items:flex-end;">
+                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto; gap:1rem; align-items:flex-end; max-width:720px;">
                     <div class="form-group" style="margin-bottom:0;">
                         <label>{i18n.select_user()}</label>
                         <select name="invite_user_id" class="form-control" required=true>
@@ -1323,7 +1327,7 @@ fn render_sharing_tab(
                             <option value="read_only">{i18n.role_read_only()}</option>
                         </select>
                     </div>
-                    <button type="submit" class="btn btn-primary" style="height:38px;">{i18n.add_collaborator()}</button>
+                    <button type="submit" class="btn btn-primary">{i18n.add_collaborator()}</button>
                 </form>
             </div>
         }

@@ -2620,7 +2620,7 @@ async fn save_editor_file_action(
     }
 
     Redirect::to(&format!(
-        "/projects/{}/editor?file={}&notice=file_saved",
+        "/projects/{}/editor?file={}&notice=File_Saved",
         project.id,
         urlencoding::encode(&payload.file)
     ))

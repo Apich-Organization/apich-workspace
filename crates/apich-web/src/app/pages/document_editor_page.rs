@@ -171,18 +171,28 @@ pub fn DocumentEditorPage(
             page_title=format!("{} - {}", project_name, file_path)
             i18n=i18n
         >
+            // Back-navigation gets a real, bordered button rather than the ghost style it had
+            // (transparent, no border -- it read as inert text, not the way out of the editor),
+            // and the toolbar is grouped: navigation | document identity :: tools | primary
+            // action, so Save is visually separated from the five secondary buttons it used to
+            // sit flush against.
             <div class="editor-top-bar">
-                <div style="display:flex; align-items:center; gap:0.75rem;">
-                    <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-ghost btn-sm">"← Files"</a>
-                    <span style="font-weight:600; font-size:0.9rem;">"📄 " {file_path.clone()}</span>
+                <div class="editor-top-left">
+                    <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-secondary btn-sm editor-back-btn" title="Back to the project's file list">
+                        <span aria-hidden="true">"←"</span>
+                        <span>"Back to Files"</span>
+                    </a>
+                    <span class="editor-top-divider" aria-hidden="true"></span>
+                    <span class="editor-file-name" title=file_path.clone()>"📄 " {file_path.clone()}</span>
                     <span class="file-type-pill pill-doc" style="font-size:0.7rem;">{kind_label}</span>
                 </div>
-                <div style="display:flex; align-items:center; gap:0.5rem;">
+                <div class="editor-top-right">
                     <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
                     {download_pdf_btn}
                     {download_slide_bin_btn}
                     {slide_present_btn}
+                    <span class="editor-top-divider" aria-hidden="true"></span>
                     <button type="submit" form="editor-form" class="btn btn-primary btn-sm">"💾 " {i18n.save()}</button>
                 </div>
             </div>

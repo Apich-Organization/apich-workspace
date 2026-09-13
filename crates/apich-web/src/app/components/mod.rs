@@ -290,8 +290,14 @@ pub fn AppShell(
 const SIDEBAR_TOGGLE_JS: &str = r"
 (function(){
     var KEY = 'apich-sidebar-collapsed';
+    // Below the responsive breakpoint the sidebar is a slide-over, so it starts closed unless
+    // the user has explicitly opened it -- matching the `@media (max-width: 900px)` rules.
     function stored(){
-        try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+        try {
+            var v = localStorage.getItem(KEY);
+            if (v === null) { return window.innerWidth <= 900; }
+            return v === '1';
+        } catch (e) { return window.innerWidth <= 900; }
     }
     function save(v){
         try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {}
