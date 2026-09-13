@@ -1,0 +1,5 @@
+Category,p50,p95,p99
+Typst JIT,4.2,8.5,12
+Rasterize,6.1,10.2,14.8
+Blit 60FPS,1.2,2.4,3.8
+Audio DSP,0.8,1.5,2.1

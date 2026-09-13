@@ -5,6 +5,42 @@ use std::path::Path;
 pub struct DemoProjectService;
 
 impl DemoProjectService {
+    /// Helper to find the source directory for the geek-presentation slide demo
+    fn find_geek_presentation_source() -> Option<std::path::PathBuf> {
+        let candidates = [
+            Path::new("/home/pana/dev/cargo-slide/examples/geek-presentation"),
+            Path::new("/home/pana/dev/apich-workspace/target/release/scratch/workspace/01a094d7-215d-704d-82d8-45afe4535b56/apich-showcase-1f09c2/geek-presentation"),
+            Path::new("examples/geek-presentation"),
+            Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/geek-presentation")),
+        ];
+        for candidate in candidates {
+            if candidate.is_dir() && candidate.join("slides.typ").exists() {
+                return Some(candidate.to_path_buf());
+            }
+        }
+        None
+    }
+
+    /// Recursively copy a directory and all of its contents
+    async fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+        let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
+        while let Some((curr_src, curr_dst)) = stack.pop() {
+            tokio::fs::create_dir_all(&curr_dst).await?;
+            let mut entries = tokio::fs::read_dir(&curr_src).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let file_type = entry.file_type().await?;
+                let src_path = entry.path();
+                let dst_path = curr_dst.join(entry.file_name());
+                if file_type.is_dir() {
+                    stack.push((src_path, dst_path));
+                } else {
+                    tokio::fs::copy(&src_path, &dst_path).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Populate a project directory with all demonstration files and initialize VCS snapshot
     pub async fn seed_demo_files<P: AsRef<Path>>(dir: P) -> WebResult<()> {
         let root = dir.as_ref();
@@ -296,7 +332,7 @@ if __name__ == '__main__':
 This project contains sample files demonstrating the application modalities supported in APICH:
 
 ### 1. Document & Slide Tools (`/projects/:id/editor`)
-- **`slides.typ`**: Presentation deck authored with the `cargo-slide` domain-specific language. Open to explore the outline, code editor, and live presentation preview.
+- **`slides.typ`** & **`geek-presentation/`**: Flagship cargo-slide presentation showcase demonstrating native Rust/Typst engine, vector graphics, multi-channel audio, hardware video, interactive charts, and database telemetry.
 - **`theme.typ`** & **`slide.typ`**: Presentation theme and component macros.
 - **`paper.typ`**: Academic document authored in Typst with mathematical formulas and section hierarchy.
 - **`report.tex`**: Standard LaTeX academic article format.
@@ -422,28 +458,41 @@ Parent notebook: [[lab_notebook|Transmon Qubit Coherence Protocol & Lab Notebook
 ## Notes
 Target readout fidelity for the distance-3 surface code prototype is 99.5%; current single-qubit average sits at 98.5% (see `quantum_measurements.table`).
 "#;
+        // Populate cargo-slide demo: use the comprehensive geek-presentation showcase package
+        // if available, otherwise fall back to embedded default slides.
+        if let Some(geek_src) = Self::find_geek_presentation_source() {
+            let _ = Self::copy_dir_all(&geek_src, &root.join("geek-presentation")).await;
+            let _ = tokio::fs::copy(geek_src.join("slides.typ"), root.join("slides.typ")).await;
+            let _ = tokio::fs::copy(geek_src.join("theme.typ"), root.join("theme.typ")).await;
+            let _ = tokio::fs::copy(geek_src.join("slide.typ"), root.join("slide.typ")).await;
 
-        // Write all text files
-        tokio::fs::write(root.join("slides.typ"), slides_typ)
-            .await
-            .ok();
-        tokio::fs::write(root.join("theme.typ"), theme_typ)
-            .await
-            .ok();
-        tokio::fs::write(root.join("slide.typ"), slide_macro_typ)
-            .await
-            .ok();
+            let assets_src = geek_src.join("assets");
+            if assets_src.is_dir() {
+                let _ = Self::copy_dir_all(&assets_src, &root.join("assets")).await;
+            }
+        } else {
+            tokio::fs::write(root.join("slides.typ"), slides_typ)
+                .await
+                .ok();
+            tokio::fs::write(root.join("theme.typ"), theme_typ)
+                .await
+                .ok();
+            tokio::fs::write(root.join("slide.typ"), slide_macro_typ)
+                .await
+                .ok();
+            // Minimal valid (silent, 1-sample) WAV file so slides.typ's #audio() asset reference resolves to a real file.
+            let ambient_wav: &[u8] = &[
+                0x52, 0x49, 0x46, 0x46, 0x26, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x66, 0x6d,
+                0x74, 0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x44, 0xac, 0x00, 0x00,
+                0x88, 0x58, 0x01, 0x00, 0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0x02, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+            ];
+            tokio::fs::write(root.join("assets").join("ambient.wav"), ambient_wav)
+                .await
+                .ok();
+        }
+
         tokio::fs::write(root.join("assets").join("data.csv"), data_csv)
-            .await
-            .ok();
-        // Minimal valid (silent, 1-sample) WAV file so slides.typ's #audio() asset reference resolves to a real file.
-        let ambient_wav: [u8; 46] = [
-            0x52, 0x49, 0x46, 0x46, 0x26, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d,
-            0x74, 0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x44, 0xac, 0x00, 0x00,
-            0x88, 0x58, 0x01, 0x00, 0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0x02, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ];
-        tokio::fs::write(root.join("assets").join("ambient.wav"), ambient_wav)
             .await
             .ok();
         tokio::fs::write(root.join("paper.typ"), paper_typ)

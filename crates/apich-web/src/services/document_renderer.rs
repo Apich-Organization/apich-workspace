@@ -418,7 +418,12 @@ impl DocumentRenderer {
                 if let Some((_, annotated_any)) = current_call.as_mut() {
                     *annotated_any = true;
                 }
-                result.push(format!("#link(\"sync:line:{line_num}\")[{line}]"));
+                let line_to_wrap = if line.trim_end().ends_with('\\') {
+                    format!("{line} ")
+                } else {
+                    line.to_string()
+                };
+                result.push(format!("#link(\"sync:line:{line_num}\")[{line_to_wrap}]"));
             }
 
             if let Some((start, annotated_any)) = current_call {
