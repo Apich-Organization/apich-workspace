@@ -660,7 +660,7 @@ fn render_files_tab(
                         <form method="post" action=format!("/projects/{}/files/new", project_id)>
                             <div class="form-group">
                                 <label>"File Name (extension optional -- added from the type below if omitted)"</label>
-                                <input type="text" name="filename" required=true placeholder="e.g. paper, slides.md, script.py" class="form-control" />
+                                <input type="text" name="filename" required=true placeholder="e.g. paper, slides.typ, analysis.py, script.R, main.rs" class="form-control" />
                             </div>
                             <div class="form-group">
                                 <label>"Destination Folder"</label>
@@ -670,11 +670,7 @@ fn render_files_tab(
                                 <label>"Initial Content / Starter Template"</label>
                                 // Values here must match one of `ProjectManager::create_file`'s
                                 // recognized `template` strings ("table"/"slide"/"typst"/"latex"/
-                                // "note", anything else falls back to a blank starter) -- this
-                                // used to offer "typst_paper"/"marp_slide"/etc., none of which
-                                // that function has ever recognized, so every option except
-                                // "Empty file" silently produced the same generic blank content
-                                // its label promised something more specific than.
+                                // "note"/"script_python"/"script_r"/"script_rust", anything else falls back to a blank starter).
                                 <select name="template" class="form-control">
                                     <option value="empty">"Empty file"</option>
                                     <option value="typst">"Typst Paper (template)"</option>
@@ -682,6 +678,9 @@ fn render_files_tab(
                                     <option value="latex">"LaTeX Article"</option>
                                     <option value="note">"Unified Note"</option>
                                     <option value="table">"SQLite Table"</option>
+                                    <option value="script_python">"🐍 Python Script (.py)"</option>
+                                    <option value="script_r">"📊 R Script (.R)"</option>
+                                    <option value="script_rust">"🦀 Rust Script (.rs)"</option>
                                 </select>
                             </div>
                             {new_file_template_picker}

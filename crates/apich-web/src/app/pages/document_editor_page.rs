@@ -59,7 +59,18 @@ pub fn DocumentEditorPage(
     );
 
     let kind_label = if is_script {
-        "PYTHON / SCRIPT"
+        let ext = std::path::Path::new(&file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        match ext.as_str() {
+            | "r" => "R SCRIPT",
+            | "rs" => "RUST SCRIPT",
+            | "py" => "PYTHON SCRIPT",
+            | "sh" | "bash" => "BASH SCRIPT",
+            | _ => "SCRIPT",
+        }
     } else if is_slide {
         "CARGO-SLIDE"
     } else {

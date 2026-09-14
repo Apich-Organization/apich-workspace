@@ -2249,7 +2249,7 @@ Begin drafting your LaTeX manuscript here.
 \end{document}
 "
                 },
-                | "script" => {
+                | "script" | "script_python" => {
                     r#"#!/usr/bin/env python3
 """New analysis script.
 
@@ -2271,6 +2271,42 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+"#
+                },
+                | "script_r" => {
+                    r#"#!/usr/bin/env Rscript
+# New R statistical analysis script.
+#
+# Runs inside this project's sandbox container via the editor's Run Script console.
+# Any generated plots (e.g. ggsave("plot.png")) will appear in your project Files.
+
+cat("=== R Statistical Analysis ===\n")
+data <- c(94.2, 88.5, 102.3, 79.8, 91.4, 86.2)
+cat(sprintf("n       = %d\n", length(data)))
+cat(sprintf("mean    = %.2f\n", mean(data)))
+cat(sprintf("std dev = %.2f\n", sd(data)))
+cat(sprintf("median  = %.2f\n", median(data)))
+"#
+                },
+                | "script_rust" => {
+                    r#"// New Rust computational analysis script.
+//
+// Runs inside this project's sandbox container via the editor's Run Script console.
+// Automatically compiled with rustc and executed directly in your project workspace.
+
+fn main() {
+    println!("=== Rust Computational Analysis ===");
+    let data: [f64; 6] = [94.2, 88.5, 102.3, 79.8, 91.4, 86.2];
+    let n = data.len();
+    let sum: f64 = data.iter().sum();
+    let mean = sum / n as f64;
+    let variance: f64 = data.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    let std_dev = variance.sqrt();
+
+    println!("n       = {}", n);
+    println!("mean    = {:.2}", mean);
+    println!("std dev = {:.2}", std_dev);
+}
 "#
                 },
                 | "note" => {

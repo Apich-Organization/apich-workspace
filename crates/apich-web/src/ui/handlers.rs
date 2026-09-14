@@ -1441,12 +1441,16 @@ const QUICK_START_KINDS: &[(&str, &str, &str, &str)] = &[
     ("slide", "slide", "slides.typ", "Slide Deck"),
     ("table", "table", "data.table", "Table"),
     ("note", "note", "notes.anote", "Note"),
-    ("script", "script", "script.py", "Script"),
+    ("script", "script_python", "script.py", "Script"),
+    ("script_python", "script_python", "script.py", "Python Script"),
+    ("script_r", "script_r", "script.R", "R Script"),
+    ("script_rust", "script_rust", "main.rs", "Rust Script"),
 ];
 
 #[derive(Debug, Deserialize)]
 pub struct QuickStartForm {
     pub kind: String,
+    pub language: Option<String>,
     /// "existing" adds the starter file to `project_id`; anything else (including absent) makes
     /// a new project.
     pub mode: Option<String>,
@@ -1542,15 +1546,24 @@ async fn quick_start_action(
     let payload: QuickStartForm = parse_payload(&headers, &body)
         .map_err(|e| WebError::BadRequest(e.to_string()))?;
 
-    let Some((_, template, file_name, project_label)) = QUICK_START_KINDS
-        .iter()
-        .find(|(kind, ..)| *kind == payload.kind)
-    else {
-        return Ok((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Unknown quick start kind"})),
-        )
-            .into_response());
+    let (template, file_name, project_label) = if payload.kind == "script" {
+        match payload.language.as_deref() {
+            Some("r") => ("script_r", "script.R", "R Script"),
+            Some("rust") => ("script_rust", "main.rs", "Rust Script"),
+            _ => ("script_python", "script.py", "Python Script"),
+        }
+    } else {
+        let Some((_, template, file_name, project_label)) = QUICK_START_KINDS
+            .iter()
+            .find(|(kind, ..)| *kind == payload.kind)
+        else {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Unknown quick start kind"})),
+            )
+                .into_response());
+        };
+        (*template, *file_name, *project_label)
     };
 
     let target_project = if payload.mode.as_deref() == Some("existing") {
@@ -1788,6 +1801,9 @@ fn starter_extension(template: &str) -> Option<&'static str> {
         | "latex" => Some("tex"),
         | "note" => Some("anote"),
         | "table" => Some("table"),
+        | "script" | "script_python" => Some("py"),
+        | "script_r" => Some("R"),
+        | "script_rust" => Some("rs"),
         | _ => None,
     }
 }
@@ -1908,7 +1924,7 @@ async fn create_file_action(
 
     let ext = filename.split('.').next_back().unwrap_or("").to_lowercase();
     let redirect_url = match ext.as_str() {
-        | "typ" | "tex" | "latex" => {
+        | "typ" | "tex" | "latex" | "py" | "r" | "rs" | "sh" | "bash" | "js" | "ts" => {
             format!(
                 "/projects/{}/editor?file={}",
                 id,

@@ -8,15 +8,13 @@
 
 use leptos::prelude::*;
 
-/// (kind, icon, label) for each starter. Must match `handlers::QUICK_START_KINDS`' own kinds --
-/// that server-side table decides the starter file and template each one produces.
-pub const QUICK_START_ITEMS: &[(&str, &str, &str)] = &[
+/// (kind, icon, label) for each document starter.
+pub const QUICK_START_DOC_ITEMS: &[(&str, &str, &str)] = &[
     ("slide", "📊", "Slide Deck"),
     ("typst", "📄", "Typst Document"),
     ("latex", "📝", "LaTeX Document"),
     ("table", "🗄️", "Table"),
     ("note", "📔", "Note"),
-    ("script", "🐍", "Script"),
 ];
 
 /// Where the menu is rendered.
@@ -35,6 +33,8 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
     let open = RwSignal::new(false);
     let kind = RwSignal::new(String::new());
     let kind_label = RwSignal::new(String::new());
+    // Script language: "python" | "r" | "rust"
+    let language = RwSignal::new("python".to_string());
     // "new" | "existing"
     let mode = RwSignal::new("new".to_string());
     let project_name = RwSignal::new(String::new());
@@ -49,9 +49,14 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
     let backdrop_ref = NodeRef::<leptos::html::Div>::new();
     crate::modal::reparent_to_body(backdrop_ref);
 
-    let choose = move |k: &'static str, label: &'static str| {
+    let choose = move |k: &'static str, label: &'static str, lang: Option<&'static str>| {
         kind.set(k.to_string());
         kind_label.set(label.to_string());
+        if let Some(l) = lang {
+            language.set(l.to_string());
+        } else if k == "script" {
+            language.set("python".to_string());
+        }
         mode.set("new".to_string());
         project_name.set(String::new());
         selected_project.set(String::new());
@@ -69,6 +74,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
         error.set(None);
         create_quick_start(QuickStartRequest {
             kind: kind.get_untracked(),
+            language: language.get_untracked(),
             mode: mode.get_untracked(),
             name: project_name.get_untracked(),
             project_id: selected_project.get_untracked(),
@@ -77,37 +83,79 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
         });
     };
 
-    let triggers = QUICK_START_ITEMS
-        .iter()
-        .map(|(k, icon, label)| {
-            let (k, icon, label) = (*k, *icon, *label);
-            let class = if variant == QuickStartVariant::Sidebar {
-                "sidebar-link sidebar-quick-btn"
-            } else {
-                "quick-start-item"
-            };
-            view! {
-                <button type="button" class=class on:click=move |_| choose(k, label)>
-                    <span class=(variant == QuickStartVariant::Sidebar).then_some("sidebar-icon")>{icon}</span>
-                    <span>{label}</span>
-                </button>
-            }
-        })
-        .collect::<Vec<_>>();
-
     let menu = if variant == QuickStartVariant::Sidebar {
+        let doc_triggers = QUICK_START_DOC_ITEMS
+            .iter()
+            .map(|(k, icon, label)| {
+                let (k, icon, label) = (*k, *icon, *label);
+                view! {
+                    <button type="button" class="sidebar-link sidebar-quick-btn" on:click=move |_| choose(k, label, None)>
+                        <span class="sidebar-icon">{icon}</span>
+                        <span>{label}</span>
+                    </button>
+                }
+            })
+            .collect::<Vec<_>>();
+
         view! {
             <div class="sidebar-section">
                 <span class="sidebar-heading">"New"</span>
-                {triggers}
+                {doc_triggers}
+                <button
+                    type="button"
+                    class="sidebar-link sidebar-quick-btn"
+                    style="display:flex; align-items:center; justify-content:space-between;"
+                    on:click=move |_| choose("script", "Script", Some("python"))
+                >
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <span class="sidebar-icon">"💻"</span>
+                        <span>"Script"</span>
+                    </div>
+                    <span style="font-size:0.65rem; font-weight:600; color:var(--text-sub); background:var(--bg-muted); padding:1px 6px; border-radius:4px; border:1px solid var(--border-subtle); letter-spacing:0.3px;">
+                        "R · Py · Rs"
+                    </span>
+                </button>
             </div>
         }
         .into_any()
     } else {
+        let doc_triggers = QUICK_START_DOC_ITEMS
+            .iter()
+            .map(|(k, icon, label)| {
+                let (k, icon, label) = (*k, *icon, *label);
+                view! {
+                    <button type="button" class="quick-start-item" on:click=move |_| choose(k, label, None)>
+                        <span>{icon}</span>
+                        <span>{label}</span>
+                    </button>
+                }
+            })
+            .collect::<Vec<_>>();
+
         view! {
             <div class="quick-start-menu">
                 <button type="button" class="btn btn-secondary">"⚡ Quick Start ▾"</button>
-                <div class="quick-start-dropdown"><div class="quick-start-panel">{triggers}</div></div>
+                <div class="quick-start-dropdown">
+                    <div class="quick-start-panel">
+                        {doc_triggers}
+                        <div style="height:1px; background:var(--border-subtle); margin:4px 0;"></div>
+                        <div style="padding:4px 10px 2px 10px; font-size:0.7rem; font-weight:700; color:var(--text-sub); text-transform:uppercase; letter-spacing:0.5px;">
+                            "Scripts"
+                        </div>
+                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", "Python Script", Some("python"))>
+                            <span>"🐍"</span>
+                            <span>"Python Script (.py)"</span>
+                        </button>
+                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", "R Script", Some("r"))>
+                            <span>"📊"</span>
+                            <span>"R Script (.R)"</span>
+                        </button>
+                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", "Rust Script", Some("rust"))>
+                            <span>"🦀"</span>
+                            <span>"Rust Script (.rs)"</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         }
         .into_any()
@@ -116,11 +164,95 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
     view! {
         {menu}
         <div node_ref=backdrop_ref class="modal-backdrop" style:display=move || if open.get() { "flex" } else { "none" }>
-            <div class="modal-card">
+            <div class="modal-card" style="max-width:520px; width:100%;">
                 <div class="modal-header">
-                    <h3 class="modal-title">{move || format!("New {}", kind_label.get())}</h3>
+                    <h3 class="modal-title">
+                        {move || {
+                            if kind.get() == "script" {
+                                match language.get().as_str() {
+                                    "r" => "New R Script".to_string(),
+                                    "rust" => "New Rust Script".to_string(),
+                                    _ => "New Python Script".to_string(),
+                                }
+                            } else {
+                                format!("New {}", kind_label.get())
+                            }
+                        }}
+                    </h3>
                     <button type="button" class="modal-close" on:click=move |_| open.set(false)>"×"</button>
                 </div>
+
+                // Language selection when creating a script
+                {move || (kind.get() == "script").then(|| view! {
+                    <div class="form-group" style="margin-bottom:1.25rem;">
+                        <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">
+                            "Choose Script Language"
+                        </label>
+                        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.65rem;">
+                            // Python
+                            <button
+                                type="button"
+                                style=move || {
+                                    let is_sel = language.get() == "python";
+                                    if is_sel {
+                                        "padding:0.75rem 0.5rem; border-radius:8px; text-align:center; cursor:pointer; transition:all 0.15s ease; border:2px solid var(--primary); background:var(--bg-muted); box-shadow:0 2px 8px rgba(0,0,0,0.08);"
+                                    } else {
+                                        "padding:0.75rem 0.5rem; border-radius:8px; text-align:center; cursor:pointer; transition:all 0.15s ease; border:1px solid var(--border-subtle); background:var(--bg-surface); opacity:0.85;"
+                                    }
+                                }
+                                on:click=move |_| language.set("python".to_string())
+                            >
+                                <div style="font-size:1.5rem; margin-bottom:0.25rem;">"🐍"</div>
+                                <div style="font-weight:600; font-size:0.875rem; color:var(--text-main);">"Python"</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">".py"</div>
+                            </button>
+
+                            // R
+                            <button
+                                type="button"
+                                style=move || {
+                                    let is_sel = language.get() == "r";
+                                    if is_sel {
+                                        "padding:0.75rem 0.5rem; border-radius:8px; text-align:center; cursor:pointer; transition:all 0.15s ease; border:2px solid var(--primary); background:var(--bg-muted); box-shadow:0 2px 8px rgba(0,0,0,0.08);"
+                                    } else {
+                                        "padding:0.75rem 0.5rem; border-radius:8px; text-align:center; cursor:pointer; transition:all 0.15s ease; border:1px solid var(--border-subtle); background:var(--bg-surface); opacity:0.85;"
+                                    }
+                                }
+                                on:click=move |_| language.set("r".to_string())
+                            >
+                                <div style="font-size:1.5rem; margin-bottom:0.25rem;">"📊"</div>
+                                <div style="font-weight:600; font-size:0.875rem; color:var(--text-main);">"R"</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">".R"</div>
+                            </button>
+
+                            // Rust
+                            <button
+                                type="button"
+                                style=move || {
+                                    let is_sel = language.get() == "rust";
+                                    if is_sel {
+                                        "padding:0.75rem 0.5rem; border-radius:8px; text-align:center; cursor:pointer; transition:all 0.15s ease; border:2px solid var(--primary); background:var(--bg-muted); box-shadow:0 2px 8px rgba(0,0,0,0.08);"
+                                    } else {
+                                        "padding:0.75rem 0.5rem; border-radius:8px; text-align:center; cursor:pointer; transition:all 0.15s ease; border:1px solid var(--border-subtle); background:var(--bg-surface); opacity:0.85;"
+                                    }
+                                }
+                                on:click=move |_| language.set("rust".to_string())
+                            >
+                                <div style="font-size:1.5rem; margin-bottom:0.25rem;">"🦀"</div>
+                                <div style="font-weight:600; font-size:0.875rem; color:var(--text-main);">"Rust"</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">".rs"</div>
+                            </button>
+                        </div>
+                        <div style="margin-top:0.45rem; font-size:0.78rem; color:var(--text-muted);">
+                            {move || match language.get().as_str() {
+                                "r" => "📊 Statistical analysis script with ggplot2 support (executed with Rscript).",
+                                "rust" => "🦀 High-performance standalone Rust script (compiled with rustc).",
+                                _ => "🐍 General-purpose analysis script with NumPy (executed with python3).",
+                            }}
+                        </div>
+                    </div>
+                })}
+
                 <p style="font-size:0.85rem; color:var(--text-sub); margin:0 0 1.1rem;">
                     "Where should this go?"
                 </p>
@@ -135,15 +267,27 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                         />
                         "Create a new project"
                     </label>
-                    {move || (mode.get() == "new").then(|| view! {
-                        <input
-                            type="text"
-                            class="form-control"
-                            style="margin-top:0.5rem;"
-                            placeholder="Project name (optional -- defaults to a timestamped name)"
-                            prop:value=move || project_name.get()
-                            on:input=move |ev| project_name.set(event_target_value(&ev))
-                        />
+                    {move || (mode.get() == "new").then(|| {
+                        let ph = if kind.get() == "script" {
+                            let l = match language.get().as_str() {
+                                "r" => "R Script",
+                                "rust" => "Rust Script",
+                                _ => "Python Script",
+                            };
+                            format!("Project name (optional -- defaults to {l} <timestamp>)")
+                        } else {
+                            "Project name (optional -- defaults to a timestamped name)".to_string()
+                        };
+                        view! {
+                            <input
+                                type="text"
+                                class="form-control"
+                                style="margin-top:0.5rem;"
+                                placeholder=ph
+                                prop:value=move || project_name.get()
+                                on:input=move |ev| project_name.set(event_target_value(&ev))
+                            />
+                        }
                     })}
                 </div>
                 <div class="form-group">
@@ -157,24 +301,42 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                         />
                         "Add to an existing project"
                     </label>
-                    {move || (mode.get() == "existing").then(|| view! {
-                        <select
-                            class="form-control"
-                            style="margin-top:0.5rem;"
-                            prop:value=move || selected_project.get()
-                            on:change=move |ev| selected_project.set(event_target_value(&ev))
-                        >
-                            {move || {
-                                let list = projects.get();
-                                if list.is_empty() {
-                                    vec![view! { <option value="">"No projects yet"</option> }.into_any()]
-                                } else {
-                                    list.into_iter()
-                                        .map(|(id, name)| view! { <option value=id>{name}</option> }.into_any())
-                                        .collect::<Vec<_>>()
-                                }
-                            }}
-                        </select>
+                    {move || (mode.get() == "existing").then(|| {
+                        let starter_note = if kind.get() == "script" {
+                            match language.get().as_str() {
+                                "r" => "Will create and open script.R in the selected project workspace.",
+                                "rust" => "Will create and open main.rs in the selected project workspace.",
+                                _ => "Will create and open script.py in the selected project workspace.",
+                            }
+                        } else {
+                            ""
+                        };
+                        view! {
+                            <div>
+                                <select
+                                    class="form-control"
+                                    style="margin-top:0.5rem;"
+                                    prop:value=move || selected_project.get()
+                                    on:change=move |ev| selected_project.set(event_target_value(&ev))
+                                >
+                                    {move || {
+                                        let list = projects.get();
+                                        if list.is_empty() {
+                                            vec![view! { <option value="">"No projects yet"</option> }.into_any()]
+                                        } else {
+                                            list.into_iter()
+                                                .map(|(id, name)| view! { <option value=id>{name}</option> }.into_any())
+                                                .collect::<Vec<_>>()
+                                        }
+                                    }}
+                                </select>
+                                {(!starter_note.is_empty()).then(|| view! {
+                                    <div style="margin-top:0.35rem; font-size:0.78rem; color:var(--text-muted);">
+                                        {starter_note}
+                                    </div>
+                                })}
+                            </div>
+                        }
                     })}
                 </div>
                 {move || error.get().map(|e| view! {
@@ -193,6 +355,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
 
 struct QuickStartRequest {
     kind: String,
+    language: String,
     mode: String,
     name: String,
     project_id: String,
@@ -247,6 +410,7 @@ const fn load_projects(
 fn create_quick_start(req: QuickStartRequest) {
     let QuickStartRequest {
         kind,
+        language,
         mode,
         name,
         project_id,
@@ -256,6 +420,7 @@ fn create_quick_start(req: QuickStartRequest) {
     wasm_bindgen_futures::spawn_local(async move {
         let body = serde_json::json!({
             "kind": kind,
+            "language": language,
             "mode": mode,
             "name": name,
             "project_id": project_id,
