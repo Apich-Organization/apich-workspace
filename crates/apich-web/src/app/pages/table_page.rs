@@ -149,7 +149,24 @@ pub fn TablePage(
                 <div style="display:flex; align-items:center; gap:0.5rem;">
                     <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 VCS History"</a>
                     {if project.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false) {
-                        view! { <a href="/" class="btn btn-outline btn-sm">"← Back to Dashboard"</a> }.into_any()
+                        let cf_file = cur_file.clone();
+                        view! {
+                            <form
+                                method="post"
+                                action=format!("/projects/{}/delete", project_id)
+                                class="inline-form"
+                                onsubmit=format!("return confirm('Are you sure you want to permanently delete \"{}\"? This cannot be undone.');", cf_file)
+                            >
+                                <button
+                                    type="submit"
+                                    class="btn btn-danger btn-sm"
+                                    title="Permanently delete this file"
+                                >
+                                    "🗑️ Delete"
+                                </button>
+                            </form>
+                            <a href="/" class="btn btn-outline btn-sm">"← Back to Dashboard"</a>
+                        }.into_any()
                     } else {
                         view! { <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm">"📁 Back to Files"</a> }.into_any()
                     }}

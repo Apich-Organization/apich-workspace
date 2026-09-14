@@ -221,6 +221,27 @@ pub fn DocumentEditorPage(
                     {download_pdf_btn}
                     {download_slide_bin_btn}
                     {slide_present_btn}
+                    {if is_single_file {
+                        let cf_file = file_path.clone();
+                        view! {
+                            <form
+                                method="post"
+                                action=format!("/projects/{}/delete", project_id)
+                                class="inline-form"
+                                onsubmit=format!("return confirm('Are you sure you want to permanently delete \"{}\"? This cannot be undone.');", cf_file)
+                            >
+                                <button
+                                    type="submit"
+                                    class="btn btn-danger btn-sm"
+                                    title="Permanently delete this file"
+                                >
+                                    "🗑️ Delete"
+                                </button>
+                            </form>
+                        }.into_any()
+                    } else {
+                        view! { <span></span> }.into_any()
+                    }}
                     <span class="editor-top-divider" aria-hidden="true"></span>
                     <button type="submit" form="editor-form" class="btn btn-primary btn-sm">"💾 " {i18n.save()}</button>
                 </div>

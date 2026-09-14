@@ -204,6 +204,27 @@ pub fn ProjectDetailPage(
                                         </div>
                                     </form>
                                 </apich_islands::ModalIsland>
+                                {if is_owner {
+                                    let cf_file = single_file_name.clone();
+                                    view! {
+                                        <form
+                                            method="post"
+                                            action=format!("/projects/{}/delete", project_id)
+                                            class="inline-form"
+                                            onsubmit=format!("return confirm('Are you sure you want to permanently delete \"{}\"? This cannot be undone.');", cf_file)
+                                        >
+                                            <button
+                                                type="submit"
+                                                class="btn btn-danger"
+                                                title="Permanently delete this file"
+                                            >
+                                                "🗑️ Delete File"
+                                            </button>
+                                        </form>
+                                    }.into_any()
+                                } else {
+                                    view! { <span></span> }.into_any()
+                                }}
                             </div>
                         }.into_any()
                     } else {
@@ -1410,17 +1431,43 @@ fn render_sharing_tab(
     // delete a project" -- the button already existed, just not where anyone would look for it).
     // A labeled, visually distinct section at the bottom of the one tab that's already about
     // project-level actions (not per-file) is where a user looking for it would actually check.
+    let is_single_file = project
+        .settings
+        .get("is_single_file")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let single_file_name = project
+        .settings
+        .get("single_file_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&project.name);
+
     let danger_zone = is_owner.then(|| {
+        let (title, desc, btn_label, confirm_msg) = if is_single_file {
+            (
+                "Delete this file",
+                "Permanently removes this standalone file and its version history from your workspace. This cannot be undone.",
+                "Delete File",
+                format!("Delete file \"{}\"? This cannot be undone.", single_file_name),
+            )
+        } else {
+            (
+                "Delete this project",
+                "Removes this project from your workspace. This cannot be undone.",
+                "Delete Project",
+                format!("Delete \"{}\"? This cannot be undone.", project.name),
+            )
+        };
         view! {
             <div class="section-card" style="margin-top:1.5rem; border-color:var(--danger-border); background:var(--danger-bg);">
-                <h3 class="card-subtitle" style="color:var(--danger);">"Delete this project"</h3>
+                <h3 class="card-subtitle" style="color:var(--danger);">{title}</h3>
                 <p style="font-size:0.85rem; color:var(--text-sub); margin:0.25rem 0 0.75rem;">
-                    "Removes this project from your workspace. This cannot be undone."
+                    {desc}
                 </p>
                 <form method="post" action=format!("/projects/{}/delete", project_id) class="inline-form">
                     <apich_islands::ConfirmSubmitButton
-                        label="Delete Project".to_string()
-                        message=format!("Delete \"{}\"? This cannot be undone.", project.name)
+                        label=btn_label.to_string()
+                        message=confirm_msg
                         button_class="btn btn-danger btn-sm".to_string()
                         button_style=String::new()
                     />
