@@ -519,10 +519,21 @@ async fn dashboard_page(
 
     let i18n = get_i18n(&headers, Some(&params));
     let repo = state.db.repository();
-    let projects = repo
+    let all_projects = repo
         .list_projects_for_user(user.id)
         .await
         .unwrap_or_default();
+
+    let mut projects = Vec::new();
+    let mut single_files = Vec::new();
+    for p in all_projects {
+        let is_single = p.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false);
+        if is_single {
+            single_files.push(p);
+        } else {
+            projects.push(p);
+        }
+    }
 
     let notice = params.get("notice").cloned();
     let error = params.get("error").cloned();
@@ -538,6 +549,7 @@ async fn dashboard_page(
                 user=user
                 is_org_or_team_admin=is_org_admin
                 projects=projects
+                single_files=single_files
                 i18n=i18n
                 current_path="/".to_string()
                 notice=notice
@@ -1248,10 +1260,21 @@ async fn project_detail_page(
         .is_org_or_team_admin(user.id)
         .await
         .unwrap_or(false);
+    let is_single_file = project
+        .settings
+        .get("is_single_file")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let active_tab = params
         .get("tab")
         .cloned()
-        .unwrap_or_else(|| "files".to_string());
+        .unwrap_or_else(|| {
+            if is_single_file {
+                "vcs".to_string()
+            } else {
+                "files".to_string()
+            }
+        });
     let notice = params.get("notice").map(|s| {
         match s.as_str() {
             | "project_renamed" => "Project renamed.",
@@ -1483,6 +1506,7 @@ async fn my_projects_json_action(
         .unwrap_or_default();
     let items: Vec<_> = projects
         .into_iter()
+        .filter(|p| !p.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false))
         .map(|p| json!({ "id": p.id.to_string(), "name": p.name }))
         .collect();
     Json(json!({ "projects": items })).into_response()
@@ -1566,7 +1590,7 @@ async fn quick_start_action(
         (*template, *file_name, *project_label)
     };
 
-    let target_project = if payload.mode.as_deref() == Some("existing") {
+    let (target_project, file_name) = if payload.mode.as_deref() == Some("existing") {
         // Add the starter file to a project the user already has, rather than making a new one.
         let Some(project_id) = payload
             .project_id
@@ -1587,12 +1611,58 @@ async fn quick_start_action(
         if !can_access {
             return Ok((StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response());
         }
-        state
+        let proj = state
             .db
             .repository()
             .get_project_by_id(project_id)
             .await?
-            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        (proj, file_name.to_string())
+    } else if payload.mode.as_deref() == Some("single_file") {
+        let org_id = ensure_user_org(&state, &user).await?;
+        let now = chrono::Utc::now();
+        let suffix = &Uuid::new_v4().simple().to_string()[..6];
+
+        let custom_file = payload.name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+        let final_file_name = if let Some(cf) = custom_file {
+            let has_ext = std::path::Path::new(cf).extension().is_some();
+            if !has_ext {
+                let default_ext = std::path::Path::new(file_name)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                if !default_ext.is_empty() {
+                    format!("{cf}.{default_ext}")
+                } else {
+                    cf.to_string()
+                }
+            } else {
+                cf.to_string()
+            }
+        } else {
+            file_name.to_string()
+        };
+
+        let proj = state
+            .project_manager
+            .create_project(CreateProjectDto {
+                org_id,
+                team_id: None,
+                owner_id: user.id,
+                name: final_file_name.clone(),
+                slug: format!("file-{}-{suffix}", now.format("%Y%m%d-%H%M%S")),
+                description: Some(format!("Standalone {project_label}")),
+                storage_path: String::new(),
+                settings: Some(serde_json::json!({
+                    "is_single_file": true,
+                    "single_file_name": final_file_name,
+                    "single_file_kind": payload.kind,
+                    "single_file_language": payload.language,
+                })),
+            })
+            .await?;
+
+        (proj, final_file_name)
     } else {
         let org_id = ensure_user_org(&state, &user).await?;
         // Creation timestamp rather than a bare "Untitled ...": these are made in one click, so
@@ -1610,7 +1680,7 @@ async fn quick_start_action(
                 || format!("{project_label} {}", now.format("%Y-%m-%d %H:%M")),
                 ToString::to_string,
             );
-        state
+        let proj = state
             .project_manager
             .create_project(CreateProjectDto {
                 org_id,
@@ -1622,13 +1692,15 @@ async fn quick_start_action(
                 storage_path: String::new(),
                 settings: None,
             })
-            .await?
+            .await?;
+
+        (proj, file_name.to_string())
     };
 
     // Never clobber an existing file when adding into a project that already has one by this
     // name (`slides.typ` in a project that already contains a deck, say) -- pick the next free
     // `<stem>-2.<ext>` instead of failing or overwriting.
-    let file_name = next_free_file_name(&target_project.storage_path, file_name);
+    let file_name = next_free_file_name(&target_project.storage_path, &file_name);
 
     state
         .project_manager
@@ -2115,6 +2187,18 @@ async fn delete_file_action(
     State(state): State<AppState>,
     Form(payload): Form<DeleteFileForm>,
 ) -> Result<Response, WebError> {
+    let repo = state.db.repository();
+    let proj_opt = repo.get_project_by_id(id).await?;
+    let is_single_file = proj_opt
+        .as_ref()
+        .map(|p| p.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false))
+        .unwrap_or(false);
+
+    if is_single_file {
+        state.project_manager.delete_project(id).await?;
+        return Ok(Redirect::to("/?notice=File+Deleted").into_response());
+    }
+
     state
         .project_manager
         .delete_file(id, user.id, &payload.file)
@@ -7470,8 +7554,10 @@ async fn delete_project_action(
         return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
     }
 
+    let is_single = project.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false);
     let _ = state.project_manager.delete_project(project.id).await;
-    Redirect::to("/?notice=Project Deleted").into_response()
+    let notice = if is_single { "File Deleted" } else { "Project Deleted" };
+    Redirect::to(&format!("/?notice={notice}")).into_response()
 }
 
 #[derive(Debug, Deserialize)]

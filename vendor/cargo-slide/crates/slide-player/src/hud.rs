@@ -7,15 +7,53 @@ use slide_core::chart::SeriesData;
 use slide_core::model::Rect;
 use slide_core::model::RenderMetrics;
 
-pub const PALETTE_COLORS: [(&str, u32); 7] = [
-    ("Cyan", 0xFF00E5FF),   // Neon Cyan (default for pen)
-    ("Red", 0xFFFF3366),    // Crimson Neon Red (default for laser)
-    ("Green", 0xFF00E676),  // Bright Emerald Green
-    ("Yellow", 0xFFFFD600), // Solar Yellow
-    ("Purple", 0xFFD500F9), // Electric Purple
-    ("White", 0xFFFFFFFF),  // Crisp White
-    ("Orange", 0xFFFF9100), // Vivid Coral Orange
+pub const PALETTE_COLORS: [(&str, u32); 14] = [
+    ("Cyan", 0xFF00E5FF),     // Neon Cyan
+    ("Red", 0xFFFF3366),      // Crimson Neon Red
+    ("Green", 0xFF00E676),    // Bright Emerald Green
+    ("Yellow", 0xFFFFD600),   // Solar Yellow
+    ("Purple", 0xFFD500F9),   // Electric Purple
+    ("White", 0xFFFFFFFF),    // Crisp White
+    ("Orange", 0xFFFF9100),   // Vivid Coral Orange
+    ("Pink", 0xFFFF4081),     // Hot Pink
+    ("Sky", 0xFF00B0FF),      // Deep Sky Blue
+    ("Lime", 0xFF76FF03),     // Electric Lime
+    ("Mint", 0xFF69F0AE),     // Pastel Mint
+    ("Gold", 0xFFFFAB00),     // Amber Gold
+    ("Violet", 0xFF7C4DFF),   // Neon Violet
+    ("Charcoal", 0xFF1E293B), // Slate Charcoal
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BrushType {
+    #[default]
+    Pen, // Solid pen
+    Highlighter, // Translucent marker
+    Neon,        // Glowing luminous stroke
+    Arrow,       // Directional arrow
+}
+
+impl BrushType {
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        match self {
+            | Self::Pen => "PEN",
+            | Self::Highlighter => "HL",
+            | Self::Neon => "NEON",
+            | Self::Arrow => "ARRW",
+        }
+    }
+
+    #[must_use]
+    pub const fn cycle(&self) -> Self {
+        match self {
+            | Self::Pen => Self::Highlighter,
+            | Self::Highlighter => Self::Neon,
+            | Self::Neon => Self::Arrow,
+            | Self::Arrow => Self::Pen,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresenterMode {
@@ -29,6 +67,7 @@ pub struct InkStroke {
     pub points: Vec<(usize, usize)>,
     pub color: u32,
     pub width: usize,
+    pub brush_type: BrushType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,6 +434,57 @@ fn draw_thick_line(
     }
 }
 
+/// Draw an arrow head at (x1, y1) pointing away from (x0, y0)
+#[allow(clippy::similar_names)]
+fn draw_arrow_head(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    head_len: f32,
+    color: u32,
+) {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let dist = (dx * dx + dy * dy).sqrt();
+    if dist < 1.0 {
+        return;
+    }
+    let angle = dy.atan2(dx);
+    let wing_angle = 2.5f32; // ~143 degrees back
+    let left_x = x1 + head_len * (angle + wing_angle).cos();
+    let left_y = y1 + head_len * (angle + wing_angle).sin();
+    let right_x = x1 + head_len * (angle - wing_angle).cos();
+    let right_y = y1 + head_len * (angle - wing_angle).sin();
+
+    let r = 2isize;
+    draw_thick_line(
+        buffer,
+        width,
+        height,
+        x1 as isize,
+        y1 as isize,
+        left_x as isize,
+        left_y as isize,
+        r,
+        color,
+    );
+    draw_thick_line(
+        buffer,
+        width,
+        height,
+        x1 as isize,
+        y1 as isize,
+        right_x as isize,
+        right_y as isize,
+        r,
+        color,
+    );
+}
+
 /// Render whiteboard pen strokes onto the screen
 pub fn render_ink_strokes(
     buffer: &mut [u32],
@@ -407,33 +497,178 @@ pub fn render_ink_strokes(
         if stroke.points.is_empty() {
             continue;
         }
-        if stroke.points.len() == 1 {
-            let (x, y) = stroke.points[0];
-            draw_disk(
-                buffer,
-                width,
-                height,
-                x as isize,
-                y as isize,
-                r,
-                stroke.color,
-            );
-            continue;
-        }
-        for window in stroke.points.windows(2) {
-            let (x0, y0) = window[0];
-            let (x1, y1) = window[1];
-            draw_thick_line(
-                buffer,
-                width,
-                height,
-                x0 as isize,
-                y0 as isize,
-                x1 as isize,
-                y1 as isize,
-                r,
-                stroke.color,
-            );
+
+        match stroke.brush_type {
+            | BrushType::Pen => {
+                if stroke.points.len() == 1 {
+                    let (x, y) = stroke.points[0];
+                    draw_disk(
+                        buffer,
+                        width,
+                        height,
+                        x as isize,
+                        y as isize,
+                        r,
+                        stroke.color,
+                    );
+                } else {
+                    for window in stroke.points.windows(2) {
+                        draw_thick_line(
+                            buffer,
+                            width,
+                            height,
+                            window[0].0 as isize,
+                            window[0].1 as isize,
+                            window[1].0 as isize,
+                            window[1].1 as isize,
+                            r,
+                            stroke.color,
+                        );
+                    }
+                }
+            },
+            | BrushType::Highlighter => {
+                let hl_r = (r * 3).max(6);
+                if stroke.points.len() == 1 {
+                    let (x, y) = stroke.points[0];
+                    draw_disk_alpha(
+                        buffer,
+                        width,
+                        height,
+                        x as isize,
+                        y as isize,
+                        hl_r,
+                        stroke.color,
+                        0.38,
+                    );
+                } else {
+                    for window in stroke.points.windows(2) {
+                        draw_thick_line_alpha(
+                            buffer,
+                            width,
+                            height,
+                            window[0].0 as isize,
+                            window[0].1 as isize,
+                            window[1].0 as isize,
+                            window[1].1 as isize,
+                            hl_r,
+                            stroke.color,
+                            0.38,
+                        );
+                    }
+                }
+            },
+            | BrushType::Neon => {
+                let halo_r = (r * 3).max(6);
+                if stroke.points.len() == 1 {
+                    let (x, y) = stroke.points[0];
+                    draw_disk_alpha(
+                        buffer,
+                        width,
+                        height,
+                        x as isize,
+                        y as isize,
+                        halo_r,
+                        stroke.color,
+                        0.32,
+                    );
+                    draw_disk(
+                        buffer,
+                        width,
+                        height,
+                        x as isize,
+                        y as isize,
+                        r.max(2),
+                        0xFFFFFFFF,
+                    );
+                } else {
+                    // 1. Soft luminous outer glow
+                    for window in stroke.points.windows(2) {
+                        draw_thick_line_alpha(
+                            buffer,
+                            width,
+                            height,
+                            window[0].0 as isize,
+                            window[0].1 as isize,
+                            window[1].0 as isize,
+                            window[1].1 as isize,
+                            halo_r,
+                            stroke.color,
+                            0.32,
+                        );
+                    }
+                    // 2. Colored body line
+                    for window in stroke.points.windows(2) {
+                        draw_thick_line(
+                            buffer,
+                            width,
+                            height,
+                            window[0].0 as isize,
+                            window[0].1 as isize,
+                            window[1].0 as isize,
+                            window[1].1 as isize,
+                            r,
+                            stroke.color,
+                        );
+                    }
+                    // 3. Crisp white core line
+                    for window in stroke.points.windows(2) {
+                        draw_thick_line(
+                            buffer,
+                            width,
+                            height,
+                            window[0].0 as isize,
+                            window[0].1 as isize,
+                            window[1].0 as isize,
+                            window[1].1 as isize,
+                            (r / 2).max(1),
+                            0xFFFFFFFF,
+                        );
+                    }
+                }
+            },
+            | BrushType::Arrow => {
+                if stroke.points.len() == 1 {
+                    let (x, y) = stroke.points[0];
+                    draw_disk(
+                        buffer,
+                        width,
+                        height,
+                        x as isize,
+                        y as isize,
+                        r,
+                        stroke.color,
+                    );
+                } else {
+                    for window in stroke.points.windows(2) {
+                        draw_thick_line(
+                            buffer,
+                            width,
+                            height,
+                            window[0].0 as isize,
+                            window[0].1 as isize,
+                            window[1].0 as isize,
+                            window[1].1 as isize,
+                            r,
+                            stroke.color,
+                        );
+                    }
+                    let len = stroke.points.len();
+                    let (x0, y0) = stroke.points[len.saturating_sub(4)];
+                    let (x1, y1) = stroke.points[len - 1];
+                    draw_arrow_head(
+                        buffer,
+                        width,
+                        height,
+                        x0 as f32,
+                        y0 as f32,
+                        x1 as f32,
+                        y1 as f32,
+                        (r * 4).max(12) as f32,
+                        stroke.color,
+                    );
+                }
+            },
         }
     }
 }
@@ -625,12 +860,30 @@ pub fn render_dock(
     }
 }
 
-/// Calculate bounds for the floating color palette popup
-pub fn get_palette_rects(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteAction {
+    Color(usize),
+    Brush(BrushType),
+    Width(usize),
+    Undo,
+}
+
+#[derive(Debug, Clone)]
+pub struct PaletteLayout {
+    pub popup_rect: Rect,
+    pub color_chips: Vec<(usize, Rect)>,
+    pub brush_chips: Vec<(BrushType, Rect)>,
+    pub width_chips: Vec<(usize, Rect)>,
+    pub undo_btn: Rect,
+}
+
+/// Calculate bounds for the floating color palette and brush controls popup
+#[must_use]
+pub fn get_palette_layout(
     screen_w: usize,
     screen_h: usize,
     is_fullscreen: bool,
-) -> (Rect, Vec<(usize, Rect)>) {
+) -> PaletteLayout {
     let (_, dock_items) = get_dock_rects(screen_w, screen_h, is_fullscreen);
     let col_btn = dock_items
         .iter()
@@ -647,75 +900,150 @@ pub fn get_palette_rects(
         .iter()
         .find(|(a, _, _)| *a == DockAction::ToggleMute)
         .map(|(_, r, _)| r.x)
-        .unwrap_or(col_btn.x + 80.0);
+        .unwrap_or(col_btn.x + 120.0);
 
-    let popup_w = 175.0f32;
-    let popup_h = 36.0f32;
-    // Constrain palette popup so its right edge is strictly clear of the volume control
+    let popup_w = 264.0f32;
+    let popup_h = 104.0f32;
     let max_x = vol_btn_x - 8.0 - popup_w;
     let desired_x = col_btn.x + col_btn.width / 2.0 - popup_w / 2.0;
     let popup_x = desired_x.clamp(10.0, max_x.max(10.0));
     let popup_y = col_btn.y - popup_h - 8.0;
-
     let popup_rect = Rect::new(popup_x, popup_y, popup_w, popup_h);
 
-    let count = PALETTE_COLORS.len();
-    let pad = 6.0f32;
-    let gap = 3.0f32;
-    let chip_w = (popup_w - pad * 2.0 - (count - 1) as f32 * gap) / count as f32;
-    let chip_h = popup_h - pad * 2.0;
+    let pad_x = 8.0f32;
+    let mut color_chips = Vec::new();
+    let row1_y = popup_y + 8.0;
+    let row2_y = popup_y + 27.0;
+    let chip_w = 28.0f32;
+    let chip_gap = (popup_w - pad_x * 2.0 - 7.0 * chip_w) / 6.0;
 
-    let mut chip_rects = Vec::new();
-    let mut cur_x = popup_x + pad;
-    for i in 0..count {
-        chip_rects.push((i, Rect::new(cur_x, popup_y + pad, chip_w, chip_h)));
-        cur_x += chip_w + gap;
+    for i in 0..7 {
+        let x = popup_x + pad_x + (i as f32) * (chip_w + chip_gap);
+        color_chips.push((i, Rect::new(x, row1_y, chip_w, 16.0)));
+    }
+    for i in 0..7 {
+        let x = popup_x + pad_x + (i as f32) * (chip_w + chip_gap);
+        color_chips.push((i + 7, Rect::new(x, row2_y, chip_w, 16.0)));
     }
 
-    (popup_rect, chip_rects)
+    let mut brush_chips = Vec::new();
+    let row3_y = popup_y + 49.0;
+    let b_types = [
+        BrushType::Pen,
+        BrushType::Highlighter,
+        BrushType::Neon,
+        BrushType::Arrow,
+    ];
+    let b_w = (popup_w - pad_x * 2.0 - 3.0 * 6.0) / 4.0;
+    for (i, b) in b_types.into_iter().enumerate() {
+        let x = popup_x + pad_x + (i as f32) * (b_w + 6.0);
+        brush_chips.push((b, Rect::new(x, row3_y, b_w, 22.0)));
+    }
+
+    let mut width_chips = Vec::new();
+    let row4_y = popup_y + 75.0;
+    let w_sizes = [2usize, 4, 8, 14];
+    let total_w_items = 5.0f32;
+    let w_btn_w = (popup_w - pad_x * 2.0 - 4.0 * 5.0) / total_w_items;
+    for (i, &w) in w_sizes.iter().enumerate() {
+        let x = popup_x + pad_x + (i as f32) * (w_btn_w + 5.0);
+        width_chips.push((w, Rect::new(x, row4_y, w_btn_w, 20.0)));
+    }
+    let undo_x = popup_x + pad_x + 4.0 * (w_btn_w + 5.0);
+    let undo_btn = Rect::new(undo_x, row4_y, w_btn_w, 20.0);
+
+    PaletteLayout {
+        popup_rect,
+        color_chips,
+        brush_chips,
+        width_chips,
+        undo_btn,
+    }
 }
 
-/// Check if mouse clicked on any color swatch chip
+/// Check if mouse clicked on any palette or brush control
+#[must_use]
 pub fn hit_test_palette(
     screen_w: usize,
     screen_h: usize,
     is_fullscreen: bool,
     mx: f32,
     my: f32,
-) -> Option<usize> {
-    let (popup_rect, chips) = get_palette_rects(screen_w, screen_h, is_fullscreen);
-    if !popup_rect.contains(mx, my) {
+) -> Option<PaletteAction> {
+    let layout = get_palette_layout(screen_w, screen_h, is_fullscreen);
+    if !layout.popup_rect.contains(mx, my) {
         return None;
     }
-    for (idx, rect) in chips {
+    for (idx, rect) in layout.color_chips {
         if rect.contains(mx, my) {
-            return Some(idx);
+            return Some(PaletteAction::Color(idx));
         }
+    }
+    for (b, rect) in layout.brush_chips {
+        if rect.contains(mx, my) {
+            return Some(PaletteAction::Brush(b));
+        }
+    }
+    for (w, rect) in layout.width_chips {
+        if rect.contains(mx, my) {
+            return Some(PaletteAction::Width(w));
+        }
+    }
+    if layout.undo_btn.contains(mx, my) {
+        return Some(PaletteAction::Undo);
     }
     None
 }
 
-/// Render the elegant floating color palette popup
+fn draw_filled_rect_border(
+    buffer: &mut [u32],
+    width: usize,
+    height: usize,
+    rect: Rect,
+    fill_color: u32,
+    border_color: u32,
+) {
+    let x1 = (rect.x as usize).min(width.saturating_sub(1));
+    let y1 = (rect.y as usize).min(height.saturating_sub(1));
+    let x2 = ((rect.x + rect.width) as usize).min(width.saturating_sub(1));
+    let y2 = ((rect.y + rect.height) as usize).min(height.saturating_sub(1));
+    for y in y1..=y2 {
+        let row = y * width;
+        for x in x1..=x2 {
+            if x == x1 || x == x2 || y == y1 || y == y2 {
+                buffer[row + x] = border_color;
+            } else {
+                buffer[row + x] = fill_color;
+            }
+        }
+    }
+}
+
+/// Render the elegant floating color palette and brush toolbox popup
 pub fn render_palette_popup(
     buffer: &mut [u32],
     width: usize,
     height: usize,
     is_fullscreen: bool,
-    active_idx: usize,
-    hovered_idx: Option<usize>,
+    active_color_idx: usize,
+    active_brush: BrushType,
+    active_width: usize,
+    hovered_action: Option<PaletteAction>,
 ) {
-    let (popup_rect, chips) = get_palette_rects(width, height, is_fullscreen);
+    let layout = get_palette_layout(width, height, is_fullscreen);
 
-    let x1 = popup_rect.x as usize;
-    let y1 = popup_rect.y as usize;
-    let x2 = ((popup_rect.x + popup_rect.width) as usize).min(width.saturating_sub(1));
-    let y2 = ((popup_rect.y + popup_rect.height) as usize).min(height.saturating_sub(1));
+    let x1 = layout.popup_rect.x as usize;
+    let y1 = layout.popup_rect.y as usize;
+    let x2 =
+        ((layout.popup_rect.x + layout.popup_rect.width) as usize).min(width.saturating_sub(1));
+    let y2 =
+        ((layout.popup_rect.y + layout.popup_rect.height) as usize).min(height.saturating_sub(1));
 
     // Dark glassmorphic background
     for y in y1..=y2 {
         let row = y * width;
         for x in x1..=x2 {
-            buffer[row + x] = 0xF0161b22;
+            buffer[row + x] = 0xF2161b22;
         }
     }
 
@@ -729,24 +1057,107 @@ pub fn render_palette_popup(
         buffer[y * width + x2] = 0xFF58a6ff;
     }
 
-    // Draw color chips
-    for (i, rect) in chips {
+    // Row 1 & 2: Draw color chips
+    for (i, rect) in layout.color_chips {
         let cx = (rect.x + rect.width / 2.0) as isize;
         let cy = (rect.y + rect.height / 2.0) as isize;
         let color = PALETTE_COLORS[i].1;
 
-        let r: isize = if hovered_idx == Some(i) {
-            8
-        } else {
-            7
-        };
+        let is_hovered = hovered_action == Some(PaletteAction::Color(i));
+        let r: isize = if is_hovered { 7 } else { 6 };
         draw_disk(buffer, width, height, cx, cy, r, color);
 
-        // Highlight ring around active selection
-        if i == active_idx {
-            draw_circle_ring(buffer, width, height, cx, cy, 10, 0xFFFFFFFF);
+        if i == active_color_idx {
+            draw_circle_ring(buffer, width, height, cx, cy, 9, 0xFFFFFFFF);
+            draw_circle_ring(buffer, width, height, cx, cy, 10, color);
         }
     }
+
+    // Row 3: Draw brush type chips
+    for (b, rect) in layout.brush_chips {
+        let is_active = b == active_brush;
+        let is_hovered = hovered_action == Some(PaletteAction::Brush(b));
+        let fill = if is_active {
+            0xFF1f6feb
+        } else if is_hovered {
+            0xFF30363d
+        } else {
+            0xFF21262d
+        };
+        let border = if is_active {
+            0xFF58a6ff
+        } else if is_hovered {
+            0xFF8b949e
+        } else {
+            0xFF30363d
+        };
+        let text_color = if is_active {
+            0xFFffffff
+        } else if is_hovered {
+            0xFF58a6ff
+        } else {
+            0xFFc9d1d9
+        };
+        draw_filled_rect_border(buffer, width, height, rect, fill, border);
+        draw_text_centered(buffer, width, height, rect, b.name(), text_color);
+    }
+
+    // Row 4: Draw width chips
+    for (w, rect) in layout.width_chips {
+        let is_active = w == active_width;
+        let is_hovered = hovered_action == Some(PaletteAction::Width(w));
+        let fill = if is_active {
+            0xFF1f6feb
+        } else if is_hovered {
+            0xFF30363d
+        } else {
+            0xFF21262d
+        };
+        let border = if is_active {
+            0xFF58a6ff
+        } else if is_hovered {
+            0xFF8b949e
+        } else {
+            0xFF30363d
+        };
+        let text_color = if is_active {
+            0xFFffffff
+        } else if is_hovered {
+            0xFF58a6ff
+        } else {
+            0xFFc9d1d9
+        };
+        let label = format!("{w}p");
+        draw_filled_rect_border(buffer, width, height, rect, fill, border);
+        draw_text_centered(buffer, width, height, rect, &label, text_color);
+    }
+
+    // Undo button
+    let is_undo_hovered = hovered_action == Some(PaletteAction::Undo);
+    let undo_fill = if is_undo_hovered {
+        0xFF30363d
+    } else {
+        0xFF21262d
+    };
+    let undo_border = if is_undo_hovered {
+        0xFFf85149
+    } else {
+        0xFF30363d
+    };
+    let undo_text = if is_undo_hovered {
+        0xFFf85149
+    } else {
+        0xFFf87171
+    };
+    draw_filled_rect_border(
+        buffer,
+        width,
+        height,
+        layout.undo_btn,
+        undo_fill,
+        undo_border,
+    );
+    draw_text_centered(buffer, width, height, layout.undo_btn, "UND", undo_text);
 }
 
 /// Draw an unfilled circle ring

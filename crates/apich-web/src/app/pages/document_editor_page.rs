@@ -173,6 +173,12 @@ pub fn DocumentEditorPage(
         )
     });
 
+    let is_single_file = project
+        .settings
+        .get("is_single_file")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     view! {
         <AppShell
             user=user
@@ -189,15 +195,27 @@ pub fn DocumentEditorPage(
             // sit flush against.
             <div class="editor-top-bar">
                 <div class="editor-top-left">
-                    <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-secondary btn-sm editor-back-btn" title="Back to the project's file list">
-                        <span aria-hidden="true">"←"</span>
-                        <span>"Back to Files"</span>
-                    </a>
+                    {if is_single_file {
+                        view! {
+                            <a href="/" class="btn btn-secondary btn-sm editor-back-btn" title="Back to Dashboard">
+                                <span aria-hidden="true">"←"</span>
+                                <span>"Dashboard"</span>
+                            </a>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-secondary btn-sm editor-back-btn" title="Back to the project's file list">
+                                <span aria-hidden="true">"←"</span>
+                                <span>"Back to Files"</span>
+                            </a>
+                        }.into_any()
+                    }}
                     <span class="editor-top-divider" aria-hidden="true"></span>
                     <span class="editor-file-name" title=file_path.clone()>"📄 " {file_path.clone()}</span>
                     <span class="file-type-pill pill-doc" style="font-size:0.7rem;">{kind_label}</span>
                 </div>
                 <div class="editor-top-right">
+                    <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm" title="View version control timeline and file history">"🌿 History"</a>
                     <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
                     {download_pdf_btn}

@@ -100,13 +100,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         | Some(Commands::Build {
             file,
             output,
+            format,
             animation,
             target,
         }) => {
-            commands::build::execute(&file, output, &animation, target.as_deref())?;
+            commands::build::execute(&file, output, &format, &animation, target.as_deref())?;
+        },
+        | Some(Commands::Pack {
+            file,
+            output,
+            animation,
+        }) => {
+            commands::pack::execute(&file, output, &animation)?;
+        },
+        | Some(Commands::Serve {
+            file,
+            port,
+            ip,
+            dir,
+            open,
+        }) => {
+            commands::serve::execute(&file, port, &ip, dir, open)?;
         },
         | Some(Commands::Export { file, format, output }) => {
             commands::export::execute(&file, &format, output)?;
+        },
+        | Some(Commands::InstallViewer) => {
+            println!("Installing slide-viewer universal presentation player...");
+            let res = std::process::Command::new("cargo")
+                .args([
+                    "install",
+                    "--path",
+                    "crates/slide-viewer",
+                    "--bin",
+                    "slide-viewer",
+                    "--force",
+                ])
+                .status();
+            match res {
+                | Ok(st) if st.success() => {
+                    let _ = std::process::Command::new("slide-viewer")
+                        .arg("install")
+                        .status();
+                    println!("✓ slide-viewer installed and registered successfully!");
+                },
+                | _ => {
+                    eprintln!("✕ Failed to build/install slide-viewer.");
+                },
+            }
         },
         | None => {
             let file = cli.file.unwrap_or_else(|| PathBuf::from("slides.typ"));

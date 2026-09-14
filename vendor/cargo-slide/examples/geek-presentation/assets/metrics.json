@@ -1,0 +1,8 @@
+[
+  {"service": "Auth API", "throughput": 12500, "errors": 12, "latency_p99": 14.2},
+  {"service": "Payment Engine", "throughput": 8400, "errors": 3, "latency_p99": 28.5},
+  {"service": "Search Query", "throughput": 19200, "errors": 45, "latency_p99": 8.4},
+  {"service": "Vector Index", "throughput": 6800, "errors": 8, "latency_p99": 19.8},
+  {"service": "Storage Proxy", "throughput": 14300, "errors": 21, "latency_p99": 11.2},
+  {"service": "Real-Time Sync", "throughput": 16500, "errors": 18, "latency_p99": 6.8}
+]

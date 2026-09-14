@@ -70,6 +70,38 @@ pub fn ProjectDetailPage(
     let project_name_for_rename = project.name.clone();
     let project_desc_for_rename = project.description.clone().unwrap_or_default();
 
+    let is_single_file = project
+        .settings
+        .get("is_single_file")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let single_file_name = project
+        .settings
+        .get("single_file_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&project.name)
+        .to_string();
+    let single_file_ext = std::path::Path::new(&single_file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let single_file_editor_href = match single_file_ext.as_str() {
+        "table" | "db" | "sqlite" => format!("/projects/{}/table?file={}", project_id, urlencoding::encode(&single_file_name)),
+        "anote" | "note" => format!("/projects/{}/note?file={}", project_id, urlencoding::encode(&single_file_name)),
+        _ => format!("/projects/{}/editor?file={}", project_id, urlencoding::encode(&single_file_name)),
+    };
+    let display_title = if is_single_file {
+        single_file_name.clone()
+    } else {
+        project.name.clone()
+    };
+    let display_subtitle = if is_single_file {
+        "Standalone single file with dedicated VCS timeline & sharing".to_string()
+    } else {
+        project.description.clone().unwrap_or_default()
+    };
+
     let notice_alert = notice.map(
         |n| view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> },
     );
@@ -88,6 +120,7 @@ pub fn ProjectDetailPage(
         conflicts_len,
         snapshots_len,
         members_len,
+        is_single_file,
         i18n,
     );
 
@@ -133,61 +166,85 @@ pub fn ProjectDetailPage(
             is_org_or_team_admin=is_org_or_team_admin
             active_nav=ActiveNav::Projects
             current_path=current_path
-            page_title=project.name.clone()
+            page_title=display_title.clone()
             i18n=i18n
         >
             <div class="page-header">
                 <div>
-                    <div class="title-with-badge">
-                        <h1 class="page-title">{project.name.clone()}</h1>
+                    <div class="title-with-badge" style="display:flex; align-items:center; gap:0.6rem;">
+                        <h1 class="page-title">{display_title}</h1>
+                        {if is_single_file {
+                            view! {
+                                <span class="badge badge-secondary" style="font-size:0.75rem;">
+                                    "📄 Standalone File"
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }}
                     </div>
-                    <p class="page-subtitle">{project.description.clone().unwrap_or_default()}</p>
+                    <p class="page-subtitle">{display_subtitle}</p>
                 </div>
                 <div class="header-actions">
-                    // Renaming matters most for quick-start projects, which are created in one
-                    // click with an auto-generated timestamped name the user will want to
-                    // replace. Owner-only server side (`rename_project_action`); the slug and
-                    // storage directory stay put, so existing links keep working.
-                    <apich_islands::ModalIsland trigger_label="✏️ Rename".to_string() trigger_class="btn btn-secondary".to_string() title="Rename Project".to_string()>
-                        <form method="post" action=format!("/projects/{}/rename", project_id)>
-                            <div class="form-group">
-                                <label>"Project Name"</label>
-                                <input type="text" name="name" required=true value=project_name_for_rename class="form-control" />
+                    {if is_single_file {
+                        view! {
+                            <div style="display:flex; gap:0.5rem; align-items:center;">
+                                <a href="/" class="btn btn-secondary">"← Dashboard"</a>
+                                <a href=single_file_editor_href.clone() class="btn btn-primary">"📂 Open File"</a>
+                                <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 AI Copilot"</label>
+                                <apich_islands::ModalIsland trigger_label=i18n.create_snapshot().to_string() trigger_class="btn btn-secondary".to_string() title=i18n.modal_snapshot_title().to_string()>
+                                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">{i18n.modal_snapshot_desc()}</p>
+                                    <form method="post" action=format!("/projects/{}/snapshot", project_id)>
+                                        <div class="form-group">
+                                            <label for="message">{i18n.snapshot_message_label()}</label>
+                                            <input type="text" id="message" name="message" required=true placeholder="Updated latest revisions..." class="form-control" autofocus=true />
+                                        </div>
+                                        <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
+                                            <button type="submit" class="btn btn-primary">{i18n.snapshot_submit()}</button>
+                                        </div>
+                                    </form>
+                                </apich_islands::ModalIsland>
                             </div>
-                            <div class="form-group">
-                                <label>"Description (optional)"</label>
-                                <textarea name="description" rows="3" class="form-control">{project_desc_for_rename}</textarea>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div style="display:flex; gap:0.5rem; align-items:center;">
+                                <apich_islands::ModalIsland trigger_label="✏️ Rename".to_string() trigger_class="btn btn-secondary".to_string() title="Rename Project".to_string()>
+                                    <form method="post" action=format!("/projects/{}/rename", project_id)>
+                                        <div class="form-group">
+                                            <label>"Project Name"</label>
+                                            <input type="text" name="name" required=true value=project_name_for_rename class="form-control" />
+                                        </div>
+                                        <div class="form-group">
+                                            <label>"Description (optional)"</label>
+                                            <textarea name="description" rows="3" class="form-control">{project_desc_for_rename}</textarea>
+                                        </div>
+                                        <p style="font-size:0.78rem; color:var(--text-sub); margin:0.25rem 0 0;">
+                                            "The project's URL and workspace folder stay the same, so existing links keep working."
+                                        </p>
+                                        <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
+                                            <button type="submit" class="btn btn-primary">"Save"</button>
+                                        </div>
+                                    </form>
+                                </apich_islands::ModalIsland>
+                                <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 AI Copilot"</label>
+                                <a href=format!("/projects/{}/note", project.id) class="btn btn-secondary">"📔 Notes & Wiki"</a>
+                                <a href=format!("/projects/{}/terminal", project.id) class="btn btn-secondary">"💻 Terminal"</a>
+                                <apich_islands::ModalIsland trigger_label=i18n.create_snapshot().to_string() trigger_class="btn btn-secondary".to_string() title=i18n.modal_snapshot_title().to_string()>
+                                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">{i18n.modal_snapshot_desc()}</p>
+                                    <form method="post" action=format!("/projects/{}/snapshot", project_id)>
+                                        <div class="form-group">
+                                            <label for="message">{i18n.snapshot_message_label()}</label>
+                                            <input type="text" id="message" name="message" required=true placeholder="Updated Hamiltonian simulation equations..." class="form-control" autofocus=true />
+                                        </div>
+                                        <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
+                                            <button type="submit" class="btn btn-primary">{i18n.snapshot_submit()}</button>
+                                        </div>
+                                    </form>
+                                </apich_islands::ModalIsland>
                             </div>
-                            <p style="font-size:0.78rem; color:var(--text-sub); margin:0.25rem 0 0;">
-                                "The project's URL and workspace folder stay the same, so existing links keep working."
-                            </p>
-                            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                                <button type="submit" class="btn btn-primary">"Save"</button>
-                            </div>
-                        </form>
-                    </apich_islands::ModalIsland>
-                    <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 AI Copilot"</label>
-                    <a href=format!("/projects/{}/note", project.id) class="btn btn-secondary">"📔 Notes & Wiki"</a>
-                    // A real, working route (`/projects/:id/terminal`, `TerminalPage`/`TerminalIsland`)
-                    // that used to be linked from nowhere in the app at all -- the only way to find
-                    // it was to already know the URL. Real, concrete cost: it's the one thing that
-                    // already answers "how do I init/build/run a whole multi-file Rust project (not
-                    // a single script), or any other real dev workflow (`cargo init`, `cargo run`,
-                    // `git`, etc.) inside this project's own environment" -- the toolchain was
-                    // always there, nobody could find the door to it.
-                    <a href=format!("/projects/{}/terminal", project.id) class="btn btn-secondary">"💻 Terminal"</a>
-                    <apich_islands::ModalIsland trigger_label=i18n.create_snapshot().to_string() trigger_class="btn btn-secondary".to_string() title=i18n.modal_snapshot_title().to_string()>
-                        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">{i18n.modal_snapshot_desc()}</p>
-                        <form method="post" action=format!("/projects/{}/snapshot", project_id)>
-                            <div class="form-group">
-                                <label for="message">{i18n.snapshot_message_label()}</label>
-                                <input type="text" id="message" name="message" required=true placeholder="Updated Hamiltonian simulation equations..." class="form-control" autofocus=true />
-                            </div>
-                            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                                <button type="submit" class="btn btn-primary">{i18n.snapshot_submit()}</button>
-                            </div>
-                        </form>
-                    </apich_islands::ModalIsland>
+                        }.into_any()
+                    }}
                 </div>
             </div>
 
@@ -247,23 +304,40 @@ fn render_tab_bar(
     conflicts_count: usize,
     snapshots_count: usize,
     members_count: usize,
+    is_single_file: bool,
     i18n: I18n,
 ) -> impl IntoView {
-    view! {
-        <div class="tab-bar">
-            <a href=format!("/projects/{}?tab=files", project_id) class="tab-item" class:active=active == ProjectTab::Files>
-                "📁 " {i18n.tab_files()} " (" {files_count} ")"
-            </a>
-            <a href=format!("/projects/{}?tab=vcs", project_id) class="tab-item" class:active=active == ProjectTab::Vcs>
-                "🌿 " {i18n.tab_vcs()}
-                {(conflicts_count > 0).then(|| view! { <span class="status-badge badge-warning" style="margin-left:4px;">{conflicts_count}</span> })}
-                {(snapshots_count > 0).then(|| format!(" ({snapshots_count})"))}
-            </a>
-            <a href=format!("/projects/{}?tab=sharing", project_id) class="tab-item" class:active=active == ProjectTab::Sharing>
-                "👥 " {i18n.tab_sharing()}
-                {(members_count > 0).then(|| format!(" ({members_count})"))}
-            </a>
-        </div>
+    if is_single_file {
+        view! {
+            <div class="tab-bar">
+                <a href=format!("/projects/{}?tab=vcs", project_id) class="tab-item" class:active=active == ProjectTab::Vcs>
+                    "🌿 " {i18n.tab_vcs()} " & History"
+                    {(conflicts_count > 0).then(|| view! { <span class="status-badge badge-warning" style="margin-left:4px;">{conflicts_count}</span> })}
+                    {(snapshots_count > 0).then(|| format!(" ({snapshots_count})"))}
+                </a>
+                <a href=format!("/projects/{}?tab=sharing", project_id) class="tab-item" class:active=active == ProjectTab::Sharing>
+                    "👥 " {i18n.tab_sharing()} " & Access"
+                    {(members_count > 0).then(|| format!(" ({members_count})"))}
+                </a>
+            </div>
+        }.into_any()
+    } else {
+        view! {
+            <div class="tab-bar">
+                <a href=format!("/projects/{}?tab=files", project_id) class="tab-item" class:active=active == ProjectTab::Files>
+                    "📁 " {i18n.tab_files()} " (" {files_count} ")"
+                </a>
+                <a href=format!("/projects/{}?tab=vcs", project_id) class="tab-item" class:active=active == ProjectTab::Vcs>
+                    "🌿 " {i18n.tab_vcs()}
+                    {(conflicts_count > 0).then(|| view! { <span class="status-badge badge-warning" style="margin-left:4px;">{conflicts_count}</span> })}
+                    {(snapshots_count > 0).then(|| format!(" ({snapshots_count})"))}
+                </a>
+                <a href=format!("/projects/{}?tab=sharing", project_id) class="tab-item" class:active=active == ProjectTab::Sharing>
+                    "👥 " {i18n.tab_sharing()}
+                    {(members_count > 0).then(|| format!(" ({members_count})"))}
+                </a>
+            </div>
+        }.into_any()
     }
 }
 

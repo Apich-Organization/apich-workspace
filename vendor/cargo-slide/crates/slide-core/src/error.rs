@@ -26,4 +26,16 @@ impl From<notify::Error> for SlideError {
     }
 }
 
+impl From<serde_json::Error> for SlideError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Format(err.to_string())
+    }
+}
+
+impl From<zip::result::ZipError> for SlideError {
+    fn from(err: zip::result::ZipError) -> Self {
+        Self::Format(err.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, SlideError>;

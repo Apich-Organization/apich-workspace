@@ -72,10 +72,17 @@ pub fn execute(
                 })),
             );
         },
+        | "slide" | "package" => {
+            crate::commands::pack::execute(file, output, "fade")?;
+        },
+        | "wasm" | "web" | "csr" => {
+            crate::commands::build::execute_wasm(file, output, "fade")?;
+        },
         | other => {
-            return Err(
-                format!("Unsupported export format: {other}. Supported formats: pdf, svg").into(),
-            );
+            return Err(format!(
+                "Unsupported export format: {other}. Supported formats: pdf, svg, slide, wasm"
+            )
+            .into());
         },
     }
 

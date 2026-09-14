@@ -1,0 +1,27 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# cargo-slide build & temporary artifacts
+.build_tmp/
+*-svgs/
+*.cache.csv
+*.pdf
+
+# Standalone compiled presentation binaries
+presentation-bin
+*-presentation
+!examples/**/
+
+# OS / Editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+plan.md
+prompt.md
+examples/dist-web/
+examples/slides.slide
+crates/slide-web/pkg/

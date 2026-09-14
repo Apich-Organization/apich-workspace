@@ -75,15 +75,19 @@ pub enum Commands {
         #[arg(long)]
         fullscreen: bool,
     },
-    /// Build a standalone self-contained single binary (.exe / ELF)
+    /// Build presentation into a standalone executable, a .slide package, or a WASM CSR web bundle
     Build {
         /// Path to .typ slide file (default: slides.typ)
         #[arg(default_value = "slides.typ")]
         file: PathBuf,
 
-        /// Output binary path (default: `<filename>-presentation`)
+        /// Output path (default: `<filename>-presentation`, `<filename>.slide`, or `dist/`)
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Output format: binary (default standalone executable), slide (.slide package), wasm (Leptos CSR web bundle)
+        #[arg(short, long, default_value = "binary")]
+        format: String,
 
         /// Default transition animation
         #[arg(short, long, default_value = "fade")]
@@ -96,13 +100,49 @@ pub enum Commands {
         #[arg(long)]
         target: Option<String>,
     },
-    /// Export presentation to PDF or SVGs
+    /// Pack presentation into a standalone compressed .slide package (LZMA2)
+    Pack {
+        /// Path to .typ slide file (default: slides.typ)
+        #[arg(default_value = "slides.typ")]
+        file: PathBuf,
+
+        /// Output .slide package file path (default: `<filename>.slide`)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Default transition animation
+        #[arg(short, long, default_value = "fade")]
+        animation: String,
+    },
+    /// Serve presentation via built-in static web server
+    Serve {
+        /// Path to .typ slide file, .slide package, or CSR directory (default: slides.typ)
+        #[arg(default_value = "slides.typ")]
+        file: PathBuf,
+
+        /// Port to bind the static server to (default: 8080)
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+
+        /// IP address to bind the static server to (default: 127.0.0.1)
+        #[arg(long, default_value = "127.0.0.1")]
+        ip: String,
+
+        /// Optional directory of an already built Leptos CSR package to serve directly
+        #[arg(short, long)]
+        dir: Option<PathBuf>,
+
+        /// Open presentation in default web browser
+        #[arg(long)]
+        open: bool,
+    },
+    /// Export presentation to PDF, SVG, .slide, or WASM CSR
     Export {
         /// Path to .typ slide file (default: slides.typ)
         #[arg(default_value = "slides.typ")]
         file: PathBuf,
 
-        /// Export format (pdf, svg)
+        /// Export format (pdf, svg, slide, wasm)
         #[arg(short, long, default_value = "pdf")]
         format: String,
 
@@ -110,4 +150,6 @@ pub enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Install universal slide-viewer player and desktop integration to system
+    InstallViewer,
 }

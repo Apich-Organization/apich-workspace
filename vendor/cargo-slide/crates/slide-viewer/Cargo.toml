@@ -1,0 +1,35 @@
+[package]
+name = "slide-viewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+description = "Universal standalone slide presentation player and viewer with a sleek modern GUI"
+categories = ["visualization", "multimedia", "command-line-utilities"]
+keywords = ["presentation", "slides", "viewer", "player", "gui"]
+
+[[bin]]
+name = "slide-viewer"
+path = "src/main.rs"
+
+[dependencies]
+slide-core.workspace = true
+slide-player.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+minifb.workspace = true
+tiny-skia.workspace = true
+tiny-skia-path.workspace = true
+open.workspace = true
+thiserror.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+

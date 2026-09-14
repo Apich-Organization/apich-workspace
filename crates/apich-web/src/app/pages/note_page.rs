@@ -146,7 +146,12 @@ pub fn NotePage(
             </a>
             <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
             <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
-            <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"📁 Back to Files"</a>
+            <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 VCS History"</a>
+            {if project.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false) {
+                view! { <a href="/" class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"← Back to Dashboard"</a> }.into_any()
+            } else {
+                view! { <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"📁 Back to Files"</a> }.into_any()
+            }}
         </div>
     };
 

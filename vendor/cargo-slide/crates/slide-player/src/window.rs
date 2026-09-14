@@ -1,11 +1,13 @@
 #![allow(unsafe_code)]
 
 use crate::audio::AudioEngine;
+use crate::hud::BrushType;
 use crate::hud::ChartInspectorState;
 use crate::hud::DockAction;
 use crate::hud::InkStroke;
 use crate::hud::InspectorAction;
 use crate::hud::PALETTE_COLORS;
+use crate::hud::PaletteAction;
 use crate::hud::PresenterMode;
 use crate::hud::draw_chart_inspector;
 use crate::hud::draw_chart_visualizer;
@@ -140,6 +142,14 @@ impl SlideApp {
         fullscreen: bool,
     ) -> Self {
         self.config.fullscreen = fullscreen;
+        self
+    }
+
+    pub fn source_file(
+        mut self,
+        path: impl AsRef<Path>,
+    ) -> Self {
+        self.source_file = Some(path.as_ref().to_path_buf());
         self
     }
 
@@ -383,9 +393,14 @@ pub fn resolve_local_file_path(
         );
     }
 
-    // 5. Traverse ancestors relative to source_file parent
+    // 5. Traverse ancestors relative to source_file parent or directory
     if let Some(sf) = source_file {
-        let mut cur_dir = sf.parent();
+        let sf_dir = if sf.is_dir() {
+            Some(sf)
+        } else {
+            sf.parent()
+        };
+        let mut cur_dir = sf_dir;
         let mut depth = 0usize;
         while let Some(dir) = cur_dir {
             if depth >= 6 {
@@ -902,7 +917,7 @@ fn prefer_xwayland_for_fullscreen() {
 #[cfg(not(target_os = "linux"))]
 const fn prefer_xwayland_for_fullscreen() {}
 
-fn apply_native_fullscreen(
+pub fn apply_native_fullscreen(
     window_handle: *mut std::ffi::c_void,
     fullscreen: bool,
     width: usize,
@@ -1110,6 +1125,8 @@ impl SlidePlayer {
         // Presenter interactive tools state
         let mut presenter_mode = PresenterMode::Normal;
         let mut active_color_idx = 0usize; // Cyan by default (index 0)
+        let mut active_brush_type = BrushType::Pen;
+        let mut active_brush_width = 4usize;
         let mut palette_open = false;
         let mut volume_slider_open = false;
         let mut volume_dragging = false;
@@ -1432,7 +1449,7 @@ impl SlidePlayer {
                     .map(|(mx, my)| slider_popup_rect.contains(mx, my))
                     .unwrap_or(false);
 
-            let hovered_palette_idx = mouse_pos
+            let hovered_palette_action = mouse_pos
                 .and_then(|(mx, my)| hit_test_palette(width, height, is_fullscreen, mx, my));
 
             let mut hovered_hotspot_idx: Option<usize> = None;
@@ -1441,7 +1458,7 @@ impl SlidePlayer {
                 && let Some((mx, my)) = mouse_pos
                 && !mouse_in_dock
                 && !mouse_in_slider
-                && (!palette_open || hovered_palette_idx.is_none())
+                && (!palette_open || hovered_palette_action.is_none())
                 && let Some((svg_x, svg_y)) = current_metrics.screen_to_svg(mx, my)
                 && let Some(slide) = self.deck.get_slide(current_idx)
             {
@@ -1492,7 +1509,7 @@ impl SlidePlayer {
             } else {
                 if hovered_dock_action.is_some()
                     || hovered_hotspot_idx.is_some()
-                    || hovered_palette_idx.is_some()
+                    || hovered_palette_action.is_some()
                     || mouse_in_slider
                 {
                     window.set_cursor_style(CursorStyle::OpenHand);
@@ -1704,8 +1721,18 @@ impl SlidePlayer {
                             },
                         }
                     }
-                } else if let Some(pal_idx) = hovered_palette_idx {
-                    active_color_idx = pal_idx;
+                } else if let Some(pal_action) = hovered_palette_action {
+                    match pal_action {
+                        | PaletteAction::Color(pal_idx) => active_color_idx = pal_idx,
+                        | PaletteAction::Brush(b) => active_brush_type = b,
+                        | PaletteAction::Width(w) => active_brush_width = w,
+                        | PaletteAction::Undo => {
+                            if let Some(strokes) = slide_ink.get_mut(&current_idx) {
+                                strokes.pop();
+                            }
+                            active_pen_stroke = None;
+                        },
+                    }
                 } else if let Some(dock_action) = hovered_dock_action {
                     match dock_action {
                         | DockAction::Prev => trigger_backward = true,
@@ -1876,7 +1903,7 @@ impl SlidePlayer {
                 if mouse_down
                     && !mouse_in_dock
                     && !mouse_in_slider
-                    && (!palette_open || hovered_palette_idx.is_none())
+                    && (!palette_open || hovered_palette_action.is_none())
                 {
                     if let Some((mx, my)) = mouse_pos {
                         let pt = (mx as usize, my as usize);
@@ -1888,7 +1915,8 @@ impl SlidePlayer {
                             active_pen_stroke = Some(InkStroke {
                                 points: vec![pt],
                                 color: active_color,
-                                width: 4,
+                                width: active_brush_width,
+                                brush_type: active_brush_type,
                             });
                         }
                     }
@@ -2276,8 +2304,51 @@ impl SlidePlayer {
                                     jump_target = Some(6);
                                 }
                             },
-                            | Key::NumPad8 | Key::Key8 => jump_target = Some(7),
-                            | Key::NumPad9 | Key::Key9 => jump_target = Some(8),
+                            | Key::NumPad8 | Key::Key8 => {
+                                if palette_open || presenter_mode == PresenterMode::Pen {
+                                    active_color_idx = 7;
+                                } else {
+                                    jump_target = Some(7);
+                                }
+                            },
+                            | Key::NumPad9 | Key::Key9 => {
+                                if palette_open || presenter_mode == PresenterMode::Pen {
+                                    active_color_idx = 8;
+                                } else {
+                                    jump_target = Some(8);
+                                }
+                            },
+                            | Key::NumPad0 | Key::Key0 => {
+                                if palette_open || presenter_mode == PresenterMode::Pen {
+                                    active_color_idx = 9;
+                                } else {
+                                    jump_target = Some(0);
+                                }
+                            },
+                            | Key::T => {
+                                active_brush_type = active_brush_type.cycle();
+                            },
+                            | Key::LeftBracket => {
+                                active_brush_width = active_brush_width.saturating_sub(2).max(1);
+                            },
+                            | Key::RightBracket => {
+                                active_brush_width = (active_brush_width + 2).min(24);
+                            },
+                            | Key::U => {
+                                if let Some(strokes) = slide_ink.get_mut(&current_idx) {
+                                    strokes.pop();
+                                }
+                                active_pen_stroke = None;
+                            },
+                            | Key::Z
+                                if window.is_key_down(Key::LeftCtrl)
+                                    || window.is_key_down(Key::RightCtrl) =>
+                            {
+                                if let Some(strokes) = slide_ink.get_mut(&current_idx) {
+                                    strokes.pop();
+                                }
+                                active_pen_stroke = None;
+                            },
                             | Key::F11 | Key::F => {
                                 toggle_fullscreen_requested = true;
                             },
@@ -2568,7 +2639,9 @@ impl SlidePlayer {
                     height,
                     is_fullscreen,
                     active_color_idx,
-                    hovered_palette_idx,
+                    active_brush_type,
+                    active_brush_width,
+                    hovered_palette_action,
                 );
             }
 

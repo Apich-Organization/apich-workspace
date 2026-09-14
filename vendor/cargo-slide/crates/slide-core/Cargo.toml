@@ -26,3 +26,7 @@ walkdir.workspace = true
 csv.workspace = true
 rusqlite.workspace = true
 notify.workspace = true
+zip.workspace = true
+tar.workspace = true
+xz2.workspace = true
+lzma-rs.workspace = true

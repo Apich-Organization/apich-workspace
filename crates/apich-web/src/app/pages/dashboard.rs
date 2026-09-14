@@ -10,6 +10,7 @@ pub fn DashboardPage(
     user: User,
     is_org_or_team_admin: bool,
     projects: Vec<Project>,
+    single_files: Vec<Project>,
     i18n: I18n,
     current_path: String,
     notice: Option<String>,
@@ -20,6 +21,7 @@ pub fn DashboardPage(
         |n| Some(view! { <div class="alert alert-success">{n}</div> }.into_any()),
     );
 
+    let projects_count = projects.len();
     let projects_body = if projects.is_empty() {
         view! {
             <div class="empty-state">
@@ -68,6 +70,104 @@ pub fn DashboardPage(
         view! { <div class="projects-grid">{cards}</div> }.into_any()
     };
 
+    let single_files_count = single_files.len();
+    let single_files_body = if single_files.is_empty() {
+        view! {
+            <div class="empty-state" style="padding:2.25rem 1.5rem; border:1px dashed var(--border-subtle); border-radius:10px; text-align:center; background:var(--bg-surface);">
+                <div style="font-size:2rem; margin-bottom:0.5rem;">"📜"</div>
+                <h4 style="font-size:1rem; font-weight:600; color:var(--text-main); margin:0 0 0.35rem 0;">"No Standalone Files Yet"</h4>
+                <p class="text-muted" style="font-size:0.85rem; max-width:480px; margin:0 auto; line-height:1.5;">
+                    "Create standalone scripts or documents without managing a full project. Use Quick Start and select 'Single file' to start writing Python, R, Rust, Typst, or LaTeX."
+                </p>
+            </div>
+        }.into_any()
+    } else {
+        let cards = single_files
+            .into_iter()
+            .map(|proj| {
+                let file_name = proj.settings.get("single_file_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&proj.name)
+                    .to_string();
+                let ext = std::path::Path::new(&file_name)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let (icon, type_label, badge_cls) = match ext.as_str() {
+                    "py" => ("🐍", "Python Script", "badge-active"),
+                    "r" => ("📊", "R Script", "badge-active"),
+                    "rs" => ("🦀", "Rust Script", "badge-active"),
+                    "typ" => {
+                        if file_name.contains("slide") {
+                            ("📊", "Slide Deck", "badge-idle")
+                        } else {
+                            ("📄", "Typst Document", "badge-idle")
+                        }
+                    },
+                    "tex" | "latex" => ("📝", "LaTeX Document", "badge-idle"),
+                    "table" | "db" | "sqlite" => ("🗄️", "Table", "badge-viewer"),
+                    "anote" | "note" => ("📔", "Note", "badge-viewer"),
+                    "md" => ("📑", "Markdown", "badge-idle"),
+                    _ => ("📄", "File", "badge-idle"),
+                };
+                let href = match ext.as_str() {
+                    "table" | "db" | "sqlite" => format!("/projects/{}/table?file={}", proj.id, urlencoding::encode(&file_name)),
+                    "anote" | "note" => format!("/projects/{}/note?file={}", proj.id, urlencoding::encode(&file_name)),
+                    _ => format!("/projects/{}/editor?file={}", proj.id, urlencoding::encode(&file_name)),
+                };
+                let href_vcs = format!("/projects/{}?tab=vcs", proj.id);
+                let updated_str = proj.updated_at.format("%Y-%m-%d %H:%M").to_string();
+
+                view! {
+                    <div class="project-card" style="border-left:3px solid var(--primary); display:flex; flex-direction:column; justify-content:space-between;">
+                        <div>
+                            <div class="project-card-header" style="align-items:flex-start; margin-bottom:0.75rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; flex:1; min-width:0;">
+                                    <span style="font-size:1.35rem; flex-shrink:0;">{icon}</span>
+                                    <h3 class="project-name" style="margin:0; font-size:1rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                        <a href=href.clone() title=file_name.clone()>{file_name.clone()}</a>
+                                    </h3>
+                                </div>
+                                <span class=format!("badge {badge_cls}") style="font-size:0.72rem; flex-shrink:0;">
+                                    {type_label}
+                                </span>
+                            </div>
+                            <p class="text-muted" style="font-size:0.8rem; margin:0 0 0.85rem 0;">
+                                "Standalone workspace with dedicated VCS timeline and sharing."
+                            </p>
+                        </div>
+                        <div class="project-footer" style="padding-top:0.75rem; border-top:1px solid var(--border-subtle); margin-top:0.5rem;">
+                            <div class="project-meta" style="font-size:0.78rem;">
+                                <span>"📅 " {updated_str}</span>
+                            </div>
+                            <div class="project-actions" style="display:flex; align-items:center; gap:0.4rem;">
+                                <a href=href class="btn btn-primary btn-sm">"📂 Open"</a>
+                                <a href=href_vcs class="btn btn-secondary btn-sm">"🌿 VCS"</a>
+                                <form
+                                    method="post"
+                                    action=format!("/projects/{}/delete", proj.id)
+                                    class="inline-form"
+                                    onsubmit="return confirm('Are you sure you want to delete this file? The file and its version history will be permanently deleted.');"
+                                >
+                                    <button
+                                        type="submit"
+                                        class="btn btn-danger btn-sm"
+                                        style="padding:0.25rem 0.55rem; font-size:0.78rem;"
+                                        title="Delete this file"
+                                    >
+                                        "🗑️"
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                }
+            })
+            .collect::<Vec<_>>();
+        view! { <div class="projects-grid">{cards}</div> }.into_any()
+    };
+
     view! {
         <AppShell
             user=user
@@ -87,7 +187,7 @@ pub fn DashboardPage(
                         <button type="submit" class="btn btn-secondary">"✨ " {i18n.load_demo_project()}</button>
                     </form>
                     // One-click starters. The island asks where the new document should go
-                    // (a new project, or an existing one) rather than creating a project the
+                    // (a new project, an existing one, or single file) rather than creating a project the
                     // instant a button is pressed.
                     <apich_islands::QuickStartMenuIsland variant=apich_islands::QuickStartVariant::Dashboard />
                     <apich_islands::ModalIsland trigger_label=format!("+ {}", i18n.new_project()) trigger_class="btn btn-primary".to_string() title=i18n.new_project().to_string()>
@@ -112,7 +212,27 @@ pub fn DashboardPage(
                 </div>
             </div>
             {alert}
+
+            // Section 1: Projects
+            <div style="margin-bottom:1rem; display:flex; align-items:center; gap:0.6rem;">
+                <h2 class="section-title" style="margin:0; font-size:1.15rem;">"📁 " {i18n.nav_projects()}</h2>
+                <span class="badge badge-active" style="font-size:0.72rem;">{format!("{projects_count}")}</span>
+            </div>
             {projects_body}
+
+            // Section 2: Standalone Single Files
+            <div style="margin-top:2.75rem; margin-bottom:1rem; border-top:1px solid var(--border-subtle); padding-top:1.75rem;">
+                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.25rem;">
+                    <div style="display:flex; align-items:center; gap:0.6rem;">
+                        <h2 class="section-title" style="margin:0; font-size:1.15rem;">"📄 Standalone Files"</h2>
+                        <span class="badge badge-idle" style="font-size:0.72rem;">{format!("{single_files_count}")}</span>
+                    </div>
+                </div>
+                <p class="text-muted" style="font-size:0.85rem; margin:0 0 1.25rem 0;">
+                    "Individual scripts and documents managed without a multi-file project workspace. Each file has its own version history, execution sandbox, and sharing."
+                </p>
+                {single_files_body}
+            </div>
         </AppShell>
     }
 }

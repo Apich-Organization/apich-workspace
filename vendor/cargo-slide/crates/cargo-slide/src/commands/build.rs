@@ -9,12 +9,79 @@ use std::process::Command;
 use std::process::Stdio;
 use tempfile::tempdir;
 
+/// Dispatch presentation build by format: binary, slide, or wasm.
+pub fn execute(
+    file: &Path,
+    output: Option<PathBuf>,
+    format: &str,
+    animation: &str,
+    target: Option<&str>,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    match format.to_lowercase().as_str() {
+        | "slide" | "package" => crate::commands::pack::execute(file, output, animation),
+        | "wasm" | "web" | "csr" => execute_wasm(file, output, animation),
+        | "binary" | "exe" | "elf" | "" => execute_binary(file, output, animation, target),
+        | other => {
+            Err(
+                format!("Unknown build format: '{other}'. Supported formats: binary, slide, wasm")
+                    .into(),
+            )
+        },
+    }
+}
+
+/// Build standalone Leptos CSR web presentation bundle.
+pub fn execute_wasm(
+    file: &Path,
+    output: Option<PathBuf>,
+    _animation: &str,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if !file.exists() {
+        return Err(format!("File does not exist: {}", file.display()).into());
+    }
+
+    let stem = file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("presentation");
+    let out_dir = output.unwrap_or_else(|| PathBuf::from(format!("{stem}-web")));
+
+    slide_core::logger::log_event(
+        "info",
+        &format!(
+            "🌐 Building Leptos CSR web presentation: {}",
+            out_dir.display()
+        ),
+        Some(serde_json::json!({
+            "stage": "wasm_build_start",
+            "source_file": file.display().to_string(),
+            "output_dir": out_dir.display().to_string(),
+        })),
+    );
+
+    crate::commands::serve::prepare_csr_bundle(file, &out_dir)?;
+
+    slide_core::logger::log_event(
+        "success",
+        &format!(
+            "✅ Leptos CSR web bundle created successfully at: {}",
+            out_dir.display()
+        ),
+        Some(serde_json::json!({
+            "stage": "wasm_build_success",
+            "output_dir": out_dir.display().to_string(),
+        })),
+    );
+
+    Ok(())
+}
+
 /// Compile the presentation into a standalone release binary. `target`, when given, cross-compiles
 /// for that Rust target triple (e.g. `x86_64-pc-windows-msvc`) instead of the host's own platform;
 /// the triple must already be installed via `rustup target add` and have a working linker
 /// configured for a non-host target.
 #[allow(clippy::too_many_lines)]
-pub fn execute(
+pub fn execute_binary(
     file: &Path,
     output: Option<PathBuf>,
     animation: &str,
@@ -165,10 +232,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {{
     // `cargo build --target <triple>` (even for the host's own triple) nests output under
     // `<target-dir>/<triple>/release/`, not `<target-dir>/release/` -- only the no-`--target`
     // invocation uses the flat layout.
-    let release_dir = match target {
-        Some(triple) => target_dir.join(triple).join("release"),
-        None => target_dir.join("release"),
-    };
+    let release_dir = target.map_or_else(
+        || target_dir.join("release"),
+        |triple| target_dir.join(triple).join("release"),
+    );
     let built_bin = release_dir.join(bin_filename);
     if !built_bin.exists() {
         return Err(format!("Compiled binary not found at {}", built_bin.display()).into());
@@ -264,7 +331,10 @@ fn find_repo_root(exe: &Path) -> Option<PathBuf> {
 /// 100%. Returns 0 (caller then treats every artifact as 1% until 100 are seen) if `cargo
 /// metadata` itself fails for any reason, rather than aborting the whole build over a
 /// progress-estimate step that was never essential to begin with.
-fn estimate_total_units(build_path: &Path, target: Option<&str>) -> usize {
+fn estimate_total_units(
+    build_path: &Path,
+    target: Option<&str>,
+) -> usize {
     let mut cmd = Command::new("cargo");
     cmd.arg("metadata")
         .arg("--format-version")
@@ -338,9 +408,13 @@ fn run_cargo_build_with_progress(
             continue;
         };
         match reason {
-            "compiler-artifact" => {
+            | "compiler-artifact" => {
                 compiled = compiled.saturating_add(1);
-                let denom = if total == 0 { compiled.max(100) } else { total };
+                let denom = if total == 0 {
+                    compiled.max(100)
+                } else {
+                    total
+                };
                 #[allow(clippy::cast_precision_loss)]
                 let fraction = (compiled as f64 / denom as f64).min(1.0);
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -354,7 +428,15 @@ fn run_cargo_build_with_progress(
                         .unwrap_or("dependency");
                     slide_core::logger::log_event(
                         "info",
-                        &format!("🔨 Compiling {pkg_name} ({compiled}/{}, cross-target: {})", if total == 0 { "?".to_string() } else { total.to_string() }, target.unwrap_or("host")),
+                        &format!(
+                            "🔨 Compiling {pkg_name} ({compiled}/{}, cross-target: {})",
+                            if total == 0 {
+                                "?".to_string()
+                            } else {
+                                total.to_string()
+                            },
+                            target.unwrap_or("host")
+                        ),
                         Some(serde_json::json!({
                             "stage": "cargo_build_release",
                             "compiled": compiled,
@@ -364,8 +446,10 @@ fn run_cargo_build_with_progress(
                     );
                 }
             },
-            "compiler-message" => {
-                let Some(message) = value.get("message") else { continue };
+            | "compiler-message" => {
+                let Some(message) = value.get("message") else {
+                    continue;
+                };
                 let level = message.get("level").and_then(|l| l.as_str()).unwrap_or("");
                 let Some(rendered) = message.get("rendered").and_then(|r| r.as_str()) else {
                     continue;
@@ -374,7 +458,7 @@ fn run_cargo_build_with_progress(
                     slide_core::logger::log_event("error", rendered, None);
                 }
             },
-            _ => {},
+            | _ => {},
         }
     }
 

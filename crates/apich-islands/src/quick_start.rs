@@ -35,8 +35,8 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
     let kind_label = RwSignal::new(String::new());
     // Script language: "python" | "r" | "rust"
     let language = RwSignal::new("python".to_string());
-    // "new" | "existing"
-    let mode = RwSignal::new("new".to_string());
+    // "single_file" | "new" | "existing"
+    let mode = RwSignal::new("single_file".to_string());
     let project_name = RwSignal::new(String::new());
     let projects = RwSignal::new(Vec::<(String, String)>::new());
     let selected_project = RwSignal::new(String::new());
@@ -57,7 +57,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
         } else if k == "script" {
             language.set("python".to_string());
         }
-        mode.set("new".to_string());
+        mode.set("single_file".to_string());
         project_name.set(String::new());
         selected_project.set(String::new());
         error.set(None);
@@ -257,7 +257,50 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                     "Where should this go?"
                 </p>
                 <div class="form-group">
-                    <label style="display:flex; align-items:center; gap:0.5rem; font-weight:500;">
+                    <label style="display:flex; align-items:center; gap:0.5rem; font-weight:500; cursor:pointer;">
+                        <input
+                            type="radio"
+                            name="qs-mode"
+                            value="single_file"
+                            prop:checked=move || mode.get() == "single_file"
+                            on:change=move |_| mode.set("single_file".to_string())
+                        />
+                        "Single file (standalone -- no project needed)"
+                    </label>
+                    {move || (mode.get() == "single_file").then(|| {
+                        let default_name = if kind.get() == "script" {
+                            match language.get().as_str() {
+                                "r" => "analysis.R",
+                                "rust" => "main.rs",
+                                _ => "script.py",
+                            }
+                        } else {
+                            match kind.get().as_str() {
+                                "slide" => "slides.typ",
+                                "latex" => "document.tex",
+                                "table" => "data.table",
+                                "note" => "notes.anote",
+                                _ => "document.typ",
+                            }
+                        };
+                        view! {
+                            <div style="margin-top:0.4rem; padding-left:1.5rem;">
+                                <input
+                                    type="text"
+                                    class="form-control"
+                                    placeholder=format!("File name (optional -- defaults to {default_name})")
+                                    prop:value=move || project_name.get()
+                                    on:input=move |ev| project_name.set(event_target_value(&ev))
+                                />
+                                <div style="margin-top:0.35rem; font-size:0.78rem; color:var(--text-muted);">
+                                    "Creates a standalone file with full version history and sharing. The backing project is hidden from your projects list."
+                                </div>
+                            </div>
+                        }
+                    })}
+                </div>
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:0.5rem; font-weight:500; cursor:pointer;">
                         <input
                             type="radio"
                             name="qs-mode"
@@ -291,7 +334,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                     })}
                 </div>
                 <div class="form-group">
-                    <label style="display:flex; align-items:center; gap:0.5rem; font-weight:500;">
+                    <label style="display:flex; align-items:center; gap:0.5rem; font-weight:500; cursor:pointer;">
                         <input
                             type="radio"
                             name="qs-mode"
@@ -312,7 +355,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                             ""
                         };
                         view! {
-                            <div>
+                            <div style="margin-top:0.4rem; padding-left:1.5rem;">
                                 <select
                                     class="form-control"
                                     style="margin-top:0.5rem;"

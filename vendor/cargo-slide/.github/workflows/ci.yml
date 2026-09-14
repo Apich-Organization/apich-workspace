@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & Verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev \
+            libxcursor-dev \
+            libasound2-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Setup Typst CLI
+        uses: typst-community/setup-typst@v4
+
+      - name: Cargo Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # 1. Static Type & Compilation Check
+      - name: Check compilation
+        run: cargo check --workspace --all-targets
+
+      # 2. Strict Clippy Linter Check (0 warnings allowed)
+      - name: Lint with Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # 3. Headless Test Suite (All Unit and Integration Tests)
+      - name: Run test suite
+        run: cargo test --workspace --verbose
+
+      # 4. Headless Document Export Verification (PDF & SVG)
+      - name: Verify document export
+        run: |
+          cargo run -p cargo-slide -- export examples/geek-presentation/slides.typ --format pdf -o target/test.pdf
+          test -f target/test.pdf
+          cargo run -p cargo-slide -- export examples/geek-presentation/slides.typ --format svg -o target/test-svg/
+          test -f target/test-svg/page-1.svg
+
+      # 5. Standalone Single-Binary Packaging Verification
+      - name: Verify standalone binary build
+        run: |
+          cargo run -p cargo-slide -- build examples/geek-presentation/slides.typ -o target/ci-demo
+          test -f target/ci-demo
+
+      # 6. Crates Packaging & Metadata Validation
+      - name: Verify package manifests
+        run: |
+          for crate in cargo-slide slide-core slide-player slide-theme; do
+            echo "=== Validating package: $crate ==="
+            cargo package --list -p "$crate" --allow-dirty
+          done

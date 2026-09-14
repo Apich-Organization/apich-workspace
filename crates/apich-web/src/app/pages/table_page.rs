@@ -142,9 +142,17 @@ pub fn TablePage(
             page_title=format!("{} - Table", project.name)
             i18n=i18n
         >
-            <div class="page-header">
+            <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
                 <div>
                     <h1 class="page-title">"📊 " {project.name.clone()} " • " {cur_file.clone()}</h1>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 VCS History"</a>
+                    {if project.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        view! { <a href="/" class="btn btn-outline btn-sm">"← Back to Dashboard"</a> }.into_any()
+                    } else {
+                        view! { <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm">"📁 Back to Files"</a> }.into_any()
+                    }}
                 </div>
             </div>
             {alert}
