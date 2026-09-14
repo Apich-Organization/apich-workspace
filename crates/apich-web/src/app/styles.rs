@@ -589,6 +589,18 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
         grid-column: span 1 !important;
     }
 }
+.admin-platform-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: stretch;
+    margin-bottom: var(--space-5);
+}
+@media (max-width: 1024px) {
+    .admin-platform-grid {
+        grid-template-columns: 1fr;
+    }
+}
 .section-header {
     margin-bottom: 1.25rem;
     display: flex;

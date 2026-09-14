@@ -167,185 +167,283 @@ pub fn AdminPlatformPage(
             </div>
             {alert}
 
-            <div class="detail-grid">
-                <div class="section-card">
-                    <h2 class="section-title">{i18n.registration_policy_title()}</h2>
-                    <p class="text-muted" style="font-size:0.85rem; margin-top:0.25rem; margin-bottom:1rem;">
-                        {i18n.registration_policy_subtitle()}
-                    </p>
-                    <form method="post" action="/admin/platform/settings" style="max-width:380px;">
-                        <input type="hidden" name="section" value="registration" />
-                        <div class="form-group" style="margin-bottom:1rem;">
-                            <label for="registration_mode" style="font-weight:600; font-size:0.85rem;">{i18n.registration_mode_label()}</label>
-                            <select id="registration_mode" name="registration_mode" class="form-control" style="max-width:360px; margin-top:0.35rem; padding:0.45rem 0.75rem; font-size:0.875rem;">
-                                <option value="invite_only" selected=settings.registration_mode == "invite_only">{i18n.registration_mode_invite()}</option>
-                                <option value="open" selected=settings.registration_mode == "open">{i18n.registration_mode_open()}</option>
-                                <option value="admin_only" selected=settings.registration_mode == "admin_only">"Platform Administrator Only"</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="margin-bottom:1.25rem; margin-top:1rem; padding-top:0.85rem; border-top:1px solid var(--border-subtle);">
-                            <label style="font-weight:600; font-size:0.85rem; margin-bottom:0.35rem; display:block;">
-                                {i18n.global_2fa_title()}
-                            </label>
-                            <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer; font-weight:500; font-size:0.875rem;">
-                                <input
-                                    type="checkbox"
-                                    name="require_2fa"
-                                    value="true"
-                                    checked=settings.require_2fa
-                                    style="width:17px; height:17px; margin-top:0.15rem;"
-                                />
-                                <span>{i18n.global_2fa_enforce()}</span>
-                            </label>
-                            <p class="text-muted" style="font-size:0.78rem; margin:0.35rem 0 0 1.65rem;">
-                                {i18n.global_2fa_desc()}
-                            </p>
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-sm" style="padding:0.45rem 1rem;">{i18n.save_policy()}</button>
-                    </form>
-                </div>
-
-                <div class="section-card" style="grid-column: span 2;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
-                        <div>
-                            <h2 class="section-title" style="margin-bottom:0.25rem;">{i18n.smtp_config_title()}</h2>
-                            <p class="text-muted" style="font-size:0.85rem;">{i18n.smtp_config_subtitle()}</p>
-                        </div>
-                        <div>
-                            {if settings.smtp_enabled {
-                                view! { <span class="role-badge role-badge-admin">"Active / Real Delivery"</span> }.into_any()
-                            } else {
-                                view! { <span class="role-badge role-badge-viewer">"Simulated Mode (In-Memory Queue)"</span> }.into_any()
-                            }}
-                        </div>
-                    </div>
-
-                    <form method="post" action="/admin/platform/settings">
-                        <input type="hidden" name="section" value="smtp" />
-                        <div class="form-group" style="margin-bottom:1.25rem; background:var(--bg-muted); padding:1rem; border-radius:8px; border:1px solid var(--border-subtle);">
-                            <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer; font-weight:600;">
-                                <input type="checkbox" name="smtp_enabled" value="true" checked=settings.smtp_enabled style="width:18px; height:18px;" />
-                                <span>{i18n.smtp_enabled()}</span>
-                            </label>
-                        </div>
-
-                        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1rem;">
-                            <div class="form-group">
-                                <label>{i18n.smtp_host()}</label>
-                                <input type="text" name="smtp_host" value=settings.smtp_host.clone().unwrap_or_default() placeholder="smtp.institution.edu" class="form-control" />
+            <div class="admin-platform-grid">
+                // Left Card: Platform Access & Security Policy
+                <div class="section-card" style="display:flex; flex-direction:column; justify-content:space-between; margin-bottom:0;">
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
+                            <div>
+                                <h2 class="section-title" style="margin-bottom:0.25rem;">
+                                    "🛡️ " {i18n.registration_policy_title()}
+                                </h2>
+                                <p class="text-muted" style="font-size:0.85rem; margin:0;">
+                                    {i18n.registration_policy_subtitle()}
+                                </p>
                             </div>
-                            <div class="form-group">
-                                <label>{i18n.smtp_port()}</label>
-                                <input type="number" id="smtp_port" name="smtp_port" value=settings.smtp_port.map_or_else(|| "587".to_string(), |p| p.to_string()) placeholder="587" class="form-control" />
+                            <div>
+                                {match settings.registration_mode.as_str() {
+                                    "open" => view! { <span class="badge badge-active">"Open Registration"</span> }.into_any(),
+                                    "admin_only" => view! { <span class="badge badge-viewer">"Admin Only"</span> }.into_any(),
+                                    _ => view! { <span class="badge badge-idle">"Invite Code Required"</span> }.into_any(),
+                                }}
                             </div>
                         </div>
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
-                            <div class="form-group">
-                                <label>{i18n.smtp_username()}</label>
-                                <input type="text" name="smtp_username" value=settings.smtp_username.clone().unwrap_or_default() placeholder="mailer@institution.edu" class="form-control" />
-                            </div>
-                            <div class="form-group">
-                                <label>{i18n.smtp_password()}</label>
-                                <input type="password" name="smtp_password" placeholder=pwd_placeholder class="form-control" />
-                            </div>
-                        </div>
+                        <form method="post" action="/admin/platform/settings">
+                            <input type="hidden" name="section" value="registration" />
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
-                            <div class="form-group">
-                                <label>{i18n.smtp_from_email()}</label>
-                                <input type="email" name="smtp_from_email" value=settings.smtp_from_email.clone().unwrap_or_default() placeholder="notifications@apich.org" class="form-control" />
+                            // Registration Mode Selection
+                            <div class="form-group" style="margin-bottom:1.25rem;">
+                                <label for="registration_mode" style="font-weight:600; font-size:0.875rem; display:block; margin-bottom:0.4rem;">
+                                    {i18n.registration_mode_label()}
+                                </label>
+                                <select
+                                    id="registration_mode"
+                                    name="registration_mode"
+                                    class="form-control"
+                                    style="width:100%; padding:0.5rem 0.75rem; font-size:0.875rem;"
+                                >
+                                    <option value="invite_only" selected=settings.registration_mode == "invite_only">
+                                        {i18n.registration_mode_invite()}
+                                    </option>
+                                    <option value="open" selected=settings.registration_mode == "open">
+                                        {i18n.registration_mode_open()}
+                                    </option>
+                                    <option value="admin_only" selected=settings.registration_mode == "admin_only">
+                                        "Platform Administrator Only"
+                                    </option>
+                                </select>
+                                <div style="margin-top:0.6rem; padding:0.65rem 0.85rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:6px; font-size:0.8rem; color:var(--text-muted); line-height:1.45;">
+                                    {match settings.registration_mode.as_str() {
+                                        "open" => "🌐 Anyone with an email address can create an account directly on the sign-up page.",
+                                        "admin_only" => "🔒 Self-registration is disabled. Only platform administrators can provision accounts.",
+                                        _ => "🎫 New users must present a valid, unexpired invitation code during registration.",
+                                    }}
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>{i18n.smtp_from_name()}</label>
-                                <input type="text" name="smtp_from_name" value=settings.smtp_from_name.clone().unwrap_or_default() placeholder="APICH Platform" class="form-control" />
+
+                            // Global 2FA Policy Section
+                            <div class="form-group" style="margin-bottom:1.25rem; padding-top:1.15rem; border-top:1px solid var(--border-subtle);">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                                    <label style="font-weight:600; font-size:0.875rem; margin:0;">
+                                        {i18n.global_2fa_title()}
+                                    </label>
+                                    {if settings.require_2fa {
+                                        view! { <span class="badge badge-active" style="font-size:0.75rem;">"2FA Enforced"</span> }.into_any()
+                                    } else {
+                                        view! { <span class="badge badge-viewer" style="font-size:0.75rem;">"2FA Optional"</span> }.into_any()
+                                    }}
+                                </div>
+
+                                <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem 1rem; margin-bottom:0.65rem;">
+                                    <label style="display:flex; align-items:flex-start; gap:0.65rem; cursor:pointer; font-weight:600; font-size:0.875rem; margin:0;">
+                                        <input
+                                            type="checkbox"
+                                            name="require_2fa"
+                                            value="true"
+                                            checked=settings.require_2fa
+                                            style="width:18px; height:18px; margin-top:0.1rem; accent-color:var(--primary); cursor:pointer;"
+                                        />
+                                        <div>
+                                            <span>{i18n.global_2fa_enforce()}</span>
+                                            <p class="text-muted" style="font-weight:400; font-size:0.8rem; margin:0.25rem 0 0 0; line-height:1.45;">
+                                                {i18n.global_2fa_desc()}
+                                            </p>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.6rem;">
+                                    <span style="font-size:0.75rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:2px 8px; color:var(--text-sub);">
+                                        "📱 Authenticator (SHA-512, 8-digit)"
+                                    </span>
+                                    <span style="font-size:0.75rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:2px 8px; color:var(--text-sub);">
+                                        "✉️ Email Code (Zero-Lockout)"
+                                    </span>
+                                    <span style="font-size:0.75rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:2px 8px; color:var(--text-sub);">
+                                        "🔑 Passkey (FIDO2)"
+                                    </span>
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="form-group" style="margin-bottom:1.25rem;">
-                            <label for="smtp_security" style="display:block; margin-bottom:0.4rem; font-weight:500;">{i18n.smtp_encryption_mode()}</label>
-                            <select id="smtp_security" name="smtp_security" class="form-control" style="max-width:480px;" onchange="var p=document.getElementById('smtp_port');if(p){if(this.value==='force_tls'&&(p.value==='587'||p.value==='25'||!p.value))p.value='465';else if(this.value==='starttls'&&(p.value==='465'||p.value==='25'||!p.value))p.value='587';else if(this.value==='none'&&(p.value==='465'||p.value==='587'||!p.value))p.value='25';}">
-                                <option value="force_tls" selected={current_sec == "force_tls"}>{i18n.smtp_sec_force_tls()}</option>
-                                <option value="starttls" selected={current_sec == "starttls"}>{i18n.smtp_sec_starttls()}</option>
-                                <option value="none" selected={current_sec == "none"}>{i18n.smtp_sec_none()}</option>
-                            </select>
-                            <small class="text-muted" style="display:block; margin-top:0.35rem; font-size:0.8rem;">
-                                "Force TLS / SMTPS wraps connection in TLS from byte 0 (port 465). STARTTLS connects in plain text and initiates TLS upgrade via STARTTLS command (port 587)."
-                            </small>
-                        </div>
-
-                        <button type="submit" class="btn btn-primary">{i18n.save_smtp_settings()}</button>
-                    </form>
-
-                    <div style="margin-top:2rem; padding-top:1.5rem; border-top:1px solid var(--border-subtle);">
-                        <h3 style="font-size:1.05rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">{i18n.test_smtp_title()}</h3>
-                        <form method="post" action="/admin/platform/smtp-test" style="display:flex; gap:0.75rem; align-items:flex-end;">
-                            <div class="form-group" style="flex:1; margin-bottom:0;">
-                                <label>{i18n.test_recipient()}</label>
-                                <input type="email" name="test_email" required=true placeholder="admin@lab.org" class="form-control" />
-                            </div>
-                            <button type="submit" class="btn btn-secondary">{i18n.send_test_email()}</button>
+                            <button type="submit" class="btn btn-primary" style="margin-top:0.5rem; padding:0.5rem 1.25rem;">
+                                {i18n.save_policy()}
+                            </button>
                         </form>
                     </div>
                 </div>
 
-                <div class="section-card" style="grid-column: span 3;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
-                        <div>
-                            <h2 class="section-title" style="margin-bottom:0.25rem;">{i18n.invitation_codes_title()}</h2>
-                            <p class="text-muted" style="font-size:0.85rem;">{i18n.invitation_codes_desc()}</p>
+                // Right Card: Outbound Email (SMTP) Configuration
+                <div class="section-card" style="display:flex; flex-direction:column; justify-content:space-between; margin-bottom:0;">
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
+                            <div>
+                                <h2 class="section-title" style="margin-bottom:0.25rem;">
+                                    "✉️ " {i18n.smtp_config_title()}
+                                </h2>
+                                <p class="text-muted" style="font-size:0.85rem; margin:0;">
+                                    {i18n.smtp_config_subtitle()}
+                                </p>
+                            </div>
+                            <div>
+                                {if settings.smtp_enabled {
+                                    view! { <span class="role-badge role-badge-admin">"Active / Real Delivery"</span> }.into_any()
+                                } else {
+                                    view! { <span class="role-badge role-badge-viewer">"Simulated Mode"</span> }.into_any()
+                                }}
+                            </div>
                         </div>
-                    </div>
 
-                    <form method="post" action="/admin/invitations/new" style="background:var(--bg-muted); padding:1.25rem; border-radius:8px; border:1px solid var(--border-subtle); margin-bottom:1.5rem;">
-                        <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:1rem; color:var(--text-main);">"Create New Invitation Code"</h3>
-                        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 2fr 1fr; gap:0.75rem; align-items:flex-end;">
-                            <div class="form-group" style="margin-bottom:0;">
-                                <label style="font-size:0.8rem;">{i18n.code_optional_hint()}</label>
-                                <input type="text" name="code" placeholder="e.g. LAB-2026-FALL" class="form-control" />
+                        <form method="post" action="/admin/platform/settings">
+                            <input type="hidden" name="section" value="smtp" />
+                            <div class="form-group" style="margin-bottom:1.25rem; background:var(--bg-muted); padding:0.85rem 1rem; border-radius:8px; border:1px solid var(--border-subtle);">
+                                <label style="display:flex; align-items:center; gap:0.6rem; cursor:pointer; font-weight:600; font-size:0.875rem; margin:0;">
+                                    <input type="checkbox" name="smtp_enabled" value="true" checked=settings.smtp_enabled style="width:18px; height:18px; accent-color:var(--primary); cursor:pointer;" />
+                                    <span>{i18n.smtp_enabled()}</span>
+                                </label>
                             </div>
-                            <div class="form-group" style="margin-bottom:0;">
-                                <label style="font-size:0.8rem;">{i18n.max_uses_label()}</label>
-                                <input type="number" name="max_uses" min="1" value="1" required=true class="form-control" />
+
+                            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:0.85rem;">
+                                <div class="form-group">
+                                    <label style="font-size:0.85rem; font-weight:500;">{i18n.smtp_host()}</label>
+                                    <input type="text" name="smtp_host" value=settings.smtp_host.clone().unwrap_or_default() placeholder="smtp.institution.edu" class="form-control" />
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size:0.85rem; font-weight:500;">{i18n.smtp_port()}</label>
+                                    <input type="number" id="smtp_port" name="smtp_port" value=settings.smtp_port.map_or_else(|| "587".to_string(), |p| p.to_string()) placeholder="587" class="form-control" />
+                                </div>
                             </div>
-                            <div class="form-group" style="margin-bottom:0;">
-                                <label style="font-size:0.8rem;">{i18n.expires_in_days_label()}</label>
-                                <input type="number" name="expires_in_days" min="1" max="365" value="7" required=true class="form-control" />
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.85rem;">
+                                <div class="form-group">
+                                    <label style="font-size:0.85rem; font-weight:500;">{i18n.smtp_username()}</label>
+                                    <input type="text" name="smtp_username" value=settings.smtp_username.clone().unwrap_or_default() placeholder="mailer@institution.edu" class="form-control" />
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size:0.85rem; font-weight:500;">{i18n.smtp_password()}</label>
+                                    <input type="password" name="smtp_password" placeholder=pwd_placeholder class="form-control" />
+                                </div>
                             </div>
-                            <div class="form-group" style="margin-bottom:0;">
-                                <label style="font-size:0.8rem;">{i18n.email_restriction_hint()}</label>
-                                <input type="email" name="email" placeholder="researcher@lab.org" class="form-control" />
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.85rem;">
+                                <div class="form-group">
+                                    <label style="font-size:0.85rem; font-weight:500;">{i18n.smtp_from_email()}</label>
+                                    <input type="email" name="smtp_from_email" value=settings.smtp_from_email.clone().unwrap_or_default() placeholder="notifications@apich.org" class="form-control" />
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size:0.85rem; font-weight:500;">{i18n.smtp_from_name()}</label>
+                                    <input type="text" name="smtp_from_name" value=settings.smtp_from_name.clone().unwrap_or_default() placeholder="APICH Platform" class="form-control" />
+                                </div>
                             </div>
-                            <div class="form-group" style="margin-bottom:0;">
-                                <label style="font-size:0.8rem;">"Role"</label>
-                                <select name="role" class="form-control">
-                                    <option value="member">"Member"</option>
-                                    <option value="guest">"Guest"</option>
-                                    <option value="admin">"Admin"</option>
+
+                            <div class="form-group" style="margin-bottom:1.25rem;">
+                                <label for="smtp_security" style="display:block; margin-bottom:0.4rem; font-size:0.85rem; font-weight:500;">
+                                    {i18n.smtp_encryption_mode()}
+                                </label>
+                                <select
+                                    id="smtp_security"
+                                    name="smtp_security"
+                                    class="form-control"
+                                    style="width:100%;"
+                                    onchange="var p=document.getElementById('smtp_port');if(p){if(this.value==='force_tls'&&(p.value==='587'||p.value==='25'||!p.value))p.value='465';else if(this.value==='starttls'&&(p.value==='465'||p.value==='25'||!p.value))p.value='587';else if(this.value==='none'&&(p.value==='465'||p.value==='587'||!p.value))p.value='25';}"
+                                >
+                                    <option value="force_tls" selected={current_sec == "force_tls"}>{i18n.smtp_sec_force_tls()}</option>
+                                    <option value="starttls" selected={current_sec == "starttls"}>{i18n.smtp_sec_starttls()}</option>
+                                    <option value="none" selected={current_sec == "none"}>{i18n.smtp_sec_none()}</option>
                                 </select>
+                                <small class="text-muted" style="display:block; margin-top:0.35rem; font-size:0.78rem; line-height:1.4;">
+                                    "Force TLS (Port 465) connects with TLS immediately. STARTTLS (Port 587) negotiates TLS over plain connection."
+                                </small>
                             </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:1rem;">
-                            "+ " {i18n.generate_code_btn()}
-                        </button>
-                    </form>
 
-                    <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">"Active & Past Invitation Codes"</h3>
-                    {invite_rows}
-                </div>
-
-                <div class="section-card" style="grid-column: span 3;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
-                        <div>
-                            <h2 class="section-title" style="margin-bottom:0.25rem;">{i18n.sso_clients_title()}</h2>
-                            <p class="text-muted" style="font-size:0.85rem;">{i18n.sso_clients_subtitle()}</p>
-                        </div>
-                        <a href="/.well-known/openid-configuration" target="_blank" class="btn btn-ghost btn-sm">
-                            {i18n.view_openid_discovery()}
-                        </a>
+                            <button type="submit" class="btn btn-primary" style="padding:0.5rem 1.25rem;">
+                                {i18n.save_smtp_settings()}
+                            </button>
+                        </form>
                     </div>
-                    {sso_rows}
+
+                    <div style="margin-top:1.5rem; padding-top:1.25rem; border-top:1px solid var(--border-subtle);">
+                        <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">
+                            {i18n.test_smtp_title()}
+                        </h3>
+                        <form method="post" action="/admin/platform/smtp-test" style="display:flex; gap:0.6rem; align-items:flex-end;">
+                            <div class="form-group" style="flex:1; margin-bottom:0;">
+                                <input type="email" name="test_email" required=true placeholder="test-admin@lab.org" class="form-control" style="font-size:0.875rem;" />
+                            </div>
+                            <button type="submit" class="btn btn-secondary" style="white-space:nowrap; padding:0.45rem 0.9rem; font-size:0.85rem;">
+                                {i18n.send_test_email()}
+                            </button>
+                        </form>
+                    </div>
                 </div>
+            </div>
+
+            // Card 3: Invitation Codes (Full-width)
+            <div class="section-card" style="margin-top:1.5rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
+                    <div>
+                        <h2 class="section-title" style="margin-bottom:0.25rem;">
+                            "🎫 " {i18n.invitation_codes_title()}
+                        </h2>
+                        <p class="text-muted" style="font-size:0.85rem; margin:0;">
+                            {i18n.invitation_codes_desc()}
+                        </p>
+                    </div>
+                </div>
+
+                <form method="post" action="/admin/invitations/new" style="background:var(--bg-muted); padding:1.25rem; border-radius:8px; border:1px solid var(--border-subtle); margin-bottom:1.5rem;">
+                    <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:1rem; color:var(--text-main);">"Create New Invitation Code"</h3>
+                    <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 2fr 1fr; gap:0.75rem; align-items:flex-end;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:0.8rem;">{i18n.code_optional_hint()}</label>
+                            <input type="text" name="code" placeholder="e.g. LAB-2026-FALL" class="form-control" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:0.8rem;">{i18n.max_uses_label()}</label>
+                            <input type="number" name="max_uses" min="1" value="1" required=true class="form-control" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:0.8rem;">{i18n.expires_in_days_label()}</label>
+                            <input type="number" name="expires_in_days" min="1" max="365" value="7" required=true class="form-control" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:0.8rem;">{i18n.email_restriction_hint()}</label>
+                            <input type="email" name="email" placeholder="researcher@lab.org" class="form-control" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:0.8rem;">"Role"</label>
+                            <select name="role" class="form-control">
+                                <option value="member">"Member"</option>
+                                <option value="guest">"Guest"</option>
+                                <option value="admin">"Admin"</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="margin-top:1rem;">
+                        "+ " {i18n.generate_code_btn()}
+                    </button>
+                </form>
+
+                <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">"Active & Past Invitation Codes"</h3>
+                {invite_rows}
+            </div>
+
+            // Card 4: SSO / OAuth Clients (Full-width)
+            <div class="section-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
+                    <div>
+                        <h2 class="section-title" style="margin-bottom:0.25rem;">
+                            "🔗 " {i18n.sso_clients_title()}
+                        </h2>
+                        <p class="text-muted" style="font-size:0.85rem; margin:0;">
+                            {i18n.sso_clients_subtitle()}
+                        </p>
+                    </div>
+                    <a href="/.well-known/openid-configuration" target="_blank" class="btn btn-ghost btn-sm">
+                        {i18n.view_openid_discovery()}
+                    </a>
+                </div>
+                {sso_rows}
             </div>
         </AppShell>
     }
