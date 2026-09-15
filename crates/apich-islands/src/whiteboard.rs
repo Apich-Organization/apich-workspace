@@ -266,6 +266,12 @@ pub fn WhiteboardIsland(
         redo_stack,
     );
     let on_export = export_handler(canvas_ref, file_path.clone());
+    let on_save_asset = save_asset_handler(
+        canvas_ref,
+        save_status,
+        project_id.clone(),
+        file_path.clone(),
+    );
     let on_save = save_handler(elements, save_status, project_id, file_path);
 
     let on_zoom_in = move |_| zoom.update(|z| *z = (*z * 1.2).min(4.0));
@@ -387,10 +393,11 @@ pub fn WhiteboardIsland(
                         "🖐️ Pan"
                     </button>
                 </div>
-                <div style="display:flex; align-items:center; gap:0.75rem;">
+                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                     <span style="font-size:0.8rem; color:var(--text-sub);">{move || save_status.get()}</span>
-                    <button type="button" class="btn btn-secondary btn-sm" on:click=on_export>"💾 Export PNG"</button>
-                    <button type="button" class="btn btn-primary btn-sm" on:click=on_save>"Save to Note"</button>
+                    <button type="button" class="btn btn-secondary btn-sm" on:click=on_export title="Download PNG to your computer">"💾 Export PNG"</button>
+                    <button type="button" class="btn btn-secondary btn-sm" on:click=on_save_asset title="Save PNG to project assets folder for use in other documents">"📁 Save to Assets"</button>
+                    <button type="button" class="btn btn-primary btn-sm" on:click=on_save title="Save whiteboard strokes to this note file">"Save to Note"</button>
                 </div>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem; font-size:0.7rem; color:var(--text-sub);">
@@ -1290,6 +1297,97 @@ fn save_handler(
 #[cfg(not(feature = "hydrate"))]
 fn save_handler(
     _elements: StoredValue<Vec<Element>>,
+    _save_status: RwSignal<String>,
+    _project_id: String,
+    _file_path: String,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    move |_| {}
+}
+
+#[cfg(feature = "hydrate")]
+fn save_asset_handler(
+    canvas_ref: NodeRef<leptos::html::Canvas>,
+    save_status: RwSignal<String>,
+    project_id: String,
+    file_path: String,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    move |_| {
+        let Some(canvas) = canvas_ref.get_untracked() else {
+            return;
+        };
+        let Ok(data_url) = canvas.to_data_url() else {
+            save_status.set("Failed to capture whiteboard image".to_string());
+            return;
+        };
+
+        let default_name = {
+            let stem = std::path::Path::new(&file_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("notes");
+            format!("whiteboard-{stem}.png")
+        };
+
+        let asset_name = web_sys::window()
+            .and_then(|w| {
+                w.prompt_with_message_and_default(
+                    "Save whiteboard image to assets folder as:\n(Can be referenced in notes, Typst, LaTeX, etc.)",
+                    &default_name,
+                )
+                .ok()
+            })
+            .flatten();
+
+        let Some(name) = asset_name else {
+            return;
+        };
+
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+
+        save_status.set("Saving to assets...".to_string());
+        let project_id = project_id.clone();
+        let file_path = file_path.clone();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let body = serde_json::json!({
+                "file": file_path,
+                "asset_name": name,
+                "data_url": data_url
+            });
+            let result = gloo_net::http::Request::post(&format!(
+                "/projects/{}/note/whiteboard/save-asset",
+                project_id
+            ))
+            .json(&body)
+            .expect("serializable body")
+            .send()
+            .await;
+
+            match result {
+                | Ok(resp) if resp.ok() => {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        let path = data
+                            .get("asset_path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("assets/");
+                        save_status.set(format!("✓ Saved to {path}"));
+                    } else {
+                        save_status.set("✓ Saved to assets".to_string());
+                    }
+                }
+                | Ok(resp) => save_status.set(format!("Asset save failed ({})", resp.status())),
+                | Err(e) => save_status.set(format!("Asset save failed: {e}")),
+            }
+        });
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn save_asset_handler(
+    _canvas_ref: NodeRef<leptos::html::Canvas>,
     _save_status: RwSignal<String>,
     _project_id: String,
     _file_path: String,

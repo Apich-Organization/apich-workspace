@@ -396,6 +396,10 @@ pub fn build_ui_router() -> Router<AppState> {
             "/projects/:id/note/whiteboard",
             post(save_whiteboard_action),
         )
+        .route(
+            "/projects/:id/note/whiteboard/save-asset",
+            post(save_whiteboard_asset_action),
+        )
         // Project Knowledge Hub (Tasks, Kanban, Wiki, Calendar)
         .route("/projects/:id/knowledge", get(project_knowledge_page))
         .route(
@@ -6739,6 +6743,124 @@ async fn save_whiteboard_action(
     }
 
     Json(json!({"status": "saved"})).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct SaveWhiteboardAssetForm {
+    pub file: String,
+    pub asset_name: Option<String>,
+    pub data_url: String,
+}
+
+/// Saves the whiteboard's exported canvas image (PNG) into the project's `assets/` folder
+/// so it can be embedded or referenced in other documents (e.g. `![diagram](assets/whiteboard.png)`,
+/// `#image("assets/whiteboard.png")`, etc.).
+async fn save_whiteboard_asset_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let payload: SaveWhiteboardAssetForm = match parse_payload(&headers, &body) {
+        | Ok(p) => p,
+        | Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response()
+        },
+    };
+
+    let b64_str = if let Some(idx) = payload.data_url.find(',') {
+        &payload.data_url[idx + 1..]
+    } else {
+        &payload.data_url
+    };
+
+    let bytes = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_str) {
+        | Ok(b) => b,
+        | Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Invalid image data: {e}")})),
+            )
+                .into_response();
+        }
+    };
+
+    let stem = std::path::Path::new(&payload.file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("whiteboard");
+
+    let raw_name = payload
+        .asset_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+
+    let mut clean_name = raw_name
+        .trim_start_matches('/')
+        .replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|', ' '], "_");
+
+    if clean_name.is_empty() {
+        clean_name = format!("whiteboard_{stem}.png");
+    } else if !clean_name.to_lowercase().ends_with(".png") {
+        clean_name.push_str(".png");
+    }
+
+    let rel_path = format!("assets/{clean_name}");
+
+    if let Err(e) = state
+        .project_manager
+        .upload_file(project.id, user.id, &rel_path, &bytes)
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to save asset: {e}")})),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "asset_path": rel_path,
+            "message": format!("Saved to {rel_path}"),
+            "markdown_snippet": format!("![Whiteboard]({rel_path})"),
+            "typst_snippet": format!("#image(\"{rel_path}\")")
+        })),
+    )
+        .into_response()
 }
 
 /// The Kanban/Wiki/Calendar hub used to be a standalone page here. plan.md calls for one
