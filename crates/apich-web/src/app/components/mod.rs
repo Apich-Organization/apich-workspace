@@ -408,8 +408,8 @@ const ALERT_AUTO_DISMISS_JS: &str = r"
 pub fn FileShareModal(
     project_id: Uuid,
     redirect_to: String,
-    all_users: Vec<User>,
-    owner_id: Uuid,
+    #[prop(default = Vec::new())] all_users: Vec<User>,
+    #[prop(default = Uuid::nil())] owner_id: Uuid,
     i18n: I18n,
 ) -> impl IntoView {
     let _ = i18n;

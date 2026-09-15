@@ -36,6 +36,7 @@ pub mod slide_build;
 pub mod spreadsheet;
 pub mod sql_console;
 pub mod terminal;
+pub mod user_select;
 pub mod webauthn;
 pub mod whiteboard;
 pub use ai_drawer::AiDrawerIsland;
@@ -68,6 +69,8 @@ pub use terminal::TerminalIsland;
 pub use webauthn::PasskeyEnrollIsland;
 pub use webauthn::PasskeyLoginIsland;
 pub use whiteboard::WhiteboardIsland;
+pub use user_select::UserItem;
+pub use user_select::UserSelectIsland;
 
 /// Minimal bilingual-string helper for islands.
 ///

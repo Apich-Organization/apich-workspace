@@ -601,6 +601,26 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
         grid-template-columns: 1fr;
     }
 }
+.settings-container,
+.settings-grid,
+.org-teams-container {
+    max-width: 880px;
+    width: 100%;
+}
+.settings-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+.settings-grid .form-group input.form-control,
+.settings-grid .form-group select.form-control {
+    max-width: 440px;
+    width: 100%;
+}
+.settings-grid .form-group textarea.form-control {
+    max-width: 640px;
+    width: 100%;
+}
 .section-header {
     margin-bottom: 1.25rem;
     display: flex;
@@ -617,6 +637,92 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-main);
+}
+
+/* Templates Grid & Cards */
+.templates-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.25rem;
+    margin-top: 1.25rem;
+    margin-bottom: 2rem;
+}
+.template-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 1.25rem 1.35rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+    box-shadow: var(--shadow-sm);
+    min-height: 180px;
+}
+.template-card:hover {
+    border-color: var(--primary-border);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+    text-decoration: none;
+}
+.template-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.65rem;
+}
+.template-card-title {
+    font-size: 1.08rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin: 0 0 0.4rem 0;
+    line-height: 1.35;
+    letter-spacing: -0.2px;
+}
+.template-card-desc {
+    font-size: 0.835rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+    margin: 0 0 1rem 0;
+    flex: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.template-card-footer {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--text-sub);
+    margin-top: auto;
+}
+
+/* Information Lists (VCS, Git Status, Remotes) */
+.info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+.info-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+.info-label {
+    font-weight: 600;
+    color: var(--text-main);
+    min-width: 190px;
+    flex-shrink: 0;
+}
+.info-val {
+    color: var(--text-muted);
 }
 
 /* Projects Grid */
@@ -859,13 +965,20 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     box-shadow: 0 0 0 3px var(--primary-ring);
 }
 .form-control.readonly { background: var(--bg-muted); cursor: not-allowed; color: var(--text-muted); }
+select,
 select.form-control {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
     cursor: pointer;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 0.75rem center;
     background-size: 14px 14px;
-    padding-right: 2rem;
+    padding-right: 2.25rem;
+}
+select::-ms-expand {
+    display: none;
 }
 /* Every use of this is an "input + submit button" row (branch create, merge, milestone, git
    remote, ignore rule, knowledge search). The columns used to be `1fr 1fr`, which on a wide
@@ -1101,7 +1214,9 @@ select.form-control {
     font-size: 0.7rem;
     font-weight: 600;
 }
-.pill-slide { background: #fdf2f8; color: #db2777; border: 1px solid #fbcfe8; }
+.pill-slide,
+.pill-slides { background: #fdf2f8; color: #db2777; border: 1px solid #fbcfe8; }
+.pill-kanban { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
 .pill-typst { background: var(--primary-light); color: var(--primary); border: 1px solid var(--primary-border); }
 .pill-latex { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
 .pill-table { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
@@ -2299,6 +2414,31 @@ select.form-control {
     /* Comfortable touch targets. */
     .btn { min-height: 40px; }
     .sidebar-link { padding: 0.7rem; }
+}
+
+/* User autocomplete dropdown in sharing dialogs */
+.user-autocomplete-dropdown {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+}
+.user-dropdown-item:hover {
+    background: var(--bg-muted);
+}
+[data-theme="dark"] .user-autocomplete-dropdown,
+html.dark .user-autocomplete-dropdown {
+    background: var(--bg-surface-elevated, #1e293b);
+    border-color: var(--border-strong, #334155);
+}
+[data-theme="dark"] .user-dropdown-item:hover,
+html.dark .user-dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+[data-theme="dark"] select,
+html.dark select,
+[data-theme="dark"] select.form-control,
+html.dark select.form-control {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 /* Honour the OS "reduce motion" setting: transitions collapse to effectively instant rather

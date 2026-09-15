@@ -1133,9 +1133,9 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
             <h2 class="section-title">{i18n.git_title()}</h2>
             <p class="text-muted" style="font-size:0.875rem; margin-bottom:1.5rem;">{i18n.git_desc()}</p>
             <div class="info-list" style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:1.25rem; margin-bottom:1.5rem;">
-                <div class="info-row"><span class="info-label">{i18n.git_status_label()}</span><span class="info-val" style="color:var(--success); font-weight:600;">{if git.initialized { i18n.git_ready() } else { i18n.git_pending() }}</span></div>
-                <div class="info-row"><span class="info-label">{i18n.git_remote_label()}</span><span class="info-val">{remote_desc}</span></div>
-                <div class="info-row"><span class="info-label">{i18n.git_lfs_label()}</span><span class="info-val">{i18n.git_lfs_val()}</span></div>
+                <div class="info-row"><span class="info-label">{i18n.git_status_label()}": "</span><span class="info-val" style="color:var(--success); font-weight:600;">{if git.initialized { i18n.git_ready() } else { i18n.git_pending() }}</span></div>
+                <div class="info-row"><span class="info-label">{i18n.git_remote_label()}": "</span><span class="info-val">{remote_desc}</span></div>
+                <div class="info-row"><span class="info-label">{i18n.git_lfs_label()}": "</span><span class="info-val">{i18n.git_lfs_val()}</span></div>
             </div>
             <form method="post" action=format!("/projects/{}/git-sync", project_id)>
                 <input type="hidden" name="message" value="APICH VCS sync to Git" />
@@ -1164,7 +1164,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                 view! { <p class="text-muted" style="font-size:0.85rem;">"No remotes configured."</p> }.into_any()
             } else {
                 let rows: Vec<_> = git.remotes.iter().map(|(name, url)| view! {
-                    <div class="info-row"><span class="info-label">{name.clone()}</span><span class="info-val"><code>{url.clone()}</code></span></div>
+                    <div class="info-row"><span class="info-label">{name.clone()}": "</span><span class="info-val"><code>{url.clone()}</code></span></div>
                 }).collect();
                 view! { <div class="info-list" style="margin-bottom:1rem;">{rows}</div> }.into_any()
             }}
@@ -1174,7 +1174,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                     <input type="text" name="name" value="origin" required=true class="form-control" style="width:120px;" />
                 </div>
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
-                    <label>"Remote URL"</label>
+                    <label>"Remote URL:"</label>
                     <input type="text" name="url" placeholder="https://github.com/user/repo.git" required=true class="form-control" />
                 </div>
                 <button type="submit" class="btn btn-secondary">"Add Remote"</button>
@@ -1374,12 +1374,12 @@ fn render_sharing_tab(
                 // remaining width of the card -- a Save button several times wider than the
                 // controls it applies to. Sized to its own content instead, with the `1fr`
                 // moved to a trailing spacer column so the row still fills the card.
-                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: auto 200px auto; gap:0.75rem; align-items:center; justify-content:start; max-width:720px;">
+                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: auto minmax(240px, auto) auto; gap:0.75rem; align-items:center; justify-content:start; max-width:720px;">
                     <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; font-weight:600;">
                         <input type="checkbox" name="is_public" value="true" checked=is_public />
                         "Enabled"
                     </label>
-                    <select name="default_role" class="form-control">
+                    <select name="default_role" class="form-control" style="min-width:240px;">
                         <option value="read_only" selected=share_role == "read_only">{i18n.role_read_only()}</option>
                         <option value="read_and_review" selected=share_role == "read_and_review">{i18n.role_read_and_review()}</option>
                         <option value="read_write_and_review" selected=share_role == "read_write_and_review">{i18n.role_read_write_and_review()}</option>
@@ -1397,21 +1397,21 @@ fn render_sharing_tab(
     });
 
     let invite_form = is_owner.then(|| {
-        let options: Vec<_> = all_users
+        let exclude_user_ids: Vec<String> = existing_member_ids
             .into_iter()
-            .filter(|u| !existing_member_ids.contains(&u.id))
-            .map(|u| view! { <option value=u.id.to_string()>{u.display_name}" (@"{u.username}")"</option> })
+            .map(|id| id.to_string())
             .collect();
         view! {
             <div class="section-card" style="margin-top:1.5rem;">
                 <h3 class="card-subtitle">{i18n.add_collaborator()}</h3>
-                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto; gap:1rem; align-items:flex-end; max-width:720px;">
+                <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr) auto; gap:1rem; align-items:flex-end; max-width:760px;">
                     <div class="form-group" style="margin-bottom:0;">
                         <label>{i18n.select_user()}</label>
-                        <select name="invite_user_id" class="form-control" required=true>
-                            <option value="">"-- " {i18n.select_user()} " --"</option>
-                            {options}
-                        </select>
+                        <apich_islands::UserSelectIsland
+                            name="invite_user_id".to_string()
+                            placeholder=i18n.select_user().to_string()
+                            exclude_user_ids=exclude_user_ids
+                        />
                     </div>
                     <div class="form-group" style="margin-bottom:0;">
                         <label>{i18n.role()}</label>

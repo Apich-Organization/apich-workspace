@@ -830,6 +830,48 @@ impl<'a> Repository<'a> {
         Ok(users)
     }
 
+    /// Search active users by username, display name, or email prefix/containment.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<User>> {
+        let limit = limit.clamp(1, 50);
+        let q = query.trim();
+        if q.is_empty() {
+            let users = sqlx::query_as::<_, User>(
+                "SELECT * FROM users WHERE is_active = true ORDER BY username ASC LIMIT $1",
+            )
+            .bind(limit)
+            .fetch_all(self.pool)
+            .await?;
+            return Ok(users);
+        }
+
+        let pattern = format!("%{q}%");
+        let prefix = format!("{q}%");
+        let users = sqlx::query_as::<_, User>(
+            r#"
+            SELECT * FROM users
+            WHERE is_active = true
+              AND (username ILIKE $1 OR display_name ILIKE $1 OR email ILIKE $1)
+            ORDER BY
+              CASE
+                WHEN username ILIKE $2 THEN 0
+                WHEN display_name ILIKE $2 THEN 1
+                ELSE 2
+              END,
+              username ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(&pattern)
+        .bind(&prefix)
+        .bind(limit)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(users)
+    }
+
     // --- Organization Operations ---
 
     /// Create organizationanization.

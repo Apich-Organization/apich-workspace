@@ -104,33 +104,9 @@ RUN set -eux; \
     && typst --version
 
 # 4. Install cargo-slide (presentation build tool -- `cargo slide build` packages a Typst-authored
-# deck into a standalone native binary), from a vendored copy at /vendor/cargo-slide (see that
-# directory's own note) rather than a fresh git clone of upstream, because it carries a small,
-# deliberate patch: upstream's `build` subcommand has no `--target <triple>` flag at all, so
-# there was previously no way to ask it for anything but the host's own platform. The patch adds
-# that flag (plumbed through to the inner `cargo build --target`) and fixes a real bug it exposed
-# -- the output binary's `.exe` extension was decided by `cfg!(windows)`, i.e. whether upstream's
-# own build *host* is Windows, which is never true here and so silently produced a Windows binary
-# with no `.exe` extension whenever cross-compiling to a Windows target.
-#
-# Kept at /opt/cargo-slide-src (not deleted after `cargo install`, unlike upstream's own approach)
-# because `cargo slide build` resolves its `slide-core`/`slide-player` path dependencies by
-# searching upward from `$CARGO_SLIDE_REPO_ROOT` (see crates/cargo-slide/src/commands/build.rs's
-# `find_repo_root`) -- that env var, set below, points at this same on-disk copy so every build
-# resolves those dependencies from a known-good local source instead of depending on whatever (if
-# anything) happens to be published on crates.io under a matching version.
-COPY vendor/cargo-slide /opt/cargo-slide-src
-# `cargo install` builds inside the workspace's own `target/release/` (same as a plain `cargo
-# build`) and only *copies* the finished binary to $CARGO_HOME/bin afterward -- it never cleans
-# that build directory up. Since `cargo slide build` writes runtime output to a completely
-# separate path (`target/standalone_target`, via `CARGO_SLIDE_REPO_ROOT`, never `target/release`),
-# none of it is ever reused: confirmed live, it was sitting at 611 MB of compiled release-mode
-# dependency .rlib/.rmeta files (rav1e's AV1 encoder, resvg, several image codecs, symphonia's
-# audio decoders, ...) against 720 KB of actual source, pure dead weight baked into every image.
-RUN cargo install --path /opt/cargo-slide-src/crates/cargo-slide --locked \
-    && cargo slide --version \
-    && rm -rf /opt/cargo-slide-src/target
-ENV CARGO_SLIDE_REPO_ROOT=/opt/cargo-slide-src
+# deck into a standalone native binary) directly from crates.io
+RUN cargo install cargo-slide --locked \
+    && cargo slide --version
 
 # 4b. Cross-compilation for `cargo slide build --target <triple>` -- four targets, matching what
 # a presentation might realistically be handed out for: Windows and Linux, each on x86_64 and
@@ -331,13 +307,8 @@ RUN useradd -m -u 1000 -s /bin/bash apich \
     # `chmod -R a+w` in step 2 -- so without this, `cargo slide build`'s own dependency downloads
     # fail at runtime with a real "Permission denied" once the container drops to the apich user
     # below. Re-applying world-write here (not just to apich) matches step 2's own approach and
-    # covers any other user a container might run as. `/opt/cargo-slide-src` needs the exact same
-    # treatment and for the exact same reason -- confirmed live: `cargo slide build --target
-    # x86_64-unknown-linux-musl` failed with "Permission denied" writing into
-    # `/opt/cargo-slide-src/target/standalone_target` (that crate's own build output directory,
-    # see `CARGO_SLIDE_REPO_ROOT` above) the first time it ran as `apich`, since step 4's `cargo
-    # install` and `cargo slide --version` both ran as root and left that whole tree root-owned.
-    && chmod -R a+w /usr/local/cargo /usr/local/rustup /opt/cargo-slide-src \
+    # covers any other user a container might run as.
+    && chmod -R a+w /usr/local/cargo /usr/local/rustup \
     && mkdir -p /workspace \
     && chown -R apich:apich /workspace
 

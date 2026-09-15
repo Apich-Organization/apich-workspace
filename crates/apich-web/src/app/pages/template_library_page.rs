@@ -80,31 +80,59 @@ pub fn TemplateGalleryPage(
         })
         .collect();
 
-    let rows: Vec<_> = templates
+    let cards: Vec<_> = templates
         .into_iter()
         .map(|t| {
             let detail_href = format!("/templates/{}", t.id);
+            let icon = match t.kind.as_str() {
+                "kanban" => "📋",
+                "note" => "📝",
+                "latex" => "📐",
+                "typst" => "⚡",
+                "slides" => "📽️",
+                _ => "📄",
+            };
+            let vis_class = if t.visibility == "public" {
+                "badge-active"
+            } else {
+                "badge-idle"
+            };
+            let version_str = t.latest_version_label.as_deref().unwrap_or("v1").to_string();
             view! {
-                <a href=detail_href class="template-card" style="display:block; padding:1rem 1.25rem; border:1px solid var(--border-subtle); border-radius:10px; margin-bottom:0.75rem; text-decoration:none; color:inherit;">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <span class=format!("pill-{}", t.kind)>{i18n.template_kind_label(&t.kind)}</span>
-                            <strong style="margin-left:0.5rem;">{t.name}</strong>
+                <a href=detail_href class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <span class=format!("pill-{}", t.kind) style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.75rem; font-weight:600; padding:3px 8px; border-radius:12px;">
+                                <span>{icon}</span>
+                                <span>{i18n.template_kind_label(&t.kind)}</span>
+                            </span>
+                            <span class=format!("status-badge {vis_class}") style="font-size:0.72rem;">
+                                {i18n.template_visibility_label(&t.visibility)}
+                            </span>
                         </div>
-                        <span class="status-badge badge-idle">{i18n.template_visibility_label(&t.visibility)}</span>
+                        <h3 class="template-card-title">{t.name}</h3>
+                        {match t.description {
+                            Some(d) if !d.is_empty() => view! { <p class="template-card-desc">{d}</p> }.into_any(),
+                            _ => view! { <p class="template-card-desc" style="font-style:italic; opacity:0.6;">"No description provided"</p> }.into_any(),
+                        }}
                     </div>
-                    {t.description.map(|d| view! { <p class="text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">{d}</p> })}
-                    <div style="font-size:0.75rem; color:var(--text-sub); margin-top:0.5rem;">
-                        {i18n.template_owner()}": "{t.owner_username}
-                        {t.latest_version_label.map(|v| view! { "  •  "{i18n.template_latest_version()}": "{v} }.into_any())}
-                        "  •  "{t.version_count}" "{i18n.template_versions_heading()}
+                    <div class="template-card-footer">
+                        <span style="display:flex; align-items:center; gap:0.25rem;">
+                            <span>"👤"</span>
+                            <span>{t.owner_username}</span>
+                        </span>
+                        <span style="display:flex; align-items:center; gap:0.4rem; color:var(--text-muted); font-size:0.75rem;">
+                            <span>"🏷️ " {version_str}</span>
+                            <span>"•"</span>
+                            <span>{t.version_count} " " {i18n.template_versions_heading()}</span>
+                        </span>
                     </div>
                 </a>
             }
         })
         .collect();
 
-    let empty_state = rows
+    let empty_state = cards
         .is_empty()
         .then(|| view! { <div class="empty-state"><p>{i18n.template_no_templates()}</p></div> });
 
@@ -115,7 +143,9 @@ pub fn TemplateGalleryPage(
             </div>
             {alert}
             <div class="tab-bar" style="margin-bottom:1rem;">{tabs}</div>
-            {rows}
+            <div class="templates-grid">
+                {cards}
+            </div>
             {empty_state}
         </AppShell>
     }
@@ -180,8 +210,8 @@ pub fn TemplateDetailPage(
             <div class="section-card" style="margin-bottom:1.25rem;">
                 <h3 class="card-subtitle">{i18n.template_sharing_heading()}</h3>
                 <div style="display:flex; gap:0.5rem; margin:0.5rem 0;">
-                    <form method="post" action=format!("/templates/{}/visibility", template_id) class="inline-form" style="display:flex; gap:0.4rem;">
-                        <select name="visibility" class="form-control" style="height:32px; font-size:0.82rem;">
+                    <form method="post" action=format!("/templates/{}/visibility", template_id) class="inline-form" style="display:flex; gap:0.5rem; align-items:center;">
+                        <select name="visibility" class="form-control" style="min-width:140px; font-size:0.875rem;">
                             <option value="private" selected=template.visibility == "private">{i18n.template_visibility_label("private")}</option>
                             <option value="shared" selected=template.visibility == "shared">{i18n.template_visibility_label("shared")}</option>
                             <option value="public" selected=template.visibility == "public">{i18n.template_visibility_label("public")}</option>
@@ -198,8 +228,8 @@ pub fn TemplateDetailPage(
                         .map(|t| view! { <option value=t.value>{t.label}</option> })
                         .collect();
                     view! {
-                        <form method="post" action=format!("/templates/{}/share", template_id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.5rem; flex-wrap:wrap;">
-                            <select name="share_target" class="form-control" style="height:32px; font-size:0.82rem; max-width:280px;" required=true>
+                        <form method="post" action=format!("/templates/{}/share", template_id) class="inline-form" style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap; align-items:center;">
+                            <select name="share_target" class="form-control" style="min-width:300px; max-width:480px; font-size:0.875rem;" required=true>
                                 <option value="" disabled=true selected=true>{i18n.template_share_target_placeholder()}</option>
                                 {target_options}
                             </select>

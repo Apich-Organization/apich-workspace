@@ -360,12 +360,12 @@ fn render_note_template_panel(
         .collect();
     let apply_panel = (!apply_options.is_empty()).then(|| {
         view! {
-            <form method="post" action=format!("/projects/{}/note/apply-template", project_id) class="inline-form" style="display:flex; gap:0.4rem; margin-top:0.5rem; align-items:center; flex-wrap:wrap;">
-                <select name="template_version_id" class="form-control" style="height:32px; font-size:0.82rem; max-width:260px;" required=true>
+            <form method="post" action=format!("/projects/{}/note/apply-template", project_id) class="inline-form" style="display:flex; gap:0.5rem; margin-top:0.6rem; align-items:center; flex-wrap:wrap;">
+                <select name="template_version_id" class="form-control" style="min-width:320px; max-width:520px; width:auto; font-size:0.875rem;" required=true>
                     <option value="" disabled=true selected=true>{i18n.template_select_version()}</option>
                     {apply_options}
                 </select>
-                <input type="text" name="new_file_name" placeholder=i18n.template_new_file_name_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:180px;" required=true />
+                <input type="text" name="new_file_name" placeholder=i18n.template_new_file_name_field() class="form-control" style="min-width:180px; font-size:0.875rem;" required=true />
                 <button type="submit" class="btn btn-primary btn-sm">{i18n.template_apply()}</button>
             </form>
         }
@@ -375,18 +375,18 @@ fn render_note_template_panel(
         <details style="margin-top:1rem; background:var(--bg-muted); border-radius:10px; padding:0.85rem 1rem;">
             <summary style="cursor:pointer; font-weight:600; font-size:0.85rem;">{i18n.template_publish_as_template()}" / "{i18n.template_apply_template()}</summary>
             <div style="margin-top:0.6rem;">
-                <form method="post" action="/templates/create-from-note" class="inline-form" style="display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center;">
+                <form method="post" action="/templates/create-from-note" class="inline-form" style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
                     <input type="hidden" name="project_id" value=project_id.to_string() />
                     <input type="hidden" name="file" value=file_path.to_string() />
-                    <input type="text" name="name" placeholder=i18n.template_name_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:160px;" required=true />
-                    <input type="text" name="slug" placeholder=i18n.template_slug_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:160px;" required=true />
-                    <input type="text" name="description" placeholder=i18n.template_description_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:200px;" />
-                    <select name="visibility" class="form-control" style="height:32px; font-size:0.82rem;">
+                    <input type="text" name="name" placeholder=i18n.template_name_field() class="form-control" style="min-width:160px; font-size:0.875rem;" required=true />
+                    <input type="text" name="slug" placeholder=i18n.template_slug_field() class="form-control" style="min-width:160px; font-size:0.875rem;" required=true />
+                    <input type="text" name="description" placeholder=i18n.template_description_field() class="form-control" style="min-width:200px; font-size:0.875rem;" />
+                    <select name="visibility" class="form-control" style="min-width:140px; font-size:0.875rem;">
                         <option value="private">{i18n.template_visibility_label("private")}</option>
                         <option value="shared">{i18n.template_visibility_label("shared")}</option>
                         <option value="public">{i18n.template_visibility_label("public")}</option>
                     </select>
-                    <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="height:32px; font-size:0.82rem; max-width:140px;" required=true value="1.0.0" />
+                    <input type="text" name="version_label" placeholder=i18n.template_version_label_field() class="form-control" style="min-width:120px; font-size:0.875rem;" required=true value="1.0.0" />
                     <button type="submit" class="btn btn-primary btn-sm">{i18n.template_create_new()}</button>
                 </form>
                 {publish_existing}

@@ -231,6 +231,7 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/new", post(create_project_form))
         .route("/projects/quick-start", post(quick_start_action))
         .route("/projects/mine.json", get(my_projects_json_action))
+        .route("/users/search.json", get(search_users_json_action))
         .route("/projects/:id", get(project_detail_page))
         .route("/projects/:id/files/new", post(create_file_action))
         .route("/projects/:id/files/delete", post(delete_file_action))
@@ -1217,7 +1218,7 @@ async fn project_detail_page(
         .await
         .unwrap_or_default();
 
-    let all_users = repo.list_users().await.unwrap_or_default();
+    let all_users = Vec::new();
 
     let git_status = state
         .project_manager
@@ -1511,6 +1512,51 @@ async fn my_projects_json_action(
         .collect();
     Json(json!({ "projects": items })).into_response()
 }
+
+#[derive(Debug, Deserialize)]
+struct SearchUsersQuery {
+    q: Option<String>,
+    limit: Option<i64>,
+}
+
+/// Dynamic user search endpoint for autocomplete dropdowns in sharing dialogues.
+async fn search_users_json_action(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Query(params): Query<SearchUsersQuery>,
+) -> Response {
+    let Some(AuthUser(_current_user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let query = params.q.unwrap_or_default();
+    let limit = params.limit.unwrap_or(20);
+    let users = state
+        .db
+        .repository()
+        .search_users(&query, limit)
+        .await
+        .unwrap_or_default();
+
+    let items: Vec<_> = users
+        .into_iter()
+        .map(|u| {
+            json!({
+                "id": u.id.to_string(),
+                "username": u.username,
+                "display_name": u.display_name,
+                "avatar_url": u.avatar_url,
+            })
+        })
+        .collect();
+
+    Json(json!({ "users": items })).into_response()
+}
+
 
 /// Resolves the organization new projects should land in, creating a personal workspace
 /// organization the first time a user who has none creates anything.
@@ -2413,7 +2459,7 @@ async fn project_editor_page(
         .await
         .ok()
         .flatten();
-    let all_users = repo.list_users().await.unwrap_or_default();
+    let all_users = Vec::new();
 
     // Template kind this file could be published/applied as -- `None` for a plain script, since
     // scripts aren't one of the 5 template kinds (see `apich_db::TemplateKind`).
@@ -6465,7 +6511,7 @@ async fn project_note_page(
         .await
         .ok()
         .flatten();
-    let all_users = repo.list_users().await.unwrap_or_default();
+    let all_users = Vec::new();
 
     let view = query.view.unwrap_or_else(|| "editor".to_string());
     let current_path = format!(

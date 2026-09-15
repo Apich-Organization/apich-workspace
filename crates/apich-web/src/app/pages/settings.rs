@@ -304,55 +304,56 @@ pub fn SettingsPage(
             page_title=i18n.settings_title().to_string()
             i18n=i18n
         >
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title">{i18n.settings_title()}</h1>
+            <div class="settings-container" style="max-width:880px; width:100%;">
+                <div class="page-header">
+                    <div>
+                        <h1 class="page-title">{i18n.settings_title()}</h1>
+                    </div>
                 </div>
-            </div>
-            {alert}
+                {alert}
 
-            <div class="settings-grid">
-                <div class="section-card">
-                    <h2 class="section-title">{i18n.profile_card()}</h2>
-                    <form method="post" action="/settings/profile">
-                        <div class="form-group">
-                            <label for="display_name">{i18n.display_name()}</label>
-                            <input type="text" id="display_name" name="display_name" value=user.display_name.clone() required=true class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label for="email">{i18n.email()}</label>
-                            <input type="email" id="email" name="email" value=user.email.clone() required=true class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label for="avatar_url">{i18n.avatar_url()}</label>
-                            <input type="url" id="avatar_url" name="avatar_url" value=user.avatar_url.clone().unwrap_or_default() placeholder="https://example.com/avatar.png" class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label>"Role"</label>
-                            <input type="text" value=role_display readonly=true class="form-control readonly" />
-                        </div>
-                        <button type="submit" class="btn btn-primary">{i18n.save_profile()}</button>
-                    </form>
-                </div>
+                <div class="settings-grid">
+                    <div class="section-card">
+                        <h2 class="section-title">{i18n.profile_card()}</h2>
+                        <form method="post" action="/settings/profile">
+                            <div class="form-group">
+                                <label for="display_name">{i18n.display_name()}</label>
+                                <input type="text" id="display_name" name="display_name" value=user.display_name.clone() required=true class="form-control" style="max-width:440px;" />
+                            </div>
+                            <div class="form-group">
+                                <label for="email">{i18n.email()}</label>
+                                <input type="email" id="email" name="email" value=user.email.clone() required=true class="form-control" style="max-width:440px;" />
+                            </div>
+                            <div class="form-group">
+                                <label for="avatar_url">{i18n.avatar_url()}</label>
+                                <input type="url" id="avatar_url" name="avatar_url" value=user.avatar_url.clone().unwrap_or_default() placeholder="https://example.com/avatar.png" class="form-control" style="max-width:440px;" />
+                            </div>
+                            <div class="form-group">
+                                <label>"Role"</label>
+                                <input type="text" value=role_display readonly=true class="form-control readonly" style="max-width:440px;" />
+                            </div>
+                            <button type="submit" class="btn btn-primary">{i18n.save_profile()}</button>
+                        </form>
+                    </div>
 
-                <div class="section-card">
-                    <h2 class="section-title">{i18n.change_password()}</h2>
-                    <form method="post" action="/settings/password">
-                        <div class="form-group">
-                            <label for="current_password">{i18n.current_password()}</label>
-                            <input type="password" id="current_password" name="current_password" required=true class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label for="new_password">{i18n.new_password()}</label>
-                            <input type="password" id="new_password" name="new_password" required=true class="form-control" />
-                        </div>
-                        <div class="form-group">
-                            <label for="confirm_password">{i18n.confirm_password()}</label>
-                            <input type="password" id="confirm_password" name="confirm_password" required=true class="form-control" />
-                        </div>
-                        <button type="submit" class="btn btn-primary">{i18n.update_password_btn()}</button>
-                    </form>
-                </div>
+                    <div class="section-card">
+                        <h2 class="section-title">{i18n.change_password()}</h2>
+                        <form method="post" action="/settings/password">
+                            <div class="form-group">
+                                <label for="current_password">{i18n.current_password()}</label>
+                                <input type="password" id="current_password" name="current_password" required=true class="form-control" style="max-width:380px;" />
+                            </div>
+                            <div class="form-group">
+                                <label for="new_password">{i18n.new_password()}</label>
+                                <input type="password" id="new_password" name="new_password" required=true class="form-control" style="max-width:380px;" />
+                            </div>
+                            <div class="form-group">
+                                <label for="confirm_password">{i18n.confirm_password()}</label>
+                                <input type="password" id="confirm_password" name="confirm_password" required=true class="form-control" style="max-width:380px;" />
+                            </div>
+                            <button type="submit" class="btn btn-primary">{i18n.update_password_btn()}</button>
+                        </form>
+                    </div>
 
                 <div class="section-card">
                     <div class="section-header">
@@ -519,7 +520,7 @@ pub fn SettingsPage(
                         </div>
                         <div class="form-group">
                             <label>"Public key"</label>
-                            <textarea name="public_key" placeholder="ssh-ed25519 AAAA..." required=true class="form-control" rows="2" style="font-family:var(--font-mono); font-size:0.8rem;"></textarea>
+                            <textarea name="public_key" placeholder="ssh-ed25519 AAAA..." required=true class="form-control" rows="2" style="font-family:var(--font-mono); font-size:0.8rem; max-width:640px;"></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm">"Add Key"</button>
                     </form>
@@ -536,12 +537,13 @@ pub fn SettingsPage(
                         </div>
                         <div class="form-group">
                             <label>"Public key (ASCII-armored)"</label>
-                            <textarea name="public_key" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----..." required=true class="form-control" rows="4" style="font-family:var(--font-mono); font-size:0.75rem;"></textarea>
+                            <textarea name="public_key" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----..." required=true class="form-control" rows="4" style="font-family:var(--font-mono); font-size:0.75rem; max-width:640px;"></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm">"Add Key"</button>
                     </form>
                     {gpg_list}
                 </div>
+            </div>
             </div>
         </AppShell>
     }

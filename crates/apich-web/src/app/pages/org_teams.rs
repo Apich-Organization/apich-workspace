@@ -109,34 +109,36 @@ pub fn OrgTeamsPage(
             page_title=i18n.sidebar_org_admin().to_string()
             i18n=i18n
         >
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title">{i18n.org_admin_title()}</h1>
+            <div class="org-teams-container" style="max-width:880px; width:100%;">
+                <div class="page-header">
+                    <div>
+                        <h1 class="page-title">{i18n.org_admin_title()}</h1>
+                    </div>
+                    <div class="header-actions">
+                        <apich_islands::ModalIsland trigger_label=format!("+ {}", i18n.new_organization()) trigger_class="btn btn-primary".to_string() title=i18n.new_organization().to_string()>
+                            <form method="post" action="/admin/orgs/new">
+                                <apich_islands::NameSlugFieldsIsland
+                                    name_field="name".to_string()
+                                    slug_field="slug".to_string()
+                                    name_label=i18n.org_name().to_string()
+                                    slug_label=i18n.org_slug().to_string()
+                                    name_placeholder=String::new()
+                                    slug_placeholder=String::new()
+                                />
+                                <div class="form-group">
+                                    <label>{i18n.description_label()}</label>
+                                    <textarea name="description" rows="2" class="form-control"></textarea>
+                                </div>
+                                <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
+                                    <button type="submit" class="btn btn-primary">{i18n.save()}</button>
+                                </div>
+                            </form>
+                        </apich_islands::ModalIsland>
+                    </div>
                 </div>
-                <div class="header-actions">
-                    <apich_islands::ModalIsland trigger_label=format!("+ {}", i18n.new_organization()) trigger_class="btn btn-primary".to_string() title=i18n.new_organization().to_string()>
-                        <form method="post" action="/admin/orgs/new">
-                            <apich_islands::NameSlugFieldsIsland
-                                name_field="name".to_string()
-                                slug_field="slug".to_string()
-                                name_label=i18n.org_name().to_string()
-                                slug_label=i18n.org_slug().to_string()
-                                name_placeholder=String::new()
-                                slug_placeholder=String::new()
-                            />
-                            <div class="form-group">
-                                <label>{i18n.description_label()}</label>
-                                <textarea name="description" rows="2" class="form-control"></textarea>
-                            </div>
-                            <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
-                                <button type="submit" class="btn btn-primary">{i18n.save()}</button>
-                            </div>
-                        </form>
-                    </apich_islands::ModalIsland>
-                </div>
+                {alert}
+                {org_sections}
             </div>
-            {alert}
-            {org_sections}
         </AppShell>
     }
 }
