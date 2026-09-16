@@ -242,6 +242,12 @@ pub fn build_ui_router() -> Router<AppState> {
             post(upload_file_action)
                 .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
+        .route("/projects/:id/files.json", get(list_files_json_action))
+        .route(
+            "/projects/:id/files/upload.json",
+            post(upload_file_json_action)
+                .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
         .route("/projects/:id/sandbox/start", post(start_sandbox_action))
         .route("/projects/:id/sandbox/stop", post(stop_sandbox_action))
         .route("/projects/:id/snapshot", post(snapshot_action))
@@ -2223,6 +2229,184 @@ async fn upload_file_action(
         urlencoding::encode(folder)
     ))
     .into_response())
+}
+
+/// Returns the list of project files in JSON format for the file attachment modal.
+async fn list_files_json_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let files = state
+        .project_manager
+        .list_files(project.id)
+        .await
+        .unwrap_or_default();
+
+    let clean_files: Vec<serde_json::Value> = files
+        .into_iter()
+        .filter(|f| !f.is_dir)
+        .map(|f| {
+            json!({
+                "path": f.path,
+                "name": f.name,
+                "size_bytes": f.size_bytes,
+                "extension": f.extension,
+                "category": f.category,
+            })
+        })
+        .collect();
+
+    Json(json!({ "files": clean_files })).into_response()
+}
+
+/// Uploads a file/image into the project's folder (defaulting to `assets/`) and returns JSON.
+async fn upload_file_json_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let mut folder = "assets".to_string();
+    let mut file_name: Option<String> = None;
+    let mut file_bytes: Option<Vec<u8>> = None;
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        match field.name().unwrap_or("") {
+            | "folder" => {
+                let f = field.text().await.unwrap_or_default().trim().to_string();
+                if !f.is_empty() {
+                    folder = f;
+                }
+            },
+            | "file" => {
+                file_name = field.file_name().map(str::to_string);
+                if let Ok(bytes) = field.bytes().await {
+                    if bytes.len() > MAX_UPLOAD_BYTES {
+                        return (
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            Json(json!({"error": format!("File too large (max {}MB)", MAX_UPLOAD_BYTES / (1024 * 1024))})),
+                        )
+                            .into_response();
+                    }
+                    file_bytes = Some(bytes.to_vec());
+                }
+            },
+            | _ => {},
+        }
+    }
+
+    let Some(name) = file_name.filter(|n| !n.trim().is_empty()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "No file provided"})),
+        )
+            .into_response();
+    };
+    let Some(bytes) = file_bytes else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Empty file content"})),
+        )
+            .into_response();
+    };
+
+    let base_name = std::path::Path::new(&name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&name);
+    let folder = folder.trim().trim_matches('/');
+    let rel_path = if folder.is_empty() {
+        base_name.to_string()
+    } else {
+        format!("{folder}/{base_name}")
+    };
+
+    if let Err(e) = state
+        .project_manager
+        .upload_file(project.id, user.id, &rel_path, &bytes)
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to save file: {e}")})),
+        )
+            .into_response();
+    }
+
+    let ext = std::path::Path::new(&rel_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let is_image = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "webp" | "gif" | "bmp");
+    let category = if is_image {
+        "image"
+    } else {
+        "asset"
+    };
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "file_path": rel_path,
+            "name": base_name,
+            "size_bytes": bytes.len(),
+            "extension": ext,
+            "category": category,
+            "message": format!("File uploaded to {rel_path}")
+        })),
+    )
+        .into_response()
 }
 
 #[derive(Debug, Deserialize)]

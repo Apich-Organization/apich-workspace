@@ -1266,6 +1266,274 @@ select::-ms-expand {
 .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-sub); }
 .modal-close:hover { color: var(--text-main); }
 
+/* Attach & Upload Modal */
+.attach-modal-backdrop {
+    z-index: 1000;
+}
+.attach-modal-card {
+    max-width: 680px;
+    width: min(680px, 95vw);
+    max-height: 88vh;
+    height: min(620px, 88vh);
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem 1.75rem;
+    border-radius: 14px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+}
+.attach-modal-header {
+    flex-shrink: 0;
+    margin-bottom: 1rem;
+}
+.attach-modal-tabs {
+    display: flex;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 0.75rem;
+    margin-bottom: 1rem;
+    flex-shrink: 0;
+}
+.attach-modal-tab {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.attach-modal-tab:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+.attach-modal-tab.active {
+    background: var(--bg-subtle);
+    color: var(--primary);
+    border-color: var(--border-subtle);
+    font-weight: 600;
+}
+.attach-badge {
+    display: inline-block;
+    padding: 0.1rem 0.45rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 999px;
+    background: var(--bg-hover);
+    color: var(--text-sub);
+}
+.attach-tab-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+.attach-filter-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+    flex-shrink: 0;
+}
+.attach-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.attach-search-icon {
+    position: absolute;
+    left: 0.75rem;
+    font-size: 0.85rem;
+    pointer-events: none;
+    opacity: 0.6;
+}
+.attach-search-input {
+    width: 100%;
+    padding-left: 2.2rem;
+    padding-right: 2rem;
+    font-size: 0.85rem;
+    border-radius: 8px;
+}
+.attach-search-clear {
+    position: absolute;
+    right: 0.6rem;
+    background: none;
+    border: none;
+    font-size: 1.1rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0 0.3rem;
+}
+.attach-search-clear:hover {
+    color: var(--text-main);
+}
+.attach-category-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+.attach-pill {
+    padding: 0.25rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 500;
+    border-radius: 999px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-subtle);
+    color: var(--text-sub);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.attach-pill:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+.attach-pill.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.attach-file-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 0.5rem;
+    background: var(--bg-subtle);
+}
+.attach-items-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.attach-file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    transition: all 0.15s ease;
+}
+.attach-file-item:hover {
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.attach-file-icon {
+    font-size: 1.35rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    flex-shrink: 0;
+}
+.attach-file-info {
+    flex: 1;
+    min-width: 0;
+}
+.attach-file-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.attach-file-sub {
+    display: flex;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.attach-file-path {
+    font-family: var(--font-mono, monospace);
+}
+.attach-file-actions {
+    display: flex;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+.btn-xs {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 6px;
+    font-weight: 500;
+}
+.attach-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+.attach-upload-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+.attach-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--border-subtle);
+    border-radius: 12px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    background: var(--bg-subtle);
+    transition: all 0.2s ease;
+}
+.attach-dropzone:hover {
+    border-color: var(--primary);
+    background: var(--bg-hover);
+}
+.attach-file-native-input {
+    max-width: 280px;
+    font-size: 0.85rem;
+}
+.attach-upload-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.attach-status-banner {
+    padding: 0.65rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+}
+.attach-status-banner.success {
+    background: rgba(34, 197, 94, 0.12);
+    color: var(--success, #16a34a);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+}
+.attach-status-banner.error {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger, #dc2626);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.attach-upload-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: auto;
+    padding-top: 0.5rem;
+}
+
 /* Document & Slide Editor Studio */
 .editor-studio-wrap {
     display: flex;

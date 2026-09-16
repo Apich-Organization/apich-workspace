@@ -785,6 +785,20 @@ impl I18n {
         }
     }
 
+    pub const fn upload(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Upload",
+            | Lang::Zh => "上传",
+        }
+    }
+
+    pub const fn attach(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Attach",
+            | Lang::Zh => "附件",
+        }
+    }
+
     pub const fn delete(&self) -> &'static str {
         match self.lang {
             | Lang::En => "Delete",

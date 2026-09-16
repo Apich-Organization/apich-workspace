@@ -16,6 +16,7 @@
 use leptos::prelude::*;
 
 pub mod ai_drawer;
+pub mod attach_modal;
 pub mod auth_tabs;
 pub mod code_highlight;
 pub mod confirm_submit;
@@ -40,6 +41,8 @@ pub mod user_select;
 pub mod webauthn;
 pub mod whiteboard;
 pub use ai_drawer::AiDrawerIsland;
+pub use attach_modal::AttachModalIsland;
+pub use attach_modal::ProjectFileItem;
 pub use auth_tabs::AuthTabsIsland;
 pub use confirm_submit::ConfirmSubmitButton;
 pub use copy_link::CopyLinkIsland;

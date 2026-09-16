@@ -14,6 +14,7 @@ use crate::services::FileShareInfo;
 use crate::ui::i18n::I18n;
 use apich_db::Project;
 use apich_db::User;
+use apich_islands::AttachModalIsland;
 use apich_islands::WhiteboardIsland;
 use leptos::prelude::*;
 
@@ -144,6 +145,22 @@ pub fn NotePage(
             <a href=format!("/projects/{}/note?file={}&view=kanban", project_id, file_path_enc) class="btn btn-sm" class=("btn-primary", view == NoteView::Kanban) class=("btn-secondary", view != NoteView::Kanban)>
                 "📋 Kanban"
             </a>
+            <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                onclick="window.dispatchEvent(new CustomEvent('apich-open-attach-modal', {detail: {mode: 'upload'}}))"
+                title="Upload local file or image to project"
+            >
+                "📤 " {i18n.upload()}
+            </button>
+            <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                onclick="window.dispatchEvent(new CustomEvent('apich-open-attach-modal', {detail: {mode: 'attach'}}))"
+                title="Insert reference to project file or image"
+            >
+                "📎 " {i18n.attach()}
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
             <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
             <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 VCS History"</a>
@@ -231,6 +248,10 @@ pub fn NotePage(
                 all_users=all_users
                 owner_id=project_owner_id
                 i18n=i18n
+            />
+            <AttachModalIsland
+                project_id=project_id.to_string()
+                active_file=file_path.clone()
             />
             <AiDrawer project_id=project_id file_path=file_path />
         </AppShell>
