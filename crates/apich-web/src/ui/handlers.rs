@@ -235,6 +235,9 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id", get(project_detail_page))
         .route("/projects/:id/files/new", post(create_file_action))
         .route("/projects/:id/files/delete", post(delete_file_action))
+        .route("/projects/:id/files/rename", post(rename_file_action))
+        .route("/projects/:id/files/move", post(move_file_action))
+        .route("/projects/:id/files/copy", post(copy_file_action))
         .route("/projects/:id/files/raw", get(file_raw_action))
         .route("/projects/:id/folders/new", post(create_folder_action))
         .route(
@@ -1294,6 +1297,9 @@ async fn project_detail_page(
         match s.as_str() {
             | "project_renamed" => "Project renamed.",
             | "file_created" => "File created.",
+            | "file_renamed" => "File renamed.",
+            | "file_moved" => "File moved.",
+            | "file_copied" => "File copied.",
             | "file_uploaded" => "File uploaded.",
             | "folder_created" => "Folder created.",
             | "file_deleted" => "File deleted.",
@@ -1764,7 +1770,7 @@ async fn quick_start_action(
 
     state
         .project_manager
-        .create_file(target_project.id, user.id, &file_name, template)
+        .create_file(target_project.id, user.id, &file_name, template, false)
         .await?;
 
     let ext = std::path::Path::new(&file_name)
@@ -1919,6 +1925,7 @@ pub struct CreateFileForm {
     /// (not an absent key), which fails to parse as a `Uuid` -- so this stays a string and gets
     /// parsed manually below, treating "" the same as "not provided".
     pub template_version_id: Option<String>,
+    pub replace: Option<bool>,
 }
 
 /// The file extension each builtin starter kind implies. A user who picks "Typst Paper" from the
@@ -2042,15 +2049,17 @@ async fn create_file_action(
                         .await;
             }
         }
+        let overwrite = payload.replace.unwrap_or(false);
         state
             .project_manager
-            .create_file_with_content(id, user.id, filename, &content)
+            .create_file_with_content(id, user.id, filename, &content, overwrite)
             .await?;
     } else {
         let template = payload.template.as_deref().unwrap_or("empty");
+        let overwrite = payload.replace.unwrap_or(false);
         state
             .project_manager
-            .create_file(id, user.id, filename, template)
+            .create_file(id, user.id, filename, template, overwrite)
             .await?;
     }
 
@@ -2088,6 +2097,157 @@ async fn create_file_action(
     };
 
     Ok(Redirect::to(&redirect_url).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameFileForm {
+    pub file: String,
+    pub new_name: String,
+    pub replace: Option<bool>,
+}
+
+async fn rename_file_action(
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<RenameFileForm>,
+) -> Result<Response, WebError> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id)
+        .await
+        .unwrap_or(false);
+    if !can_access {
+        return Ok((StatusCode::FORBIDDEN, "Forbidden").into_response());
+    }
+
+    let overwrite = payload.replace.unwrap_or(false);
+    match state
+        .project_manager
+        .rename_file(id, user.id, &payload.file, &payload.new_name, overwrite)
+        .await
+    {
+        Ok(_) => {
+            let parent = std::path::Path::new(&payload.file)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or_default();
+            Ok(Redirect::to(&format!(
+                "/projects/{id}?tab=files&dir={}&notice=file_renamed",
+                urlencoding::encode(parent)
+            ))
+            .into_response())
+        }
+        Err(WebError::Conflict(msg)) => {
+            let parent = std::path::Path::new(&payload.file)
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or_default();
+            Ok(Redirect::to(&format!(
+                "/projects/{id}?tab=files&dir={}&error={}",
+                urlencoding::encode(parent),
+                urlencoding::encode(&msg)
+            ))
+            .into_response())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MoveFileForm {
+    pub file: String,
+    pub dest_folder: String,
+    pub replace: Option<bool>,
+}
+
+async fn move_file_action(
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<MoveFileForm>,
+) -> Result<Response, WebError> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id)
+        .await
+        .unwrap_or(false);
+    if !can_access {
+        return Ok((StatusCode::FORBIDDEN, "Forbidden").into_response());
+    }
+
+    let overwrite = payload.replace.unwrap_or(false);
+    match state
+        .project_manager
+        .move_file(id, user.id, &payload.file, &payload.dest_folder, overwrite)
+        .await
+    {
+        Ok(_) => {
+            Ok(Redirect::to(&format!(
+                "/projects/{id}?tab=files&dir={}&notice=file_moved",
+                urlencoding::encode(&payload.dest_folder)
+            ))
+            .into_response())
+        }
+        Err(WebError::Conflict(msg)) => {
+            Ok(Redirect::to(&format!(
+                "/projects/{id}?tab=files&dir={}&error={}",
+                urlencoding::encode(&payload.dest_folder),
+                urlencoding::encode(&msg)
+            ))
+            .into_response())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CopyFileForm {
+    pub file: String,
+    pub dest_folder: String,
+    pub new_name: Option<String>,
+    pub replace: Option<bool>,
+}
+
+async fn copy_file_action(
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<CopyFileForm>,
+) -> Result<Response, WebError> {
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id)
+        .await
+        .unwrap_or(false);
+    if !can_access {
+        return Ok((StatusCode::FORBIDDEN, "Forbidden").into_response());
+    }
+
+    let overwrite = payload.replace.unwrap_or(false);
+    match state
+        .project_manager
+        .copy_file(
+            id,
+            user.id,
+            &payload.file,
+            &payload.dest_folder,
+            payload.new_name.as_deref(),
+            overwrite,
+        )
+        .await
+    {
+        Ok(_) => {
+            Ok(Redirect::to(&format!(
+                "/projects/{id}?tab=files&dir={}&notice=file_copied",
+                urlencoding::encode(&payload.dest_folder)
+            ))
+            .into_response())
+        }
+        Err(WebError::Conflict(msg)) => {
+            Ok(Redirect::to(&format!(
+                "/projects/{id}?tab=files&dir={}&error={}",
+                urlencoding::encode(&payload.dest_folder),
+                urlencoding::encode(&msg)
+            ))
+            .into_response())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -7135,7 +7295,7 @@ async fn create_note_page_action(
     loop {
         match state
             .project_manager
-            .create_file_with_content(project.id, user.id, &filename, &content)
+            .create_file_with_content(project.id, user.id, &filename, &content, false)
             .await
         {
             | Ok(()) => break,

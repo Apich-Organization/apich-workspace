@@ -128,6 +128,15 @@ pub fn DashboardPage(
                                     <h3 class="project-name" style="margin:0; font-size:1rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                                         <a href=href.clone() title=file_name.clone()>{file_name.clone()}</a>
                                     </h3>
+                                    <apich_islands::FileActionDropdownIsland
+                                        project_id=proj.id.to_string()
+                                        file_path=file_name.clone()
+                                        file_name=file_name.clone()
+                                        open_url=href.clone()
+                                        is_dir=false
+                                        is_single_file=true
+                                        is_zh=i18n.is_zh()
+                                    />
                                 </div>
                                 <span class=format!("badge {badge_cls}") style="font-size:0.72rem; flex-shrink:0;">
                                     {type_label}

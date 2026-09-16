@@ -172,12 +172,23 @@ pub fn ProjectDetailPage(
             <div class="page-header">
                 <div>
                     <div class="title-with-badge" style="display:flex; align-items:center; gap:0.6rem;">
-                        <h1 class="page-title">{display_title}</h1>
+                        <h1 class="page-title">{display_title.clone()}</h1>
                         {if is_single_file {
                             view! {
-                                <span class="badge badge-secondary" style="font-size:0.75rem;">
-                                    "📄 Standalone File"
-                                </span>
+                                <div style="display:flex; align-items:center; gap:0.4rem;">
+                                    <span class="badge badge-secondary" style="font-size:0.75rem;">
+                                        "📄 Standalone File"
+                                    </span>
+                                    <apich_islands::FileActionDropdownIsland
+                                        project_id=project_id.to_string()
+                                        file_path=single_file_name.clone()
+                                        file_name=single_file_name.clone()
+                                        open_url=single_file_editor_href.clone()
+                                        is_dir=false
+                                        is_single_file=true
+                                        is_zh=i18n.is_zh()
+                                    />
+                                </div>
                             }.into_any()
                         } else {
                             view! { <span></span> }.into_any()
@@ -432,7 +443,9 @@ fn render_files_tab(
             }
         }
     }
-    all_folders.sort();
+    let all_file_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+    let existing_files_json = serde_json::to_string(&all_file_paths).unwrap_or_else(|_| "[]".to_string());
+    let folders_json = serde_json::to_string(&all_folders).unwrap_or_else(|_| "[]".to_string());
 
     // In tree view, `files` (a flat list of every file in the project, at every depth -- see
     // `ProjectManager::list_files`) is collapsed to just what lives *directly* in `cur_dir`:
@@ -624,9 +637,10 @@ fn render_files_tab(
                         urlencoding::encode(&path)
                     );
                     let label = f.name;
+                    let is_parent = label == "..";
                     let name_cell = if is_tree {
                         view! {
-                            <a href=browse_url.clone()>{label} "/"</a>
+                            <a href=browse_url.clone()>{label.clone()} "/"</a>
                         }.into_any()
                     } else {
                         view! {
@@ -634,11 +648,31 @@ fn render_files_tab(
                         }.into_any()
                     };
                     return view! {
-                        <tr>
+                        <tr
+                            data-name=label.to_lowercase()
+                            data-type="folder"
+                            data-sharing=""
+                            data-size="0"
+                            data-modified=""
+                            data-is-dir="1"
+                            data-is-parent=if is_parent { "1" } else { "0" }
+                        >
                             <td>
                                 <div class="file-name-cell">
                                     <span style="font-size:1.1rem;">"📁"</span>
                                     {name_cell}
+                                    {(!is_parent).then(|| {
+                                        view! {
+                                            <apich_islands::FileActionDropdownIsland
+                                                project_id=project_id.to_string()
+                                                file_path=path.clone()
+                                                file_name=label.clone()
+                                                open_url=browse_url.clone()
+                                                is_dir=true
+                                                is_zh=i18n.is_zh()
+                                            />
+                                        }
+                                    })}
                                 </div>
                             </td>
                             <td><span class="file-type-pill pill-asset">"folder"</span></td>
@@ -676,7 +710,8 @@ fn render_files_tab(
                 let kb = f.size_bytes / 1024;
                 let tenths = (f.size_bytes % 1024).saturating_mul(10) / 1024;
                 let size_kb = format!("{kb}.{tenths} KB");
-                let mod_time = f.modified_rfc3339.unwrap_or_else(|| "-".to_string());
+                let mod_time = f.modified_rfc3339.as_deref().unwrap_or("-").to_string();
+                let mod_raw = f.modified_rfc3339.clone().unwrap_or_default();
                 let share_badge = match f.share_info.as_ref() {
                     Some(info) if info.mode == "public" => view! { <span class="share-badge share-badge-public">"🌐 Public (" {info.role.clone()} ")"</span> }.into_any(),
                     Some(info) if info.mode == "specific" => view! { <span class="share-badge share-badge-specific">"👥 Specific (" {info.role.clone()} ")"</span> }.into_any(),
@@ -692,6 +727,8 @@ fn render_files_tab(
                 // view has no such context and needs the path to disambiguate same-named files
                 // in different folders.
                 let display_name = if is_tree { f.name.clone() } else { path.clone() };
+                let sort_name = display_name.to_lowercase();
+                let cat = f.category.clone();
                 let open_url = f.open_url;
                 // "asset" files (PDFs, images, audio -- anything routed to the raw-bytes endpoint
                 // rather than an in-app editor route, see `ProjectFileItem::open_url`'s doc
@@ -707,14 +744,34 @@ fn render_files_tab(
                 let onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))");
 
                 view! {
-                    <tr>
+                    <tr
+                        data-name=sort_name
+                        data-type=cat.clone()
+                        data-sharing=mode.clone()
+                        data-size=format!("{}", f.size_bytes)
+                        data-modified=mod_raw
+                        data-is-dir="0"
+                        data-is-parent="0"
+                    >
                         <td>
                             <div class="file-name-cell">
                                 <span style="font-size:1.1rem;">{icon}</span>
-                                <a href=open_url.clone() target=open_target>{display_name}</a>
+                                <a href=open_url.clone() target=open_target>{display_name.clone()}</a>
+                                <apich_islands::FileActionDropdownIsland
+                                    project_id=project_id.to_string()
+                                    file_path=path.clone()
+                                    file_name=f.name.clone()
+                                    open_url=open_url.clone()
+                                    open_target=open_target.to_string()
+                                    is_dir=false
+                                    share_mode=mode.clone()
+                                    share_role=role.clone()
+                                    share_users_csv=users_csv.clone()
+                                    is_zh=i18n.is_zh()
+                                />
                             </div>
                         </td>
-                        <td><span class=format!("file-type-pill {}", pill_class)>{f.category}</span></td>
+                        <td><span class=format!("file-type-pill {}", pill_class)>{cat.clone()}</span></td>
                         <td>{share_badge}</td>
                         <td style="color:var(--text-sub); font-size:0.8rem;">{size_kb}</td>
                         <td style="color:var(--text-sub); font-size:0.8rem;">{mod_time}</td>
@@ -821,14 +878,24 @@ fn render_files_tab(
             </div>
             {breadcrumb_bar}
             <div class="file-table-wrap">
-                <table class="file-table">
+                <table class="file-table" id="project-files-table">
                     <thead>
                         <tr>
-                            <th>"Name"</th>
-                            <th>"Kind"</th>
-                            <th>"Sharing"</th>
-                            <th>"Size"</th>
-                            <th>"Modified"</th>
+                            <th class="sortable-th" data-sort-col="name" title="Click to sort by Name">
+                                "Name" <span class="sort-icon">" ↕"</span>
+                            </th>
+                            <th class="sortable-th" data-sort-col="type" title="Click to sort by Type">
+                                "Type" <span class="sort-icon">" ↕"</span>
+                            </th>
+                            <th class="sortable-th" data-sort-col="sharing" title="Click to sort by Sharing">
+                                "Sharing" <span class="sort-icon">" ↕"</span>
+                            </th>
+                            <th class="sortable-th" data-sort-col="size" title="Click to sort by Size">
+                                "Size" <span class="sort-icon">" ↕"</span>
+                            </th>
+                            <th class="sortable-th" data-sort-col="modified" title="Click to sort by Date Modified">
+                                "Modified" <span class="sort-icon">" ↕"</span>
+                            </th>
                             <th style="text-align:right;">"Actions"</th>
                         </tr>
                     </thead>
@@ -838,6 +905,19 @@ fn render_files_tab(
                 </table>
             </div>
         </div>
+
+        <apich_islands::FileTableSortIsland table_id="project-files-table".to_string() is_zh=i18n.is_zh() />
+        <apich_islands::FileOperationsModalIsland
+            project_id=project_id.to_string()
+            folders_json=folders_json.clone()
+            existing_files_json=existing_files_json.clone()
+            is_zh=i18n.is_zh()
+        />
+        <apich_islands::NewFileDuplicateCheckIsland
+            form_selector="form[action$=\"/files/new\"]".to_string()
+            existing_files_json=existing_files_json.clone()
+            is_zh=i18n.is_zh()
+        />
 
         <crate::app::components::FileShareModal
             project_id=project_id

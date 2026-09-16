@@ -62,6 +62,12 @@ web-sys = { version = "0.3", optional = true, features = [
     "Element",
     "HtmlImageElement",
     "HtmlVideoElement",
+    "HtmlSelectElement",
+    "HtmlTableElement",
+    "HtmlTableRowElement",
+    "HtmlTableCellElement",
+    "NodeList",
+    "HtmlCollection",
 ] }
 urlencoding = "2.1"
 js-sys = { version = "0.3", optional = true }

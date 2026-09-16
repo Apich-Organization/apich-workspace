@@ -1207,6 +1207,119 @@ select::-ms-expand {
     text-decoration: underline;
 }
 
+.file-table th.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.file-table th.sortable-th:hover {
+    background: rgba(226, 232, 240, 0.7);
+    color: var(--text-main);
+}
+.sort-icon {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 0.72rem;
+    opacity: 0.45;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+.file-table th.sorted-asc .sort-icon,
+.file-table th.sorted-desc .sort-icon {
+    opacity: 1;
+    color: var(--primary);
+    font-weight: 700;
+}
+.file-table th.sortable-th:hover .sort-icon {
+    opacity: 0.85;
+}
+
+.file-more-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.file-more-btn {
+    opacity: 0.55;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    padding: 1px 5px;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text-muted);
+    transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.file-name-cell:hover .file-more-btn,
+.project-card:hover .file-more-btn,
+.file-more-btn:focus,
+.file-more-btn.is-active {
+    opacity: 1;
+}
+.file-more-btn:hover,
+.file-more-btn.is-active {
+    background: var(--bg-muted, rgba(148, 163, 184, 0.2));
+    color: var(--text-main);
+}
+
+.file-action-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 1050;
+    min-width: 210px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(14px);
+    padding: 0.35rem 0;
+    display: flex;
+    flex-direction: column;
+    animation: fadeIn 0.12s ease-out;
+}
+.file-action-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.48rem 0.9rem;
+    color: var(--text-main);
+    font-size: 0.825rem;
+    text-decoration: none;
+    background: transparent;
+    border: none;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+.file-action-item .action-icon {
+    font-size: 0.95rem;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+.file-action-item:hover {
+    background: var(--primary-light, rgba(99, 102, 241, 0.12));
+    color: var(--primary);
+}
+.file-action-item.item-danger {
+    color: var(--danger, #ef4444);
+}
+.file-action-item.item-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+.file-action-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 0.3rem 0;
+}
+
 .file-type-pill {
     display: inline-block;
     padding: 2px 7px;

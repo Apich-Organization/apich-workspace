@@ -2109,6 +2109,7 @@ impl ProjectManager {
         user_id: Uuid,
         rel_path: &str,
         template: &str,
+        overwrite: bool,
     ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
@@ -2122,7 +2123,8 @@ impl ProjectManager {
         }
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
-        if full_path.exists() {
+        let existed = full_path.exists();
+        if existed && !overwrite {
             return Err(WebError::Conflict(format!(
                 "File '{rel_path}' already exists"
             )));
@@ -2337,7 +2339,8 @@ status: "in_progress"
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        let _ = vcs.snapshot_if_changed(format!("Create {clean} (by user {user_suffix})"))?;
+        let action_verb = if existed { "Overwrite" } else { "Create" };
+        let _ = vcs.snapshot_if_changed(format!("{action_verb} {clean} (by user {user_suffix})"))?;
 
         Ok(())
     }
@@ -2353,6 +2356,7 @@ status: "in_progress"
         user_id: Uuid,
         rel_path: &str,
         content: &str,
+        overwrite: bool,
     ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
@@ -2366,7 +2370,8 @@ status: "in_progress"
         }
 
         let full_path = PathBuf::from(&proj.storage_path).join(clean);
-        if full_path.exists() {
+        let existed = full_path.exists();
+        if existed && !overwrite {
             return Err(WebError::Conflict(format!(
                 "File '{rel_path}' already exists"
             )));
@@ -2385,8 +2390,9 @@ status: "in_progress"
         let user_hex = user_id.simple().to_string();
         let user_suffix = &user_hex[24..];
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let action_verb = if existed { "Overwrite" } else { "Create" };
         let _ = vcs.snapshot_if_changed(format!(
-            "Create {clean} from template (by user {user_suffix})"
+            "{action_verb} {clean} from template (by user {user_suffix})"
         ))?;
 
         Ok(())
@@ -2534,6 +2540,206 @@ status: "in_progress"
         let _ = vcs.snapshot_if_changed(format!("Delete {clean} (by user {user_suffix})"))?;
 
         Ok(())
+    }
+
+    /// Renames a file within the project workspace.
+    pub async fn rename_file(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+        new_name: &str,
+        overwrite: bool,
+    ) -> WebResult<String> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let clean_old = rel_path.trim().trim_start_matches('/');
+        let clean_new_name = new_name.trim().trim_matches('/');
+        if clean_old.contains("..") || clean_old.is_empty() || clean_new_name.contains("..") || clean_new_name.contains('/') || clean_new_name.is_empty() {
+            return Err(WebError::BadRequest("Invalid file path or name".to_string()));
+        }
+
+        let old_full_path = PathBuf::from(&proj.storage_path).join(clean_old);
+        if !old_full_path.exists() {
+            return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
+        }
+
+        let parent = old_full_path.parent().unwrap_or_else(|| std::path::Path::new(""));
+        let new_full_path = parent.join(clean_new_name);
+
+        let new_rel_path = if let Some(parent_rel) = std::path::Path::new(clean_old).parent().filter(|p| !p.as_os_str().is_empty()) {
+            format!("{}/{}", parent_rel.display(), clean_new_name)
+        } else {
+            clean_new_name.to_string()
+        };
+
+        if new_full_path.exists() && !overwrite {
+            return Err(WebError::Conflict(format!("File '{new_rel_path}' already exists")));
+        }
+
+        tokio::fs::rename(&old_full_path, &new_full_path)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to rename file: {e}")))?;
+
+        // Update file_shares if old_rel_path had share settings
+        let mut settings = proj.settings.as_object().cloned().unwrap_or_default();
+        if let Some(shares) = settings.get_mut("file_shares").and_then(|v| v.as_object_mut()) {
+            if let Some(share_val) = shares.remove(clean_old) {
+                shares.insert(new_rel_path.clone(), share_val);
+                let _ = repo.update_project_settings(project_id, serde_json::Value::Object(settings)).await;
+            }
+        }
+
+        let user_hex = user_id.simple().to_string();
+        let user_suffix = &user_hex[24..];
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let _ = vcs.snapshot_if_changed(format!("Rename {clean_old} to {new_rel_path} (by user {user_suffix})"))?;
+
+        Ok(new_rel_path)
+    }
+
+    /// Moves a file to another destination folder within the project workspace.
+    pub async fn move_file(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+        dest_folder: &str,
+        overwrite: bool,
+    ) -> WebResult<String> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let clean_old = rel_path.trim().trim_start_matches('/');
+        let clean_dest = dest_folder.trim().trim_matches('/');
+        if clean_old.contains("..") || clean_old.is_empty() || clean_dest.contains("..") {
+            return Err(WebError::BadRequest("Invalid file or folder path".to_string()));
+        }
+
+        let old_full_path = PathBuf::from(&proj.storage_path).join(clean_old);
+        if !old_full_path.exists() {
+            return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
+        }
+
+        let file_name = std::path::Path::new(clean_old)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| WebError::BadRequest("Invalid file name".to_string()))?;
+
+        let new_rel_path = if clean_dest.is_empty() {
+            file_name.to_string()
+        } else {
+            format!("{clean_dest}/{file_name}")
+        };
+
+        let new_full_path = PathBuf::from(&proj.storage_path).join(&new_rel_path);
+
+        if new_full_path.exists() && !overwrite {
+            return Err(WebError::Conflict(format!("File '{new_rel_path}' already exists")));
+        }
+
+        if let Some(parent) = new_full_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                WebError::Internal(format!("Failed to create destination folder: {e}"))
+            })?;
+        }
+
+        tokio::fs::rename(&old_full_path, &new_full_path)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to move file: {e}")))?;
+
+        // Update file_shares if old_rel_path had share settings
+        let mut settings = proj.settings.as_object().cloned().unwrap_or_default();
+        if let Some(shares) = settings.get_mut("file_shares").and_then(|v| v.as_object_mut()) {
+            if let Some(share_val) = shares.remove(clean_old) {
+                shares.insert(new_rel_path.clone(), share_val);
+                let _ = repo.update_project_settings(project_id, serde_json::Value::Object(settings)).await;
+            }
+        }
+
+        let user_hex = user_id.simple().to_string();
+        let user_suffix = &user_hex[24..];
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let _ = vcs.snapshot_if_changed(format!("Move {clean_old} to {new_rel_path} (by user {user_suffix})"))?;
+
+        Ok(new_rel_path)
+    }
+
+    /// Copies a file to another destination folder (optionally with a new name) within the project workspace.
+    pub async fn copy_file(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+        dest_folder: &str,
+        new_name: Option<&str>,
+        overwrite: bool,
+    ) -> WebResult<String> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let clean_src = rel_path.trim().trim_start_matches('/');
+        let clean_dest = dest_folder.trim().trim_matches('/');
+        if clean_src.contains("..") || clean_src.is_empty() || clean_dest.contains("..") {
+            return Err(WebError::BadRequest("Invalid file or folder path".to_string()));
+        }
+
+        let src_full_path = PathBuf::from(&proj.storage_path).join(clean_src);
+        if !src_full_path.exists() {
+            return Err(WebError::NotFound(format!("File '{rel_path}' not found")));
+        }
+
+        let final_name = if let Some(n) = new_name.map(str::trim).filter(|s| !s.is_empty()) {
+            if n.contains('/') || n.contains("..") {
+                return Err(WebError::BadRequest("Invalid new file name".to_string()));
+            }
+            n.to_string()
+        } else {
+            std::path::Path::new(clean_src)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| WebError::BadRequest("Invalid file name".to_string()))?
+                .to_string()
+        };
+
+        let new_rel_path = if clean_dest.is_empty() {
+            final_name
+        } else {
+            format!("{clean_dest}/{final_name}")
+        };
+
+        let dest_full_path = PathBuf::from(&proj.storage_path).join(&new_rel_path);
+
+        if dest_full_path.exists() && !overwrite {
+            return Err(WebError::Conflict(format!("File '{new_rel_path}' already exists")));
+        }
+
+        if let Some(parent) = dest_full_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                WebError::Internal(format!("Failed to create destination folder: {e}"))
+            })?;
+        }
+
+        tokio::fs::copy(&src_full_path, &dest_full_path)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to copy file: {e}")))?;
+
+        let user_hex = user_id.simple().to_string();
+        let user_suffix = &user_hex[24..];
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let _ = vcs.snapshot_if_changed(format!("Copy {clean_src} to {new_rel_path} (by user {user_suffix})"))?;
+
+        Ok(new_rel_path)
     }
 }
 
