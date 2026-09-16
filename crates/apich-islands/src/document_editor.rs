@@ -370,14 +370,29 @@ pub fn DocumentEditorIsland(
     let is_fullscreen = RwSignal::new(false);
     wire_fullscreen_listener(is_fullscreen);
 
+    let presentation_last_wheel_time = StoredValue::new(0f64);
     let presentation_modal = is_slide.then(|| {
         view! {
             <div
                 node_ref=stage_ref
                 style:display=move || if presenting.get() { "flex" } else { "none" }
                 style="position:fixed; inset:0; background:#0f172a; z-index:9999; flex-direction:column; justify-content:center; align-items:center; padding:2rem;"
+                on:wheel=move |ev| {
+                    let total = pages.with(|p| p.len().max(1));
+                    handle_wheel_page_scroll(ev, total, current_slide, presentation_last_wheel_time);
+                }
             >
-                <div style="position:absolute; top:1.5rem; right:2rem; display:flex; align-items:center; gap:0.5rem;">
+                <button
+                    type="button"
+                    class="svg-page-nav-edge svg-page-nav-prev presentation-nav-edge"
+                    class:hidden=move || current_slide.get() <= 1
+                    on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })
+                    title="Previous Slide (← or Scroll Up)"
+                    aria-label="Previous Slide"
+                >
+                    <span class="svg-page-nav-arrow">"‹"</span>
+                </button>
+                <div style="position:absolute; top:1.5rem; right:2rem; display:flex; align-items:center; gap:0.5rem; z-index:30;">
                     <button
                         type="button"
                         class="btn btn-secondary btn-sm"
@@ -388,13 +403,29 @@ pub fn DocumentEditorIsland(
                     </button>
                     <button type="button" on:click=move |_| { exit_fullscreen_if_active(is_fullscreen); presenting.set(false); } style="background:none; border:none; color:#fff; font-size:1.75rem; cursor:pointer; line-height:1;" title="Close presentation">"×"</button>
                 </div>
-                <div style="background:#ffffff; width:90%; max-width:1100px; aspect-ratio:16/9; border-radius:16px; padding:2.5rem; display:flex; flex-direction:column; justify-content:center; overflow:hidden;">
+                <div style="background:#ffffff; width:90%; max-width:1100px; aspect-ratio:16/9; border-radius:16px; padding:2.5rem; display:flex; flex-direction:column; justify-content:center; overflow:hidden; box-shadow:0 25px 60px -15px rgba(0,0,0,0.5);">
                     <div
                         style="width:100%; height:100%; display:flex; justify-content:center; align-items:center;"
                         inner_html=move || pages.with(|p| p.get(current_slide.get().saturating_sub(1)).cloned().unwrap_or_default())
                     ></div>
                 </div>
-                <div style="display:flex; gap:1rem; align-items:center; margin-top:1.5rem; color:#94a3b8; font-size:0.9rem;">
+                <button
+                    type="button"
+                    class="svg-page-nav-edge svg-page-nav-next presentation-nav-edge"
+                    class:hidden=move || {
+                        let n = pages.with(|p| p.len().max(1));
+                        current_slide.get() >= n
+                    }
+                    on:click=move |_| {
+                        let n = pages.with(|p| p.len().max(1));
+                        current_slide.update(|s| if *s < n { *s = s.saturating_add(1); });
+                    }
+                    title="Next Slide (→ or Scroll Down)"
+                    aria-label="Next Slide"
+                >
+                    <span class="svg-page-nav-arrow">"›"</span>
+                </button>
+                <div style="display:flex; gap:1rem; align-items:center; margin-top:1.5rem; color:#94a3b8; font-size:0.9rem; z-index:30;">
                     <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })>"← Prev"</button>
                     <span>{move || format!("Slide {} of {}", current_slide.get(), pages.with(|p| p.len().max(1)))}</span>
                     <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s = s.saturating_add(1); }) }>"Next →"</button>
@@ -728,6 +759,26 @@ fn render_typst_preview(
     pages: RwSignal<Vec<String>>,
     current_slide: RwSignal<usize>,
 ) -> impl IntoView {
+    let last_wheel_time = StoredValue::new(0f64);
+
+    let on_prev_page = move |_| {
+        if current_slide.get() > 1 {
+            current_slide.update(|s| *s = s.saturating_sub(1));
+            reset_preview_scroll_top();
+        }
+    };
+    let on_next_page = move |_| {
+        let n = pages.with(|p| p.len().max(1));
+        if current_slide.get() < n {
+            current_slide.update(|s| *s = s.saturating_add(1));
+            reset_preview_scroll_top();
+        }
+    };
+    let on_wheel = move |ev: leptos::ev::WheelEvent| {
+        let total = pages.with(|p| p.len().max(1));
+        handle_wheel_page_scroll(ev, total, current_slide, last_wheel_time);
+    };
+
     view! {
         <div style="height:100%;">
             {move || {
@@ -765,15 +816,46 @@ fn render_typst_preview(
                     <div class="svg-preview-stage">
                         <div class="svg-nav-toolbar">
                             <div style="display:flex; align-items:center; gap:0.4rem;">
-                                <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })>"← Prev"</button>
+                                <button type="button" class="btn btn-secondary btn-sm" on:click=on_prev_page>"← Prev"</button>
                                 <span style="font-weight:600; font-size:0.825rem; min-width:90px; text-align:center;">{move || format!("Page {} of {}", current_slide.get(), pages.with(|p| p.len().max(1)))}</span>
-                                <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s = s.saturating_add(1); }) }>"Next →"</button>
+                                <button type="button" class="btn btn-secondary btn-sm" on:click=on_next_page>"Next →"</button>
                             </div>
                             <div style="font-size:0.75rem; color:var(--text-sub);">
-                                <span>"💡 Click any line in preview to jump to code"</span>
+                                <span>"💡 Click any line to jump to code • Scroll or click < > edges"</span>
                             </div>
                         </div>
-                        <div class="svg-scroll-container" on:click=move |ev: leptos::ev::MouseEvent| handle_reverse_search_click(ev)>{page_divs}</div>
+                        <div class="svg-viewport-wrapper">
+                            <button
+                                type="button"
+                                class="svg-page-nav-edge svg-page-nav-prev"
+                                class:hidden=move || current_slide.get() <= 1
+                                on:click=on_prev_page
+                                title="Previous Page (← or Scroll Up)"
+                                aria-label="Previous Page"
+                            >
+                                <span class="svg-page-nav-arrow">"‹"</span>
+                            </button>
+                            <div
+                                class="svg-scroll-container"
+                                on:click=move |ev: leptos::ev::MouseEvent| handle_reverse_search_click(ev)
+                                on:wheel=on_wheel
+                            >
+                                {page_divs}
+                            </div>
+                            <button
+                                type="button"
+                                class="svg-page-nav-edge svg-page-nav-next"
+                                class:hidden=move || {
+                                    let n = pages.with(|p| p.len().max(1));
+                                    current_slide.get() >= n
+                                }
+                                on:click=on_next_page
+                                title="Next Page (→ or Scroll Down)"
+                                aria-label="Next Page"
+                            >
+                                <span class="svg-page-nav-arrow">"›"</span>
+                            </button>
+                        </div>
                     </div>
                 }.into_any()
             }}
@@ -895,6 +977,74 @@ fn request_submit(form: &web_sys::HtmlFormElement) {
 
 #[cfg(not(feature = "hydrate"))]
 const fn request_submit(_form: &leptos::web_sys::HtmlFormElement) {}
+
+#[cfg(feature = "hydrate")]
+fn reset_preview_scroll_top() {
+    if let Some(win) = web_sys::window() {
+        if let Some(doc) = win.document() {
+            if let Ok(Some(el)) = doc.query_selector(".svg-scroll-container") {
+                el.set_scroll_top(0);
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+const fn reset_preview_scroll_top() {}
+
+#[cfg(feature = "hydrate")]
+fn handle_wheel_page_scroll(
+    ev: leptos::ev::WheelEvent,
+    total_pages: usize,
+    current_slide: RwSignal<usize>,
+    last_wheel_time: StoredValue<f64>,
+) {
+    use wasm_bindgen::JsCast;
+    let now = js_sys::Date::now();
+    if now - last_wheel_time.get_value() < 280.0 {
+        return;
+    }
+    let delta_y = ev.delta_y();
+    if delta_y.abs() < 10.0 {
+        return;
+    }
+
+    if let Some(target) = ev.current_target() {
+        if let Ok(el) = target.dyn_into::<web_sys::Element>() {
+            let scroll_top = el.scroll_top();
+            let scroll_height = el.scroll_height();
+            let client_height = el.client_height();
+            let is_at_bottom = scroll_top + client_height >= scroll_height - 15;
+            let is_at_top = scroll_top <= 15;
+            let is_content_fitting = scroll_height <= client_height + 15;
+
+            if delta_y > 0.0 && (is_at_bottom || is_content_fitting) {
+                if current_slide.get() < total_pages {
+                    last_wheel_time.set_value(now);
+                    current_slide.update(|s| *s = s.saturating_add(1));
+                    el.set_scroll_top(0);
+                    ev.prevent_default();
+                }
+            } else if delta_y < 0.0 && (is_at_top || is_content_fitting) {
+                if current_slide.get() > 1 {
+                    last_wheel_time.set_value(now);
+                    current_slide.update(|s| *s = s.saturating_sub(1));
+                    el.set_scroll_top(scroll_height);
+                    ev.prevent_default();
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn handle_wheel_page_scroll(
+    _ev: leptos::ev::WheelEvent,
+    _total_pages: usize,
+    _current_slide: RwSignal<usize>,
+    _last_wheel_time: StoredValue<f64>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
 fn wire_keyboard_shortcuts(

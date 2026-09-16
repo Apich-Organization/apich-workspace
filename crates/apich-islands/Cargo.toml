@@ -59,6 +59,7 @@ web-sys = { version = "0.3", optional = true, features = [
     "Blob",
     "Url",
     "FormData",
+    "Element",
     "HtmlImageElement",
     "HtmlVideoElement",
 ] }

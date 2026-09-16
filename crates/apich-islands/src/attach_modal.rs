@@ -53,7 +53,9 @@ pub fn AttachModalIsland(
     let files = RwSignal::new(Vec::<ProjectFileItem>::new());
     let is_loading_files = RwSignal::new(false);
 
-    let upload_target_folder = RwSignal::new("assets".to_string());
+    let upload_folder_preset = RwSignal::new("assets".to_string());
+    let upload_custom_folder = RwSignal::new(String::new());
+    let selected_file_info = RwSignal::new(Option::<(String, String)>::None);
     let is_uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(Option::<(bool, String)>::None);
 
@@ -130,14 +132,33 @@ pub fn AttachModalIsland(
     let p_id_for_upload = project_id.clone();
     let on_submit_upload = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
-        let folder = upload_target_folder.get();
+        let preset = upload_folder_preset.get();
+        let folder = if preset == "custom" {
+            upload_custom_folder.get().trim().to_string()
+        } else {
+            preset
+        };
         upload_selected_file(
             p_id_for_upload.clone(),
             folder,
             files,
             is_uploading,
             upload_status,
+            selected_file_info,
         );
+    };
+
+    let on_file_change = move |ev: leptos::ev::Event| {
+        if let Some((name, size_bytes)) = extract_selected_file_info(&ev) {
+            selected_file_info.set(Some((name, format_file_size(size_bytes))));
+        } else {
+            selected_file_info.set(None);
+        }
+    };
+
+    let on_clear_file = move |_| {
+        selected_file_info.set(None);
+        clear_file_input();
     };
 
     view! {
@@ -193,31 +214,56 @@ pub fn AttachModalIsland(
                     class="attach-tab-pane"
                     style:display=move || if active_tab.get() == "attach" { "flex" } else { "none" }
                 >
-                    // Filter bar + Search
+                    // Filter bar: Modern Search Input + Category Dropdown
                     <div class="attach-filter-bar">
-                        <div class="attach-search-wrap">
-                            <span class="attach-search-icon">"🔍"</span>
-                            <input
-                                type="text"
-                                class="form-input attach-search-input"
-                                placeholder="Filter files by name or path..."
-                                prop:value=move || search_query.get()
-                                on:input=move |ev| search_query.set(event_target_value(&ev))
-                            />
-                            {move || if !search_query.get().is_empty() {
-                                view! {
-                                    <button
-                                        type="button"
-                                        class="attach-search-clear"
-                                        on:click=move |_| search_query.set(String::new())
-                                        title="Clear search"
-                                    >
-                                        "×"
-                                    </button>
-                                }.into_any()
-                            } else {
-                                view! { <span></span> }.into_any()
-                            }}
+                        <div class="attach-search-row">
+                            <div class="attach-search-wrap">
+                                <span class="attach-search-icon">"🔍"</span>
+                                <input
+                                    type="text"
+                                    class="attach-modern-input attach-search-input"
+                                    placeholder="Search project files by name or path..."
+                                    prop:value=move || search_query.get()
+                                    on:input=move |ev| search_query.set(event_target_value(&ev))
+                                />
+                                {move || if !search_query.get().is_empty() {
+                                    view! {
+                                        <button
+                                            type="button"
+                                            class="attach-search-clear"
+                                            on:click=move |_| search_query.set(String::new())
+                                            title="Clear search"
+                                        >
+                                            "×"
+                                        </button>
+                                    }.into_any()
+                                } else {
+                                    view! { <span></span> }.into_any()
+                                }}
+                            </div>
+                            <div class="attach-dropdown-wrap">
+                                <select
+                                    class="attach-modern-select attach-filter-select"
+                                    prop:value=move || category_filter.get()
+                                    on:change=move |ev| category_filter.set(event_target_value(&ev))
+                                    aria-label="Filter by file type"
+                                >
+                                    {move || {
+                                        let (all_cnt, img_cnt, doc_cnt, data_cnt, other_cnt) = counts();
+                                        view! {
+                                            <option value="all">{format!("📁 All Categories ({})", all_cnt)}</option>
+                                            <option value="image">{format!("🖼️ Images ({})", img_cnt)}</option>
+                                            <option value="document">{format!("📄 Documents ({})", doc_cnt)}</option>
+                                            <option value="data">{format!("📊 Data & Tables ({})", data_cnt)}</option>
+                                            {if other_cnt > 0 {
+                                                view! { <option value="other">{format!("📦 Other Files ({})", other_cnt)}</option> }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
+                                        }
+                                    }}
+                                </select>
+                            </div>
                         </div>
 
                         // Category Filter Pills
@@ -370,42 +416,91 @@ pub fn AttachModalIsland(
                     style:display=move || if active_tab.get() == "upload" { "flex" } else { "none" }
                 >
                     <form on:submit=on_submit_upload class="attach-upload-form">
-                        <div class="attach-dropzone">
-                            <span style="font-size:2.5rem; line-height:1; margin-bottom:0.5rem;">"☁️"</span>
-                            <div style="font-weight:600; font-size:1rem; margin-bottom:0.25rem;">
-                                "Select a file to upload to your project"
+                        <div
+                            class="attach-dropzone"
+                            onclick="document.getElementById('attach-file-input')?.click()"
+                        >
+                            <span class="attach-dropzone-icon">"☁️"</span>
+                            <div class="attach-dropzone-title">
+                                "Choose a file or drag & drop here"
                             </div>
-                            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1rem;">
-                                "Images (.png, .jpg, .svg), documents (.pdf, .typ), data (.csv, .json), and more."
+                            <div class="attach-dropzone-sub">
+                                "Supports images (.png, .jpg, .svg, .webp), documents (.pdf, .typ), data (.csv, .json), and more"
                             </div>
+                            <button
+                                type="button"
+                                class="btn btn-secondary attach-browse-btn"
+                                onclick="event.stopPropagation(); document.getElementById('attach-file-input')?.click()"
+                            >
+                                "📁 Browse Local File"
+                            </button>
                             <input
                                 type="file"
                                 id="attach-file-input"
                                 class="attach-file-native-input"
-                                required
+                                style="display:none;"
+                                on:change=on_file_change
                             />
                         </div>
 
-                        <div class="attach-upload-options">
-                            <label class="form-label" style="font-size:0.85rem; font-weight:500;">
-                                "Destination Folder:"
+                        // Selected file preview card
+                        {move || {
+                            selected_file_info.get().map(|(name, size)| {
+                                view! {
+                                    <div class="attach-selected-card">
+                                        <div style="display:flex; align-items:center; gap:0.75rem; min-width:0;">
+                                            <span style="font-size:1.5rem;">"📄"</span>
+                                            <div style="min-width:0;">
+                                                <div class="attach-selected-name" title=name.clone()>{name.clone()}</div>
+                                                <div class="attach-selected-size">{size}</div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary btn-xs"
+                                            on:click=on_clear_file
+                                            title="Change selected file"
+                                        >
+                                            "✕ Change"
+                                        </button>
+                                    </div>
+                                }
+                            })
+                        }}
+
+                        <div class="attach-form-group">
+                            <label class="attach-form-label">
+                                "📁 Destination Folder in Project"
                             </label>
-                            <div style="display:flex; gap:0.5rem; align-items:center;">
+                            <div class="attach-folder-row">
                                 <select
-                                    class="form-select"
-                                    style="max-width:200px;"
-                                    prop:value=move || upload_target_folder.get()
-                                    on:change=move |ev| upload_target_folder.set(event_target_value(&ev))
+                                    class="attach-modern-select attach-folder-select"
+                                    prop:value=move || upload_folder_preset.get()
+                                    on:change=move |ev| upload_folder_preset.set(event_target_value(&ev))
                                 >
-                                    <option value="assets">"assets/ (Recommended)"</option>
-                                    <option value="images">"images/"</option>
-                                    <option value="data">"data/"</option>
+                                    <option value="assets">"assets/ (Standard - Recommended for images & docs)"</option>
+                                    <option value="images">"images/ (Dedicated images folder)"</option>
+                                    <option value="data">"data/ (Data files & spreadsheets)"</option>
                                     <option value="">"Project Root (/)"</option>
+                                    <option value="custom">"✏️ Custom folder path..."</option>
                                 </select>
-                                <span style="font-size:0.8rem; color:var(--text-muted);">
-                                    "Images and external files are commonly referenced from assets/"
-                                </span>
                             </div>
+                            {move || if upload_folder_preset.get() == "custom" {
+                                view! {
+                                    <div class="attach-custom-folder-row">
+                                        <label class="attach-form-sublabel">"Enter custom folder path:"</label>
+                                        <input
+                                            type="text"
+                                            class="attach-modern-input"
+                                            placeholder="e.g. assets/diagrams or docs/images"
+                                            prop:value=move || upload_custom_folder.get()
+                                            on:input=move |ev| upload_custom_folder.set(event_target_value(&ev))
+                                        />
+                                    </div>
+                                }.into_any()
+                            } else {
+                                view! { <span></span> }.into_any()
+                            }}
                         </div>
 
                         // Upload Status Banner
@@ -426,11 +521,11 @@ pub fn AttachModalIsland(
                         <div class="attach-upload-footer">
                             <button
                                 type="submit"
-                                class="btn btn-primary"
+                                class="btn btn-primary attach-submit-btn"
                                 disabled=move || is_uploading.get()
                             >
                                 {move || if is_uploading.get() {
-                                    "⏳ Uploading..."
+                                    "⏳ Uploading to Project..."
                                 } else {
                                     "📤 Upload & Make Available"
                                 }}
@@ -554,6 +649,7 @@ fn upload_selected_file(
     files: RwSignal<Vec<ProjectFileItem>>,
     is_uploading: RwSignal<bool>,
     upload_status: RwSignal<Option<(bool, String)>>,
+    selected_file_info: RwSignal<Option<(String, String)>>,
 ) {
     use wasm_bindgen::JsCast;
 
@@ -610,6 +706,7 @@ fn upload_selected_file(
                             format!("Uploaded successfully to {path}! Available in files list."),
                         )));
                         input.set_value("");
+                        selected_file_info.set(None);
                         // Refresh files list
                         fetch_project_files(project_id, files, RwSignal::new(false));
                     } else {
@@ -638,8 +735,41 @@ fn upload_selected_file(
     _files: RwSignal<Vec<ProjectFileItem>>,
     _is_uploading: RwSignal<bool>,
     _upload_status: RwSignal<Option<(bool, String)>>,
+    _selected_file_info: RwSignal<Option<(String, String)>>,
 ) {
 }
+
+#[cfg(feature = "hydrate")]
+fn extract_selected_file_info(ev: &leptos::ev::Event) -> Option<(String, u64)> {
+    use wasm_bindgen::JsCast;
+    let target = ev.target()?;
+    let input = target.dyn_into::<web_sys::HtmlInputElement>().ok()?;
+    let files = input.files()?;
+    let f = files.get(0)?;
+    Some((f.name(), f.size() as u64))
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn extract_selected_file_info(_ev: &leptos::ev::Event) -> Option<(String, u64)> {
+    None
+}
+
+#[cfg(feature = "hydrate")]
+fn clear_file_input() {
+    use wasm_bindgen::JsCast;
+    if let Some(win) = web_sys::window() {
+        if let Some(doc) = win.document() {
+            if let Some(el) = doc.get_element_by_id("attach-file-input") {
+                if let Ok(input) = el.dyn_into::<web_sys::HtmlInputElement>() {
+                    input.set_value("");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn clear_file_input() {}
 
 #[cfg(feature = "hydrate")]
 fn insert_text_at_cursor(snippet: &str) {
