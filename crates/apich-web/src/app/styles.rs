@@ -2583,29 +2583,188 @@ select::-ms-expand {
    output unreadable before these rules existed: `--text-main` is #0f172a and the wrapping card is
    also #0f172a, so with no color of its own `.terminal-screen`/`.terminal-input` rendered text
    the same color as the background. Mirrors `.terminal-output`'s cyan-on-navy scheme above. */
+.terminal-screen-wrapper {
+    position: relative;
+    width: 100%;
+    margin-bottom: 0.75rem;
+}
 .terminal-screen {
     background: #090d16;
     color: #38bdf8;
     font-family: var(--font-mono);
-    font-size: 0.825rem;
+    font-size: 0.85rem;
     line-height: 1.6;
     white-space: pre-wrap;
-    padding: 1rem;
+    padding: 1.25rem;
     border-radius: var(--radius-sm);
     border: 1px solid #1e293b;
-    min-height: 320px;
-    max-height: 480px;
+    min-height: 560px;
+    max-height: 800px;
+    height: clamp(560px, 68vh, 850px);
     overflow-y: auto;
-    margin-bottom: 0.75rem;
+    scroll-behavior: smooth;
+}
+.terminal-screen::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.terminal-screen::-webkit-scrollbar-track {
+    background: #090d16;
+}
+.terminal-screen::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 4px;
+}
+.terminal-screen::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+}
+
+/* Draggable & Resizable Selection/Crop Box */
+.term-crop-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+.term-crop-box {
+    position: absolute;
+    border: 2px dashed #38bdf8;
+    background: rgba(56, 189, 248, 0.08);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55), 0 0 16px rgba(56, 189, 248, 0.35);
+    cursor: move;
+    pointer-events: auto;
+    z-index: 21;
+    box-sizing: border-box;
+    min-width: 120px;
+    min-height: 60px;
+    user-select: none;
+    touch-action: none;
+}
+.term-crop-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: #38bdf8;
+    border: 1.5px solid #ffffff;
+    border-radius: 2px;
+    z-index: 22;
+    pointer-events: auto;
+    transition: transform 0.1s ease;
+}
+.term-crop-handle:hover {
+    transform: scale(1.3);
+    background: #7dd3fc;
+}
+.handle-nw { top: -5px; left: -5px; cursor: nwse-resize; }
+.handle-n  { top: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+.handle-ne { top: -5px; right: -5px; cursor: nesw-resize; }
+.handle-e  { top: calc(50% - 5px); right: -5px; cursor: ew-resize; }
+.handle-se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.handle-s  { bottom: -5px; left: calc(50% - 5px); cursor: ns-resize; }
+.handle-sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.handle-w  { top: calc(50% - 5px); left: -5px; cursor: ew-resize; }
+
+.term-crop-badge {
+    position: absolute;
+    top: -26px;
+    left: 0;
+    background: #0f172a;
+    color: #38bdf8;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid #38bdf8;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.term-crop-actions {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.45rem;
+    background: rgba(15, 23, 42, 0.96);
+    backdrop-filter: blur(8px);
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1.5px solid #38bdf8;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
+    z-index: 35;
+    white-space: nowrap;
+    pointer-events: auto;
+}
+.term-crop-actions-top {
+    bottom: auto !important;
+    top: 8px !important;
+}
+
+/* Terminal Saved Asset Card & Snippets */
+.term-saved-card {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-top: 1rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.term-snippet-row {
+    margin-top: 0.6rem;
+}
+.term-snippet-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.2rem;
+}
+.term-snippet-box {
+    background: #090d16;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    padding: 0.45rem 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: #38bdf8;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    word-break: break-all;
+}
+.term-rec-pulse {
+    width: 8px;
+    height: 8px;
+    background: #ef4444;
+    border-radius: 50%;
+    display: inline-block;
+    animation: termPulse 1s infinite alternate;
+}
+@keyframes termPulse {
+    0% { transform: scale(0.85); opacity: 0.6; }
+    100% { transform: scale(1.3); opacity: 1; }
 }
 .terminal-bar {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.75rem;
     background: #0f172a;
-    border: 1px solid #1e293b;
+    border: 1.5px solid #1e293b;
     border-radius: var(--radius-sm);
-    padding: 0.5rem 0.75rem;
+    padding: 0.75rem 1.15rem;
+    min-height: 54px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.terminal-bar:focus-within {
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
 }
 .terminal-input {
     flex: 1;
@@ -2614,7 +2773,7 @@ select::-ms-expand {
     outline: none;
     color: #e2e8f0;
     font-family: var(--font-mono);
-    font-size: 0.875rem;
+    font-size: 0.95rem;
 }
 .terminal-input::placeholder {
     color: var(--text-sub);

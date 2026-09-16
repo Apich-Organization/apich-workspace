@@ -435,6 +435,10 @@ pub fn build_ui_router() -> Router<AppState> {
         // Project Interactive Terminal
         .route("/projects/:id/terminal", get(project_terminal_page))
         .route("/projects/:id/terminal/exec", post(terminal_exec_action))
+        .route(
+            "/projects/:id/terminal/save-asset",
+            post(terminal_save_asset_action),
+        )
         // Settings & Profile
         .route("/settings", get(settings_page))
         .route("/settings/profile", post(update_profile_form))
@@ -7558,6 +7562,142 @@ async fn terminal_exec_action(
         | Ok(output) => axum::Json(serde_json::json!({ "output": output })).into_response(),
         | Err(e) => axum::Json(serde_json::json!({ "error": e.to_string() })).into_response(),
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveTerminalAssetForm {
+    #[serde(default)]
+    pub asset_name: Option<String>,
+    pub data_url: String,
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// Saves a terminal screenshot (PNG or SVG) or animation (Animated SVG) into the project's `assets/` folder
+/// so users can directly embed it into papers (Typst, LaTeX) and slides.
+async fn terminal_save_asset_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let payload: SaveTerminalAssetForm = match parse_payload(&headers, &body) {
+        | Ok(p) => p,
+        | Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
+    };
+
+    let fmt = payload.format.as_deref().unwrap_or("png").to_lowercase();
+    let is_svg = fmt == "svg"
+        || payload.data_url.starts_with("data:image/svg")
+        || payload.data_url.trim_start().starts_with("<svg");
+
+    let bytes = if is_svg && !payload.data_url.starts_with("data:") {
+        payload.data_url.into_bytes()
+    } else {
+        let b64_str = if let Some(idx) = payload.data_url.find(',') {
+            &payload.data_url[idx + 1..]
+        } else {
+            &payload.data_url
+        };
+        if is_svg && !payload.data_url.contains(";base64,") {
+            match urlencoding::decode(b64_str) {
+                | Ok(s) => s.into_owned().into_bytes(),
+                | Err(_) => b64_str.as_bytes().to_vec(),
+            }
+        } else {
+            match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_str) {
+                | Ok(b) => b,
+                | Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": format!("Invalid image data: {e}")})),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    };
+
+    let ext = if is_svg { "svg" } else { "png" };
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let default_name = format!("terminal_{timestamp}.{ext}");
+
+    let raw_name = payload
+        .asset_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+
+    let mut clean_name = raw_name
+        .trim_start_matches('/')
+        .replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|', ' '], "_");
+
+    if clean_name.is_empty() {
+        clean_name = default_name;
+    } else if !clean_name.to_lowercase().ends_with(&format!(".{ext}")) {
+        clean_name.push_str(&format!(".{ext}"));
+    }
+
+    let rel_path = format!("assets/{clean_name}");
+
+    if let Err(e) = state
+        .project_manager
+        .upload_file(project.id, user.id, &rel_path, &bytes)
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to save asset: {e}")})),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "asset_path": rel_path,
+            "filename": clean_name,
+            "format": ext,
+            "message": format!("Saved to {rel_path}"),
+            "markdown_snippet": format!("![Terminal Output]({rel_path})"),
+            "typst_snippet": format!("#image(\"{rel_path}\", width: 100%)"),
+            "latex_snippet": format!("\\includegraphics[width=\\linewidth]{{{rel_path}}}")
+        })),
+    )
+        .into_response()
 }
 
 #[derive(Debug, Deserialize)]

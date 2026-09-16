@@ -28,6 +28,7 @@ pub fn TerminalPage(
     let Project {
         id: project_id,
         slug: project_slug,
+        name: project_name,
         ..
     } = project;
 
@@ -73,13 +74,43 @@ pub fn TerminalPage(
             page_title=i18n.tab_terminal().to_string()
             i18n=i18n
         >
-            <div class="page-header">
+            <div class="breadcrumb-nav" style="display:flex; align-items:center; gap:0.5rem; font-size:0.875rem; color:var(--text-muted); margin-bottom:0.75rem; flex-wrap:wrap;">
+                <a href="/" style="color:var(--text-muted); text-decoration:none; display:inline-flex; align-items:center; gap:0.3rem;">
+                    <span>"🏠"</span>
+                    <span>{if i18n.is_zh() { "项目看板" } else { "Projects" }}</span>
+                </a>
+                <span style="opacity:0.5;">"/"</span>
+                <a href=format!("/projects/{}", project_id) style="color:var(--primary); font-weight:500; text-decoration:none;">
+                    {project_name.clone()}
+                </a>
+                <span style="opacity:0.5;">"/"</span>
+                <span style="color:var(--text-main); font-weight:600;">{i18n.tab_terminal()}</span>
+            </div>
+
+            <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
                 <div>
                     <div class="title-with-badge">
                         <h1 class="page-title">{i18n.tab_terminal()}</h1>
                         {status_pill}
                     </div>
                     <p class="page-subtitle">{i18n.terminal_subtitle()}</p>
+                </div>
+                <div class="header-actions" style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                    <a href=format!("/projects/{}", project_id) class="btn btn-secondary btn-sm" title={if i18n.is_zh() { "返回项目根目录/概览" } else { "Back to Project Root / Overview" }}>
+                        <span>{if i18n.is_zh() { "← 项目根目录" } else { "← Project Root" }}</span>
+                    </a>
+                    <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-secondary btn-sm" title={if i18n.is_zh() { "项目文件列表" } else { "Project Files" }}>
+                        <span>"📁 " {i18n.tab_files()}</span>
+                    </a>
+                    <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm" title={if i18n.is_zh() { "版本历史" } else { "VCS History" }}>
+                        <span>"🌿 " {i18n.tab_vcs()}</span>
+                    </a>
+                    <a href=format!("/projects/{}/knowledge", project_id) class="btn btn-secondary btn-sm" title={if i18n.is_zh() { "任务与知识库" } else { "Knowledge & Tasks" }}>
+                        <span>"📋 " {if i18n.is_zh() { "知识库" } else { "Knowledge" }}</span>
+                    </a>
+                    <a href="/" class="btn btn-outline btn-sm" title={if i18n.is_zh() { "返回主控台" } else { "Back to Dashboard" }}>
+                        <span>"🏠 " {if i18n.is_zh() { "主控台" } else { "Dashboard" }}</span>
+                    </a>
                 </div>
             </div>
             {alert}
