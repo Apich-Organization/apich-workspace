@@ -920,7 +920,9 @@ impl SqliteTableService {
         Ok(())
     }
 
-    /// Insert a new default row into a table
+    /// Insert a new default row into a table.
+    /// Safely handles tables with NOT NULL constraints and primary keys by inspecting
+    /// PRAGMA table_info and providing safe zero/empty placeholder defaults.
     pub fn insert_row<P: AsRef<Path>>(
         db_path: P,
         table_name: &str,
@@ -929,11 +931,168 @@ impl SqliteTableService {
         let conn = Connection::open(&db_path)
             .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
 
-        let sql = format!("INSERT INTO \"{clean_table}\" DEFAULT VALUES");
-        conn.execute(&sql, [])
-            .map_err(|e| WebError::Internal(format!("Failed to insert row: {e}")))?;
+        // Inspect table columns via PRAGMA table_info
+        let pragma_sql = format!("PRAGMA table_info(\"{clean_table}\")");
+        let mut pragma_stmt = conn
+            .prepare(&pragma_sql)
+            .map_err(|e| WebError::BadRequest(format!("Table {table_name} not found: {e}")))?;
+
+        let cols: Vec<ColumnInfo> = pragma_stmt
+            .query_map([], |r| {
+                Ok(ColumnInfo {
+                    cid: r.get(0)?,
+                    name: r.get(1)?,
+                    data_type: r.get(2)?,
+                    not_null: r.get::<_, i64>(3)? != 0,
+                    default_value: r.get(4)?,
+                    is_primary_key: r.get::<_, i64>(5)? != 0,
+                })
+            })
+            .map_err(|e| WebError::Internal(e.to_string()))?
+            .filter_map(Result::ok)
+            .collect();
+
+        // Identify required columns (not null, without default, and not autoincrement integer PK)
+        let mut insert_cols: Vec<String> = Vec::new();
+        let mut insert_vals: Vec<rusqlite::types::Value> = Vec::new();
+
+        for col in &cols {
+            let is_int_pk = col.is_primary_key && col.data_type.to_uppercase().contains("INT");
+            if is_int_pk {
+                // SQLite handles integer primary keys automatically.
+                continue;
+            }
+
+            if col.not_null && col.default_value.is_none() {
+                let clean_col = col.name.replace('"', "\"\"");
+                insert_cols.push(format!("\"{clean_col}\""));
+                let ty = col.data_type.to_uppercase();
+                if col.is_primary_key && (ty.contains("TEXT") || ty.contains("CHAR") || ty.is_empty()) {
+                    insert_vals.push(rusqlite::types::Value::Text(uuid::Uuid::new_v4().to_string()));
+                } else if ty.contains("INT") {
+                    insert_vals.push(rusqlite::types::Value::Integer(0));
+                } else if ty.contains("REAL") || ty.contains("FLOAT") || ty.contains("DOUB") || ty.contains("NUM") {
+                    insert_vals.push(rusqlite::types::Value::Real(0.0));
+                } else if ty.contains("BOOL") {
+                    insert_vals.push(rusqlite::types::Value::Integer(0));
+                } else if ty.contains("BLOB") {
+                    insert_vals.push(rusqlite::types::Value::Blob(Vec::new()));
+                } else {
+                    insert_vals.push(rusqlite::types::Value::Text(String::new()));
+                }
+            }
+        }
+
+        if insert_cols.is_empty() {
+            let sql = format!("INSERT INTO \"{clean_table}\" DEFAULT VALUES");
+            conn.execute(&sql, [])
+                .map_err(|e| WebError::Internal(format!("Failed to insert row: {e}")))?;
+        } else {
+            let col_list = insert_cols.join(", ");
+            let placeholders: Vec<String> = (1..=insert_vals.len()).map(|i| format!("?{i}")).collect();
+            let placeholder_list = placeholders.join(", ");
+            let sql = format!("INSERT INTO \"{clean_table}\" ({col_list}) VALUES ({placeholder_list})");
+            conn.execute(&sql, rusqlite::params_from_iter(insert_vals.iter()))
+                .map_err(|e| WebError::Internal(format!("Failed to insert row: {e}")))?;
+        }
 
         Ok(conn.last_insert_rowid())
+    }
+
+    /// Add a new column to a table schema
+    pub fn add_column<P: AsRef<Path>>(
+        db_path: P,
+        table_name: &str,
+        column_name: &str,
+        column_type: &str,
+        default_value: Option<&str>,
+    ) -> WebResult<()> {
+        let col_trimmed = column_name.trim();
+        if col_trimmed.is_empty() {
+            return Err(WebError::BadRequest("Column name cannot be empty".to_string()));
+        }
+
+        // Validate column identifier: alphanumeric and underscores, starting with letter or underscore, max 64 chars
+        let ident_re = regex::Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
+            .map_err(|e| WebError::Internal(e.to_string()))?;
+        if !ident_re.is_match(col_trimmed) {
+            return Err(WebError::BadRequest(
+                "Invalid column name: must start with a letter or underscore and contain only alphanumeric characters and underscores (up to 64 chars)".to_string()
+            ));
+        }
+
+        // Validate and normalize column type
+        let clean_type = match column_type.trim().to_uppercase().as_str() {
+            "INTEGER" | "INT" => "INTEGER",
+            "REAL" | "FLOAT" | "DOUBLE" => "REAL",
+            "BOOLEAN" | "BOOL" => "BOOLEAN",
+            "BLOB" => "BLOB",
+            "NUMERIC" => "NUMERIC",
+            "DATETIME" | "DATE" => "DATETIME",
+            _ => "TEXT",
+        };
+
+        let clean_table = table_name.replace('"', "\"\"");
+        let clean_col = col_trimmed.replace('"', "\"\"");
+
+        let conn = Connection::open(&db_path)
+            .map_err(|e| WebError::Internal(format!("Failed to open database: {e}")))?;
+
+        // Verify table exists and check for duplicate column name
+        let pragma_sql = format!("PRAGMA table_info(\"{clean_table}\")");
+        let mut pragma_stmt = conn
+            .prepare(&pragma_sql)
+            .map_err(|e| WebError::BadRequest(format!("Table '{table_name}' not found: {e}")))?;
+
+        let existing_cols: Vec<String> = pragma_stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .map_err(|e| WebError::Internal(e.to_string()))?
+            .filter_map(Result::ok)
+            .collect();
+
+        if existing_cols.is_empty() {
+            return Err(WebError::NotFound(format!("Table '{table_name}' not found")));
+        }
+
+        if existing_cols.iter().any(|c| c.eq_ignore_ascii_case(col_trimmed)) {
+            return Err(WebError::BadRequest(format!(
+                "Column '{col_trimmed}' already exists in table '{table_name}'"
+            )));
+        }
+
+        // Build DEFAULT clause if specified
+        let default_clause = match default_value.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            Some(val) => {
+                if clean_type == "INTEGER" || clean_type == "BOOLEAN" {
+                    if val.parse::<i64>().is_ok() {
+                        format!(" DEFAULT {val}")
+                    } else if val.eq_ignore_ascii_case("true") {
+                        " DEFAULT 1".to_string()
+                    } else if val.eq_ignore_ascii_case("false") {
+                        " DEFAULT 0".to_string()
+                    } else {
+                        format!(" DEFAULT '{}'", val.replace('\'', "''"))
+                    }
+                } else if clean_type == "REAL" || clean_type == "NUMERIC" {
+                    if val.parse::<f64>().is_ok() {
+                        format!(" DEFAULT {val}")
+                    } else {
+                        format!(" DEFAULT '{}'", val.replace('\'', "''"))
+                    }
+                } else {
+                    format!(" DEFAULT '{}'", val.replace('\'', "''"))
+                }
+            }
+            None => String::new(),
+        };
+
+        let alter_sql = format!(
+            "ALTER TABLE \"{clean_table}\" ADD COLUMN \"{clean_col}\" {clean_type}{default_clause}"
+        );
+        conn.execute(&alter_sql, [])
+            .map_err(|e| WebError::Internal(format!("Failed to add column '{col_trimmed}': {e}")))?;
+
+        Ok(())
     }
 
     /// Delete a row from a table by primary key / ID value

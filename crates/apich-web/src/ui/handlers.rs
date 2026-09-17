@@ -369,6 +369,10 @@ pub fn build_ui_router() -> Router<AppState> {
         )
         .route("/projects/:id/table/row-add", post(table_row_add_action))
         .route(
+            "/projects/:id/table/column-add",
+            post(table_column_add_action),
+        )
+        .route(
             "/projects/:id/table/row-delete",
             post(table_row_delete_action),
         )
@@ -3915,6 +3919,20 @@ pub struct TableCellEditForm {
 pub struct TableRowAddForm {
     pub file: String,
     pub table: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TableColumnAddForm {
+    pub file: String,
+    pub table: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+    pub column_name: String,
+    pub column_type: String,
+    #[serde(default)]
+    pub default_value: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -6075,33 +6093,129 @@ async fn table_row_add_action(
         return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
     }
 
+    let mode_param = payload.mode.as_deref().unwrap_or("spreadsheet");
+
     let Ok(db_path) = crate::services::sqlite_table::SqliteTableService::resolve_db_path(
         &project.storage_path,
         &payload.file,
     ) else {
         return Redirect::to(&format!(
-            "/projects/{}/table?file={}&error=table_not_found",
+            "/projects/{}/table?file={}&mode={}&error=table_not_found",
             project.id,
-            urlencoding::encode(&payload.file)
+            urlencoding::encode(&payload.file),
+            urlencoding::encode(mode_param)
         ))
         .into_response();
     };
-    if let Ok(rowid) =
-        crate::services::sqlite_table::SqliteTableService::insert_row(&db_path, &payload.table)
-    {
-        if let Ok(vcs) = ProjectVcs::open_or_init(&project.storage_path) {
-            let _ =
-                vcs.snapshot_if_changed(format!("Added row #{} to table {}", rowid, payload.table));
+
+    match crate::services::sqlite_table::SqliteTableService::insert_row(&db_path, &payload.table) {
+        Ok(rowid) => {
+            if let Ok(vcs) = ProjectVcs::open_or_init(&project.storage_path) {
+                let _ =
+                    vcs.snapshot_if_changed(format!("Added row #{} to table {}", rowid, payload.table));
+            }
+            Redirect::to(&format!(
+                "/projects/{}/table?file={}&table={}&mode={}&notice={}",
+                project.id,
+                urlencoding::encode(&payload.file),
+                urlencoding::encode(&payload.table),
+                urlencoding::encode(mode_param),
+                urlencoding::encode(&format!("Row #{} added successfully", rowid))
+            ))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to insert table row: {e}");
+            Redirect::to(&format!(
+                "/projects/{}/table?file={}&table={}&mode={}&error={}",
+                project.id,
+                urlencoding::encode(&payload.file),
+                urlencoding::encode(&payload.table),
+                urlencoding::encode(mode_param),
+                urlencoding::encode(&format!("Failed to add row: {e}"))
+            ))
+            .into_response()
         }
     }
+}
 
-    Redirect::to(&format!(
-        "/projects/{}/table?file={}&table={}",
-        project.id,
-        urlencoding::encode(&payload.file),
-        urlencoding::encode(&payload.table)
-    ))
-    .into_response()
+/// Add a new column to a spreadsheet table
+async fn table_column_add_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Form(payload): Form<TableColumnAddForm>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return Redirect::to("/").into_response();
+    };
+
+    let can_manage =
+        IdentityPermissionResolver::can_manage_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_manage {
+        return (StatusCode::FORBIDDEN, Html("<h3>403 Forbidden</h3>")).into_response();
+    }
+
+    let mode_param = payload.mode.as_deref().unwrap_or("spreadsheet");
+
+    let Ok(db_path) = crate::services::sqlite_table::SqliteTableService::resolve_db_path(
+        &project.storage_path,
+        &payload.file,
+    ) else {
+        return Redirect::to(&format!(
+            "/projects/{}/table?file={}&mode={}&error=table_not_found",
+            project.id,
+            urlencoding::encode(&payload.file),
+            urlencoding::encode(mode_param)
+        ))
+        .into_response();
+    };
+
+    match crate::services::sqlite_table::SqliteTableService::add_column(
+        &db_path,
+        &payload.table,
+        &payload.column_name,
+        &payload.column_type,
+        payload.default_value.as_deref(),
+    ) {
+        Ok(()) => {
+            if let Ok(vcs) = ProjectVcs::open_or_init(&project.storage_path) {
+                let _ = vcs.snapshot_if_changed(format!(
+                    "Added column {} ({}) to table {}",
+                    payload.column_name.trim(),
+                    payload.column_type.trim(),
+                    payload.table
+                ));
+            }
+            Redirect::to(&format!(
+                "/projects/{}/table?file={}&table={}&mode={}&notice={}",
+                project.id,
+                urlencoding::encode(&payload.file),
+                urlencoding::encode(&payload.table),
+                urlencoding::encode(mode_param),
+                urlencoding::encode(&format!("Column '{}' added successfully", payload.column_name.trim()))
+            ))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to add table column: {e}");
+            Redirect::to(&format!(
+                "/projects/{}/table?file={}&table={}&mode={}&error={}",
+                project.id,
+                urlencoding::encode(&payload.file),
+                urlencoding::encode(&payload.table),
+                urlencoding::encode(mode_param),
+                urlencoding::encode(&format!("Failed to add column: {e}"))
+            ))
+            .into_response()
+        }
+    }
 }
 
 /// Delete selected row from spreadsheet table

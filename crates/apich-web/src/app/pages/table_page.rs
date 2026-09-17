@@ -485,8 +485,70 @@ fn render_grid(
                     <form method="post" action=format!("/projects/{}/table/row-add", project_id) class="inline-form">
                         <input type="hidden" name="file" value=cur_file.to_string() />
                         <input type="hidden" name="table" value=td.table_name.clone() />
-                        <button type="submit" class="btn btn-primary btn-sm">"+ Add Row"</button>
+                        <input type="hidden" name="mode" value=mode.to_string() />
+                        <button type="submit" class="btn btn-primary btn-sm">{if is_zh { "+ 添加行" } else { "+ Add Row" }}</button>
                     </form>
+                    {
+                        let add_col_action = format!("/projects/{project_id}/table/column-add");
+                        let cur_file_owned = cur_file.to_string();
+                        let table_name_owned = td.table_name.clone();
+                        let mode_owned = mode.to_string();
+                        let trigger_txt = if is_zh { "+ 添加列" } else { "+ Add Column" }.to_string();
+                        let modal_title = if is_zh { "添加新列到数据表" } else { "Add New Column to Table" }.to_string();
+                        view! {
+                            <apich_islands::ModalIsland trigger_label=trigger_txt trigger_class="btn btn-secondary btn-sm".to_string() title=modal_title>
+                                <form method="post" action=add_col_action>
+                                    <input type="hidden" name="file" value=cur_file_owned />
+                                    <input type="hidden" name="table" value=table_name_owned />
+                                    <input type="hidden" name="mode" value=mode_owned />
+                                    <div class="form-group" style="margin-bottom: 0.85rem;">
+                                        <label style="display:block; font-size:0.825rem; font-weight:600; margin-bottom:0.35rem; color:var(--text-main);">
+                                            {if is_zh { "列名称" } else { "Column Name" }}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            name="column_name"
+                                            class="form-control"
+                                            placeholder={if is_zh { "例如：status, score, notes" } else { "e.g. status, score, notes" }}
+                                            required=true
+                                            pattern="[a-zA-Z_][a-zA-Z0-9_]*"
+                                            title={if is_zh { "必须以英文字母或下划线开头，只包含字母、数字和下划线" } else { "Must start with a letter or underscore and contain only alphanumeric characters and underscores." }}
+                                            style="width:100%; box-sizing:border-box;"
+                                        />
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 0.85rem;">
+                                        <label style="display:block; font-size:0.825rem; font-weight:600; margin-bottom:0.35rem; color:var(--text-main);">
+                                            {if is_zh { "数据类型" } else { "Data Type" }}
+                                        </label>
+                                        <select name="column_type" class="form-control" style="width:100%; box-sizing:border-box;">
+                                            <option value="TEXT" selected=true>"TEXT (Text / String)"</option>
+                                            <option value="INTEGER">"INTEGER (Whole Number)"</option>
+                                            <option value="REAL">"REAL (Decimal / Float)"</option>
+                                            <option value="BOOLEAN">"BOOLEAN (True / False)"</option>
+                                            <option value="BLOB">"BLOB (Binary Data)"</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                                        <label style="display:block; font-size:0.825rem; font-weight:600; margin-bottom:0.35rem; color:var(--text-main);">
+                                            {if is_zh { "默认值（可选）" } else { "Default Value (Optional)" }}
+                                        </label>
+                                        <input
+                                            type="text"
+                                            name="default_value"
+                                            class="form-control"
+                                            placeholder={if is_zh { "例如：active, 0, 留空则为 NULL" } else { "e.g. active, 0, or leave empty for NULL" }}
+                                            style="width:100%; box-sizing:border-box;"
+                                        />
+                                    </div>
+                                    <div style="display:flex; justify-content:flex-end; gap:0.5rem; border-top:1px solid var(--border-subtle); padding-top:0.85rem;">
+                                        <button type="submit" class="btn btn-primary">
+                                            {if is_zh { "+ 添加列" } else { "+ Add Column" }}
+                                        </button>
+                                    </div>
+                                </form>
+                            </apich_islands::ModalIsland>
+                        }
+                    }
                     <form id="form-del-row" method="post" action=format!("/projects/{}/table/row-delete", project_id) class="inline-form">
                         <input type="hidden" name="file" value=cur_file.to_string() />
                         <input type="hidden" name="table" value=td.table_name.clone() />
