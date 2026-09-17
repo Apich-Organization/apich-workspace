@@ -1,7 +1,7 @@
-//! WebAuthn (FIDO2 / Passkey) client ceremonies powered by `webauthn-rs-proto`.
+//! `WebAuthn` (FIDO2 / Passkey) client ceremonies powered by `webauthn-rs-proto`.
 //!
 //! Provides interactive client-side enrollment and discoverable passwordless login ceremonies.
-//! Uses standard W3C WebAuthn Credential Management API mappings provided by `webauthn-rs-proto`
+//! Uses standard W3C `WebAuthn` Credential Management API mappings provided by `webauthn-rs-proto`
 //! with the `wasm` feature, eliminating browser incompatibility and Level 3 API gaps.
 
 use leptos::prelude::*;

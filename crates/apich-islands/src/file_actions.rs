@@ -76,9 +76,9 @@ pub fn FileActionDropdownIsland(
 
     let proj_id_acc = project_id.clone();
     let file_path_acc = file_path.clone();
-    let sh_mode_acc = sh_mode.clone();
-    let sh_role_acc = sh_role.clone();
-    let sh_users_acc = sh_users.clone();
+    let sh_mode_acc = sh_mode;
+    let sh_role_acc = sh_role;
+    let sh_users_acc = sh_users;
     let on_manage_access = move |_| {
         is_open.set(false);
         if is_single {
@@ -142,7 +142,7 @@ pub fn FileActionDropdownIsland(
                 style:display=move || if is_open.get() { "flex" } else { "none" }
             >
                 // 1. Open
-                <a href=open_url.clone() target=target class="file-action-item">
+                <a href=open_url target=target class="file-action-item">
                     <span class="action-icon">"📂"</span>
                     <span>{t(zh, "Open", "打开")}</span>
                 </a>
@@ -276,7 +276,7 @@ pub fn FileOperationsModalIsland(
         let target_dir = move_target_folder.get();
         let filename = move_name.get();
         let candidate_path = if target_dir.trim().is_empty() {
-            filename.clone()
+            filename
         } else {
             format!("{}/{}", target_dir.trim().trim_matches('/'), filename)
         };
@@ -351,14 +351,14 @@ pub fn FileOperationsModalIsland(
     };
 
     let proj_id_for_copy = project_id.clone();
-    let folders_for_copy = folders.clone();
+    let folders_for_copy = folders;
     let ex_files_cp = existing_files.clone();
     let on_submit_copy = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let target_dir = copy_target_folder.get();
         let filename = copy_name.get();
         let candidate_path = if target_dir.trim().is_empty() {
-            filename.clone()
+            filename
         } else {
             format!("{}/{}", target_dir.trim().trim_matches('/'), filename)
         };
@@ -386,7 +386,7 @@ pub fn FileOperationsModalIsland(
 
     // Duplicate dialog actions
     let proj_id_for_dup = project_id.clone();
-    let ex_files_dup = existing_files.clone();
+    let ex_files_dup = existing_files;
     let on_dup_replace = move |_| {
         let act = dup_action_type.get();
         let data = dup_pending_data.get();
@@ -434,7 +434,7 @@ pub fn FileOperationsModalIsland(
         }
     };
 
-    let proj_id_for_dup_rn = project_id.clone();
+    let proj_id_for_dup_rn = project_id;
     let on_dup_rename = move |_| {
         let act = dup_action_type.get();
         let target_path = dup_filename.get();
@@ -687,7 +687,7 @@ fn init_favorite_state(project_id: &str, file_path: &str, is_favorite: RwSignal<
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn init_favorite_state(_project_id: &str, _file_path: &str, _is_favorite: RwSignal<bool>) {}
+const fn init_favorite_state(_project_id: &str, _file_path: &str, _is_favorite: RwSignal<bool>) {}
 
 #[cfg(feature = "hydrate")]
 fn toggle_favorite(project_id: &str, file_path: &str, is_favorite: RwSignal<bool>, is_zh: bool) {
@@ -718,7 +718,7 @@ fn toggle_favorite(project_id: &str, file_path: &str, is_favorite: RwSignal<bool
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn toggle_favorite(_project_id: &str, _file_path: &str, _is_favorite: RwSignal<bool>, _is_zh: bool) {}
+const fn toggle_favorite(_project_id: &str, _file_path: &str, _is_favorite: RwSignal<bool>, _is_zh: bool) {}
 
 #[cfg(feature = "hydrate")]
 fn copy_link_to_clipboard(path: &str, is_zh: bool) {
@@ -734,7 +734,7 @@ fn copy_link_to_clipboard(path: &str, is_zh: bool) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn copy_link_to_clipboard(_path: &str, _is_zh: bool) {}
+const fn copy_link_to_clipboard(_path: &str, _is_zh: bool) {}
 
 #[cfg(feature = "hydrate")]
 fn show_toast(msg: &'static str) {
@@ -757,7 +757,7 @@ fn show_toast(msg: &'static str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn show_toast(_msg: &'static str) {}
+const fn show_toast(_msg: &'static str) {}
 
 #[cfg(feature = "hydrate")]
 fn dispatch_move_event(project_id: &str, file_path: &str, file_name: &str) {
@@ -775,7 +775,7 @@ fn dispatch_move_event(project_id: &str, file_path: &str, file_name: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn dispatch_move_event(_project_id: &str, _file_path: &str, _file_name: &str) {}
+const fn dispatch_move_event(_project_id: &str, _file_path: &str, _file_name: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn dispatch_rename_event(project_id: &str, file_path: &str, file_name: &str, is_single: bool) {
@@ -794,7 +794,7 @@ fn dispatch_rename_event(project_id: &str, file_path: &str, file_name: &str, is_
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn dispatch_rename_event(_project_id: &str, _file_path: &str, _file_name: &str, _is_single: bool) {}
+const fn dispatch_rename_event(_project_id: &str, _file_path: &str, _file_name: &str, _is_single: bool) {}
 
 #[cfg(feature = "hydrate")]
 fn dispatch_copy_event(project_id: &str, file_path: &str, file_name: &str) {
@@ -812,7 +812,7 @@ fn dispatch_copy_event(project_id: &str, file_path: &str, file_name: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn dispatch_copy_event(_project_id: &str, _file_path: &str, _file_name: &str) {}
+const fn dispatch_copy_event(_project_id: &str, _file_path: &str, _file_name: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn dispatch_share_event(path: &str, mode: &str, role: &str, users: &str) {
@@ -831,7 +831,7 @@ fn dispatch_share_event(path: &str, mode: &str, role: &str, users: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn dispatch_share_event(_path: &str, _mode: &str, _role: &str, _users: &str) {}
+const fn dispatch_share_event(_path: &str, _mode: &str, _role: &str, _users: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn execute_delete(project_id: &str, file_path: &str, file_name: &str, is_single: bool, is_zh: bool) {
@@ -862,7 +862,7 @@ fn execute_delete(project_id: &str, file_path: &str, file_name: &str, is_single:
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn execute_delete(_project_id: &str, _file_path: &str, _file_name: &str, _is_single: bool, _is_zh: bool) {}
+const fn execute_delete(_project_id: &str, _file_path: &str, _file_name: &str, _is_single: bool, _is_zh: bool) {}
 
 #[cfg(feature = "hydrate")]
 fn navigate_to(url: &str) {
@@ -871,7 +871,7 @@ fn navigate_to(url: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn navigate_to(_url: &str) {}
+const fn navigate_to(_url: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn submit_form_post(action: &str, fields: &[(&str, &str)]) {
@@ -902,7 +902,7 @@ fn submit_form_post(action: &str, fields: &[(&str, &str)]) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn submit_form_post(_action: &str, _fields: &[(&str, &str)]) {}
+const fn submit_form_post(_action: &str, _fields: &[(&str, &str)]) {}
 
 #[cfg(feature = "hydrate")]
 fn wire_outside_click(container: NodeRef<leptos::html::Div>, is_open: RwSignal<bool>) {
@@ -933,9 +933,10 @@ fn wire_outside_click(container: NodeRef<leptos::html::Div>, is_open: RwSignal<b
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn wire_outside_click(_container: NodeRef<leptos::html::Div>, _is_open: RwSignal<bool>) {}
+const fn wire_outside_click(_container: NodeRef<leptos::html::Div>, _is_open: RwSignal<bool>) {}
 
 #[cfg(feature = "hydrate")]
+#[allow(clippy::too_many_arguments)]
 fn wire_operation_listeners(
     move_visible: RwSignal<bool>,
     move_file: RwSignal<String>,
@@ -1025,7 +1026,8 @@ fn wire_operation_listeners(
     });
 }
 #[cfg(not(feature = "hydrate"))]
-fn wire_operation_listeners(
+#[allow(clippy::too_many_arguments)]
+const fn wire_operation_listeners(
     _move_visible: RwSignal<bool>,
     _move_file: RwSignal<String>,
     _move_name: RwSignal<String>,
@@ -1061,7 +1063,7 @@ fn submit_new_file_with_replace() {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn submit_new_file_with_replace() {}
+const fn submit_new_file_with_replace() {}
 
 #[cfg(feature = "hydrate")]
 fn update_new_file_name_and_submit(new_name: &str) {
@@ -1082,7 +1084,7 @@ fn update_new_file_name_and_submit(new_name: &str) {
     }
 }
 #[cfg(not(feature = "hydrate"))]
-fn update_new_file_name_and_submit(_new_name: &str) {}
+const fn update_new_file_name_and_submit(_new_name: &str) {}
 
 #[must_use]
 pub fn compute_unique_name(candidate_path: &str, existing: &[String]) -> String {

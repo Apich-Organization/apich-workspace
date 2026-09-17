@@ -258,7 +258,9 @@ pub fn FileShareModalIsland(
                                     }
                                 />
                                 {move || {
-                                    if !search_query.get().is_empty() {
+                                    if search_query.get().is_empty() {
+                                        view! { <span></span> }.into_any()
+                                    } else {
                                         view! {
                                             <button
                                                 type="button"
@@ -272,8 +274,6 @@ pub fn FileShareModalIsland(
                                                 "Clear"
                                             </button>
                                         }.into_any()
-                                    } else {
-                                        view! { <span></span> }.into_any()
                                     }
                                 }}
                             </div>

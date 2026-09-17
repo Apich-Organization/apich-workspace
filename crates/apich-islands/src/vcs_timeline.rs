@@ -89,7 +89,7 @@ pub fn VcsTimelineIsland(
     let selected_diff_file = RwSignal::new(if initial_file_filter.is_empty() {
         None
     } else {
-        Some(initial_file_filter.clone())
+        Some(initial_file_filter)
     });
     let current_diff = RwSignal::new(None::<FileDiffDto>);
     let is_loading_diff = RwSignal::new(false);
@@ -106,17 +106,18 @@ pub fn VcsTimelineIsland(
     // Helper to generate a default target filename for "Restore to new file"
     let make_default_target_name = |source_path: &str, snap_id: &str| -> String {
         let short_id = if snap_id.len() >= 7 { &snap_id[..7] } else { snap_id };
-        if let Some(pos) = source_path.rfind('.') {
-            let stem = &source_path[..pos];
-            let ext = &source_path[pos..];
-            format!("{stem}_v_{short_id}{ext}")
-        } else {
-            format!("{source_path}_v_{short_id}")
-        }
+        source_path.rfind('.').map_or_else(
+            || format!("{source_path}_v_{short_id}"),
+            |pos| {
+                let stem = &source_path[..pos];
+                let ext = &source_path[pos..];
+                format!("{stem}_v_{short_id}{ext}")
+            },
+        )
     };
 
     // Filter snapshots based on user search and filters
-    let snapshots_pool = initial_snapshots.clone();
+    let snapshots_pool = initial_snapshots;
     let filtered_snapshots = Memo::new(move |_| {
         let q = search_query.get().to_lowercase().trim().to_string();
         let ms_only = milestone_only.get();
@@ -155,7 +156,7 @@ pub fn VcsTimelineIsland(
             is_loading_details.set(true);
 
             leptos::task::spawn_local(async move {
-                let url = format!("/projects/{project_id}/vcs/snapshots/{snap_id}/details");
+                let url = format!("/api/projects/{project_id}/vcs/snapshots/{snap_id}/details");
                 let resp = gloo_net::http::Request::get(&url).send().await;
                 match resp {
                     Ok(res) if res.ok() => {
@@ -207,7 +208,7 @@ pub fn VcsTimelineIsland(
 
             leptos::task::spawn_local(async move {
                 let encoded_file = urlencoding::encode(&rel_file);
-                let url = format!("/projects/{project_id}/vcs/snapshots/{s_id}/diff?file={encoded_file}");
+                let url = format!("/api/projects/{project_id}/vcs/snapshots/{s_id}/diff?file={encoded_file}");
                 let resp = gloo_net::http::Request::get(&url).send().await;
                 match resp {
                     Ok(res) if res.ok() => {
@@ -226,7 +227,7 @@ pub fn VcsTimelineIsland(
         });
     }
 
-    let p_id_for_action = project_id.clone();
+    let p_id_for_action = project_id;
 
     view! {
         <div class="vcs-timeline-container">
@@ -242,7 +243,9 @@ pub fn VcsTimelineIsland(
                         on:input=move |ev| search_query.set(event_target_value(&ev))
                     />
                     {move || {
-                        if !search_query.get().is_empty() {
+                        if search_query.get().is_empty() {
+                            None
+                        } else {
                             Some(view! {
                                 <button
                                     type="button"
@@ -250,8 +253,6 @@ pub fn VcsTimelineIsland(
                                     on:click=move |_| search_query.set(String::new())
                                 >"✕"</button>
                             })
-                        } else {
-                            None
                         }
                     }}
                 </div>
@@ -272,10 +273,12 @@ pub fn VcsTimelineIsland(
                     </button>
                     {move || {
                         let ff = file_filter.get();
-                        if !ff.is_empty() {
+                        if ff.is_empty() {
+                            None
+                        } else {
                             Some(view! {
                                 <span class="vcs-file-filter-badge">
-                                    "📄 " {ff.clone()}
+                                    "📄 " {ff}
                                     <button
                                         type="button"
                                         class="vcs-badge-close"
@@ -287,8 +290,6 @@ pub fn VcsTimelineIsland(
                                     >"✕"</button>
                                 </span>
                             })
-                        } else {
-                            None
                         }
                     }}
                 </div>
@@ -339,7 +340,7 @@ pub fn VcsTimelineIsland(
                                         let sid = s.id.clone();
                                         let sid_clone = s.id.clone();
                                         let is_head = idx == 0;
-                                        let is_last = idx == total - 1;
+                                        let is_last = idx == total.saturating_sub(1);
                                         let short_id = if s.id.len() >= 8 { s.id[..8].to_string() } else { s.id.clone() };
 
                                         view! {
@@ -367,7 +368,7 @@ pub fn VcsTimelineIsland(
                                                     <div class="vcs-node-top">
                                                         <span class="vcs-node-msg" title=s.message.clone()>{s.message.clone()}</span>
                                                         {if s.is_verified {
-                                                            Some(view! { <span class="vcs-verified-badge" title=crate::t(is_zh, "GPG Verified", "GPG 已验证")>"🛡️"</span> })
+                                                             Some(view! { <span class="vcs-verified-badge" title=crate::t(is_zh, "GPG Verified", "GPG 已验证")>"🛡️"</span> })
                                                         } else {
                                                             None
                                                         }}
@@ -375,11 +376,7 @@ pub fn VcsTimelineIsland(
                                                     <div class="vcs-node-meta">
                                                         <code class="vcs-short-hash">{short_id}</code>
                                                         <span class="vcs-node-time">{s.created_at}</span>
-                                                        {if let Some(ms) = s.milestone_name {
-                                                            Some(view! { <span class="badge badge-active vcs-ms-badge">"🏁 " {ms}</span> })
-                                                        } else {
-                                                            None
-                                                        }}
+                                                        {s.milestone_name.map(|ms| view! { <span class="badge badge-active vcs-ms-badge">"🏁 " {ms}</span> })}
                                                     </div>
                                                 </div>
                                             </div>
@@ -425,7 +422,7 @@ pub fn VcsTimelineIsland(
                         let added_count = details.added_files.len();
                         let mod_count = details.modified_files.len();
                         let rem_count = details.removed_files.len();
-                        let total_changed = added_count + mod_count + rem_count;
+                        let total_changed = added_count.saturating_add(mod_count).saturating_add(rem_count);
 
                         view! {
                             <div class="vcs-inspector-card">
@@ -442,7 +439,7 @@ pub fn VcsTimelineIsland(
                                                 let sf_for_replace = sf.clone();
                                                 let sid = snap_id.clone();
                                                 let default_target = make_default_target_name(&sf, &sid);
-                                                let dt_for_new = default_target.clone();
+                                                let dt_for_new = default_target;
 
                                                 view! {
                                                     <div class="btn-group">
@@ -791,19 +788,18 @@ pub fn VcsTimelineIsland(
                                 {crate::t(is_zh, "Cancel", "取消")}
                             </button>
                             {
-                                let p_id = p_id_for_action.clone();
+                                let p_id = p_id_for_action;
                                 view! {
                                     <button
                                         type="button"
                                         class=move || if restore_modal_mode.get() == "revert" { "btn btn-danger" } else { "btn btn-primary" }
                                         disabled=move || is_restoring.get()
                                         on:click={
-                                            let project_id = p_id.clone();
+                                            let project_id = p_id;
                                             move |_| {
                                                 let mode = restore_modal_mode.get();
-                                                let snap_id = match selected_snapshot_id.get() {
-                                                    Some(id) => id,
-                                                    None => return,
+                                                let Some(snap_id) = selected_snapshot_id.get() else {
+                                                    return;
                                                 };
 
                                                 is_restoring.set(true);
@@ -814,7 +810,7 @@ pub fn VcsTimelineIsland(
                                                     let is_zh = is_zh;
                                                     leptos::task::spawn_local(async move {
                                                         if mode == "revert" {
-                                                            let url = format!("/projects/{project_id}/vcs/snapshots/{snap_id}/revert");
+                                                            let url = format!("/api/projects/{project_id}/vcs/snapshots/{snap_id}/revert");
                                                             let res = gloo_net::http::Request::post(&url).send().await;
                                                             match res {
                                                                 Ok(r) if r.ok() => {
@@ -857,7 +853,7 @@ pub fn VcsTimelineIsland(
                                                                 target_file: target_file.clone(),
                                                             };
 
-                                                            let url = format!("/projects/{project_id}/vcs/snapshots/{snap_id}/restore");
+                                                            let url = format!("/api/projects/{project_id}/vcs/snapshots/{snap_id}/restore");
                                                             let req = gloo_net::http::Request::post(&url)
                                                                 .header("Content-Type", "application/json")
                                                                 .json(&payload);

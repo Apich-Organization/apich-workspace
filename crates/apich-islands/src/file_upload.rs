@@ -32,6 +32,7 @@ struct UploadJsonResponse {
 }
 
 /// Format bytes into a human-readable string (e.g. `14.5 MB`).
+#[allow(clippy::cast_precision_loss)]
 pub fn format_bytes(bytes: u64) -> String {
     if bytes < 1024 {
         format!("{bytes} B")
@@ -49,7 +50,7 @@ pub fn format_speed(bps: f64) -> String {
     if bps < 10.0 {
         "-".to_string()
     } else if bps < 1024.0 {
-        format!("{:.0} B/s", bps)
+        format!("{bps:.0} B/s")
     } else if bps < 1024.0 * 1024.0 {
         format!("{:.1} KB/s", bps / 1024.0)
     } else {
@@ -301,7 +302,7 @@ pub fn FileUploadModalIsland(
     };
 
     // Upload start handler
-    let on_start_upload = move |_| {
+    let on_start_upload = move |()| {
         #[cfg(feature = "hydrate")]
         {
             use wasm_bindgen::JsCast;
@@ -585,30 +586,33 @@ pub fn FileUploadModalIsland(
 
                                         // Dropzone UI
                                         {move || {
-                                            if let Some(name) = selected_name.get() {
-                                                let size_str = format_bytes(selected_size.get());
-                                                let icon = get_file_icon(&name);
-                                                view! {
-                                                    <div class="upload-selected-card" style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:8px; padding:0.85rem 1rem;">
-                                                        <div style="display:flex; align-items:center; gap:0.75rem; min-width:0;">
-                                                            <span style="font-size:1.8rem;">{icon}</span>
-                                                            <div style="min-width:0;">
-                                                                <div style="font-weight:600; font-size:0.95rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=name.clone()>{name.clone()}</div>
-                                                                <div style="font-size:0.8rem; color:var(--text-sub, #9aa0a6);">{size_str}</div>
+                                            #[allow(clippy::option_if_let_else)]
+                                            match selected_name.get() {
+                                                Some(name) => {
+                                                    let size_str = format_bytes(selected_size.get());
+                                                    let icon = get_file_icon(&name);
+                                                    view! {
+                                                        <div class="upload-selected-card" style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:8px; padding:0.85rem 1rem;">
+                                                            <div style="display:flex; align-items:center; gap:0.75rem; min-width:0;">
+                                                                <span style="font-size:1.8rem;">{icon}</span>
+                                                                <div style="min-width:0;">
+                                                                    <div style="font-weight:600; font-size:0.95rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=name.clone()>{name.clone()}</div>
+                                                                    <div style="font-size:0.8rem; color:var(--text-sub, #9aa0a6);">{size_str}</div>
+                                                                </div>
                                                             </div>
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-secondary btn-xs"
+                                                                on:click=on_clear_selection
+                                                                style="font-size:0.8rem; padding:0.35rem 0.65rem;"
+                                                            >
+                                                                {if zh { "✕ 更改" } else { "✕ Change" }}
+                                                            </button>
                                                         </div>
-                                                        <button
-                                                            type="button"
-                                                            class="btn btn-secondary btn-xs"
-                                                            on:click=on_clear_selection
-                                                            style="font-size:0.8rem; padding:0.35rem 0.65rem;"
-                                                        >
-                                                            {if zh { "✕ 更改" } else { "✕ Change" }}
-                                                        </button>
-                                                    </div>
-                                                }.into_any()
-                                            } else {
-                                                view! {
+                                                    }.into_any()
+                                                }
+                                                None => {
+                                                    view! {
                                                     <div
                                                         class="upload-dropzone"
                                                         class=("is-dragover", move || is_dragover.get())
@@ -634,7 +638,8 @@ pub fn FileUploadModalIsland(
                                                             {if zh { "📁 选择本地文件" } else { "📁 Select File" }}
                                                         </button>
                                                     </div>
-                                                }.into_any()
+                                                    }.into_any()
+                                                }
                                             }
                                         }}
 
@@ -690,6 +695,7 @@ pub fn FileUploadModalIsland(
                                 let pct = progress_pct.get();
                                 let speed_str = format_speed(speed_bps.get());
                                 let transferred_str = format!("{}/{}", format_bytes(loaded_bytes.get()), format_bytes(total_bytes.get()));
+                                let transferred_title = transferred_str.clone();
                                 let eta_str = format_eta(eta_secs.get(), zh);
                                 let is_done = is_completed.get();
                                 let is_proc = is_processing.get() && !is_done;
@@ -699,13 +705,13 @@ pub fn FileUploadModalIsland(
                                         // Header file indicator
                                         <div style="display:flex; align-items:center; justify-content:space-between;">
                                             <div style="display:flex; align-items:center; gap:0.5rem; min-width:0;">
-                                                <span style="font-size:1.4rem;">{selected_name.get().map(|n| get_file_icon(&n)).unwrap_or("📄")}</span>
+                                                <span style="font-size:1.4rem;">{selected_name.get().map_or("📄", |n| get_file_icon(&n))}</span>
                                                 <span style="font-weight:600; font-size:0.95rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                                                     {selected_name.get().unwrap_or_default()}
                                                 </span>
                                             </div>
                                             <div style="font-size:1.1rem; font-weight:700; color:var(--primary, #3b82f6);">
-                                                {format!("{:.1}%", pct)}
+                                                {format!("{pct:.1}%")}
                                             </div>
                                         </div>
 
@@ -713,7 +719,7 @@ pub fn FileUploadModalIsland(
                                         <div class="upload-progress-container" style="background:var(--bg-elevated, #282c37); border-radius:10px; height:12px; overflow:hidden; position:relative; box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);">
                                             <div
                                                 class="upload-progress-fill"
-                                                style=format!("width: {:.2}%; height:100%; background: linear-gradient(90deg, #3b82f6, #60a5fa, #38bdf8); transition: width 0.15s ease-out; border-radius:10px; position:relative;", pct)
+                                                style=format!("width: {pct:.2}%; height:100%; background: linear-gradient(90deg, #3b82f6, #60a5fa, #38bdf8); transition: width 0.15s ease-out; border-radius:10px; position:relative;")
                                             >
                                                 <div class="upload-progress-shine" style="position:absolute; inset:0; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); animation:uploadShine 1.5s infinite linear;"></div>
                                             </div>
@@ -727,7 +733,7 @@ pub fn FileUploadModalIsland(
                                                     {if zh { "进度" } else { "Progress" }}
                                                 </div>
                                                 <div style="font-weight:700; font-size:0.95rem; color:var(--text-main, #f0f3f6);">
-                                                    {format!("{:.1}%", pct)}
+                                                    {format!("{pct:.1}%")}
                                                 </div>
                                             </div>
 
@@ -746,8 +752,8 @@ pub fn FileUploadModalIsland(
                                                 <div style="font-size:0.72rem; color:var(--text-sub, #9aa0a6); margin-bottom:0.2rem;">
                                                     {if zh { "已传输" } else { "Transferred" }}
                                                 </div>
-                                                 <div style="font-weight:700; font-size:0.85rem; color:var(--text-main, #f0f3f6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=transferred_str.clone()>
-                                                    {transferred_str.clone()}
+                                                 <div style="font-weight:700; font-size:0.85rem; color:var(--text-main, #f0f3f6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=transferred_title>
+                                                    {transferred_str}
                                                 </div>
                                             </div>
 

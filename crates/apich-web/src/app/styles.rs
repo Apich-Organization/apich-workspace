@@ -1197,14 +1197,28 @@ select::-ms-expand {
     align-items: center;
     gap: 0.65rem;
     font-weight: 500;
+    width: 100%;
+    min-width: 0;
 }
-.file-name-cell a {
+.file-name-cell a,
+.file-name-cell > span:nth-child(2) {
     color: var(--text-main);
     text-decoration: none;
+    min-width: 0;
+    word-break: break-word;
 }
 .file-name-cell a:hover {
     color: var(--primary);
     text-decoration: underline;
+}
+.file-name-cell .file-more-wrap,
+.file-name-cell > leptos-island {
+    margin-left: auto;
+    flex-shrink: 0;
+}
+.file-name-cell .file-action-menu {
+    right: 0;
+    left: auto;
 }
 
 .file-table th.sortable-th {
@@ -1255,6 +1269,7 @@ select::-ms-expand {
     justify-content: center;
 }
 .file-name-cell:hover .file-more-btn,
+.file-table tr:hover .file-more-btn,
 .project-card:hover .file-more-btn,
 .file-more-btn:focus,
 .file-more-btn.is-active {

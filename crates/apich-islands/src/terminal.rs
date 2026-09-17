@@ -1,7 +1,9 @@
-//! Real Rust replacement for the terminal page's hand-written JS (`terminal_page.rs`): submits
-//! commands to the project's real sandbox container, appends output to the screen,
+//! Real Rust replacement for the terminal page's hand-written JS (`terminal_page.rs`).
+//!
+//! Submits commands to the project's real sandbox container, appends output to the screen,
 //! auto-scrolls to the newest output, and provides full and cropped screenshot and animation capture to project assets.
 
+use std::fmt::Write;
 use leptos::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -229,10 +231,8 @@ pub fn TerminalIsland(
     };
 
     // Toggle live session recording (crops frames if crop_active is true)
-    let toggle_recording = {
-        let project_id = project_id.clone();
-        move |_| {
-            if is_recording.get_untracked() {
+    let toggle_recording = move |_| {
+        if is_recording.get_untracked() {
                 is_recording.set(false);
                 let frames = rec_frames.get_value();
                 if frames.is_empty() {
@@ -266,8 +266,7 @@ pub fn TerminalIsland(
                     if is_crop { "🔴 Recording started (recording cropped area only)..." } else { "🔴 Recording started, run commands in terminal..." }
                 }.to_string()));
             }
-        }
-    };
+        };
 
     // Drag start handler for selection box or handles
     let start_drag = move |handle: DragHandle, ev: leptos::ev::MouseEvent| {
@@ -275,8 +274,8 @@ pub fn TerminalIsland(
         ev.prevent_default();
         drag_start.set_value(Some(DragStart {
             handle,
-            mouse_x: ev.client_x() as f64,
-            mouse_y: ev.client_y() as f64,
+            mouse_x: f64::from(ev.client_x()),
+            mouse_y: f64::from(ev.client_y()),
             init_x: crop_x.get_untracked(),
             init_y: crop_y.get_untracked(),
             init_w: crop_w.get_untracked(),
@@ -287,8 +286,8 @@ pub fn TerminalIsland(
     // Mouse move handler on container
     let on_container_mousemove = move |ev: leptos::ev::MouseEvent| {
         if let Some(ds) = drag_start.get_value() {
-            let dx = (ev.client_x() as f64 - ds.mouse_x) as i32;
-            let dy = (ev.client_y() as f64 - ds.mouse_y) as i32;
+            let dx = (f64::from(ev.client_x()) - ds.mouse_x) as i32;
+            let dy = (f64::from(ev.client_y()) - ds.mouse_y) as i32;
             let (_, client_w, client_h) = get_terminal_screen_metrics();
             let max_bound_w = client_w as i32;
             let max_bound_h = client_h as i32;
@@ -297,68 +296,68 @@ pub fn TerminalIsland(
                 DragHandle::Move => {
                     let cur_w = crop_w.get_untracked();
                     let cur_h = crop_h.get_untracked();
-                    let max_x = (max_bound_w - cur_w).max(0);
-                    let max_y = (max_bound_h - cur_h).max(0);
-                    crop_x.set((ds.init_x + dx).clamp(0, max_x));
-                    crop_y.set((ds.init_y + dy).clamp(0, max_y));
+                    let max_x = max_bound_w.saturating_sub(cur_w).max(0);
+                    let max_y = max_bound_h.saturating_sub(cur_h).max(0);
+                    crop_x.set(ds.init_x.saturating_add(dx).clamp(0, max_x));
+                    crop_y.set(ds.init_y.saturating_add(dy).clamp(0, max_y));
                 }
                 DragHandle::E => {
                     let cur_x = crop_x.get_untracked();
-                    let max_w = (max_bound_w - cur_x).max(120);
-                    crop_w.set((ds.init_w + dx).clamp(120, max_w));
+                    let max_w = max_bound_w.saturating_sub(cur_x).max(120);
+                    crop_w.set(ds.init_w.saturating_add(dx).clamp(120, max_w));
                 }
                 DragHandle::S => {
                     let cur_y = crop_y.get_untracked();
-                    let max_h = (max_bound_h - cur_y).max(60);
-                    crop_h.set((ds.init_h + dy).clamp(60, max_h));
+                    let max_h = max_bound_h.saturating_sub(cur_y).max(60);
+                    crop_h.set(ds.init_h.saturating_add(dy).clamp(60, max_h));
                 }
                 DragHandle::Se => {
                     let cur_x = crop_x.get_untracked();
                     let cur_y = crop_y.get_untracked();
-                    let max_w = (max_bound_w - cur_x).max(120);
-                    let max_h = (max_bound_h - cur_y).max(60);
-                    crop_w.set((ds.init_w + dx).clamp(120, max_w));
-                    crop_h.set((ds.init_h + dy).clamp(60, max_h));
+                    let max_w = max_bound_w.saturating_sub(cur_x).max(120);
+                    let max_h = max_bound_h.saturating_sub(cur_y).max(60);
+                    crop_w.set(ds.init_w.saturating_add(dx).clamp(120, max_w));
+                    crop_h.set(ds.init_h.saturating_add(dy).clamp(60, max_h));
                 }
                 DragHandle::W => {
-                    let cur_right = ds.init_x + ds.init_w;
-                    let new_x = (ds.init_x + dx).clamp(0, cur_right - 120);
+                    let cur_right = ds.init_x.saturating_add(ds.init_w);
+                    let new_x = ds.init_x.saturating_add(dx).clamp(0, cur_right.saturating_sub(120));
                     crop_x.set(new_x);
-                    crop_w.set(cur_right - new_x);
+                    crop_w.set(cur_right.saturating_sub(new_x));
                 }
                 DragHandle::N => {
-                    let cur_bottom = ds.init_y + ds.init_h;
-                    let new_y = (ds.init_y + dy).clamp(0, cur_bottom - 60);
+                    let cur_bottom = ds.init_y.saturating_add(ds.init_h);
+                    let new_y = ds.init_y.saturating_add(dy).clamp(0, cur_bottom.saturating_sub(60));
                     crop_y.set(new_y);
-                    crop_h.set(cur_bottom - new_y);
+                    crop_h.set(cur_bottom.saturating_sub(new_y));
                 }
                 DragHandle::Nw => {
-                    let cur_right = ds.init_x + ds.init_w;
-                    let cur_bottom = ds.init_y + ds.init_h;
-                    let new_x = (ds.init_x + dx).clamp(0, cur_right - 120);
-                    let new_y = (ds.init_y + dy).clamp(0, cur_bottom - 60);
+                    let cur_right = ds.init_x.saturating_add(ds.init_w);
+                    let cur_bottom = ds.init_y.saturating_add(ds.init_h);
+                    let new_x = ds.init_x.saturating_add(dx).clamp(0, cur_right.saturating_sub(120));
+                    let new_y = ds.init_y.saturating_add(dy).clamp(0, cur_bottom.saturating_sub(60));
                     crop_x.set(new_x);
                     crop_y.set(new_y);
-                    crop_w.set(cur_right - new_x);
-                    crop_h.set(cur_bottom - new_y);
+                    crop_w.set(cur_right.saturating_sub(new_x));
+                    crop_h.set(cur_bottom.saturating_sub(new_y));
                 }
                 DragHandle::Ne => {
                     let cur_x = crop_x.get_untracked();
-                    let cur_bottom = ds.init_y + ds.init_h;
-                    let max_w = (max_bound_w - cur_x).max(120);
-                    let new_y = (ds.init_y + dy).clamp(0, cur_bottom - 60);
-                    crop_w.set((ds.init_w + dx).clamp(120, max_w));
+                    let cur_bottom = ds.init_y.saturating_add(ds.init_h);
+                    let max_w = max_bound_w.saturating_sub(cur_x).max(120);
+                    let new_y = ds.init_y.saturating_add(dy).clamp(0, cur_bottom.saturating_sub(60));
+                    crop_w.set(ds.init_w.saturating_add(dx).clamp(120, max_w));
                     crop_y.set(new_y);
-                    crop_h.set(cur_bottom - new_y);
+                    crop_h.set(cur_bottom.saturating_sub(new_y));
                 }
                 DragHandle::Sw => {
-                    let cur_right = ds.init_x + ds.init_w;
+                    let cur_right = ds.init_x.saturating_add(ds.init_w);
                     let cur_y = crop_y.get_untracked();
-                    let max_h = (max_bound_h - cur_y).max(60);
-                    let new_x = (ds.init_x + dx).clamp(0, cur_right - 120);
+                    let max_h = max_bound_h.saturating_sub(cur_y).max(60);
+                    let new_x = ds.init_x.saturating_add(dx).clamp(0, cur_right.saturating_sub(120));
                     crop_x.set(new_x);
-                    crop_w.set(cur_right - new_x);
-                    crop_h.set((ds.init_h + dy).clamp(60, max_h));
+                    crop_w.set(cur_right.saturating_sub(new_x));
+                    crop_h.set(ds.init_h.saturating_add(dy).clamp(60, max_h));
                 }
             }
         }
@@ -648,7 +647,7 @@ pub fn TerminalIsland(
                         <div style="display:flex; align-items:center; gap:0.5rem;">
                             <span style="color:#4ade80; font-size:1.1rem; font-weight:700;">"✓"</span>
                             <span style="font-weight:600; color:#f8fafc;">{info.message.clone()}</span>
-                            <span class="file-type-pill pill-doc" style="font-size:0.65rem; text-transform:uppercase;">{info.format.clone()}</span>
+                            <span class="file-type-pill pill-doc" style="font-size:0.65rem; text-transform:uppercase;">{info.format}</span>
                         </div>
                         <button
                             type="button"
@@ -674,7 +673,7 @@ pub fn TerminalIsland(
                                 type="button"
                                 class="btn btn-secondary btn-xs"
                                 style="background:#1e293b; color:#cbd5e1;"
-                                on:click={let c = typst_code.clone(); move |_| copy_to_clipboard(&c)}
+                                on:click={let c = typst_code; move |_| copy_to_clipboard(&c)}
                             >
                                 {crate::t(is_zh, "复制", "Copy")}
                             </button>
@@ -692,7 +691,7 @@ pub fn TerminalIsland(
                                 type="button"
                                 class="btn btn-secondary btn-xs"
                                 style="background:#1e293b; color:#cbd5e1;"
-                                on:click={let c = md_code.clone(); move |_| copy_to_clipboard(&c)}
+                                on:click={let c = md_code; move |_| copy_to_clipboard(&c)}
                             >
                                 {crate::t(is_zh, "复制", "Copy")}
                             </button>
@@ -710,7 +709,7 @@ pub fn TerminalIsland(
                                 type="button"
                                 class="btn btn-secondary btn-xs"
                                 style="background:#1e293b; color:#cbd5e1;"
-                                on:click={let c = latex_code.clone(); move |_| copy_to_clipboard(&c)}
+                                on:click={let c = latex_code; move |_| copy_to_clipboard(&c)}
                             >
                                 {crate::t(is_zh, "复制", "Copy")}
                             </button>
@@ -788,7 +787,7 @@ fn copy_to_clipboard(text: &str) {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn copy_to_clipboard(_text: &str) {}
+const fn copy_to_clipboard(_text: &str) {}
 
 // -----------------------------------------------------------------------------
 // Crop Text Extraction Logic
@@ -796,6 +795,7 @@ fn copy_to_clipboard(_text: &str) {}
 
 /// Extracts precisely the text lines and character columns that are visible inside
 /// the user's draggable/resizable crop box, taking scroll position into account.
+#[allow(clippy::cast_precision_loss)]
 fn extract_cropped_text(text: &str, crop: ScreenCropMetrics) -> (String, u32) {
     let all_lines: Vec<&str> = text.lines().collect();
     if all_lines.is_empty() {
@@ -808,44 +808,54 @@ fn extract_cropped_text(text: &str, crop: ScreenCropMetrics) -> (String, u32) {
     let padding_left_px = 20.0f64;
     let char_width_px = 8.16f64;
 
-    let content_top = (crop.crop_y as f64 + crop.scroll_top - padding_top_px).max(0.0);
-    let content_bottom = content_top + (crop.crop_h as f64);
+    let content_top = (f64::from(crop.crop_y) + crop.scroll_top - padding_top_px).max(0.0);
+    let content_bottom = content_top + f64::from(crop.crop_h);
 
     let start_line = (content_top / line_height_px).floor() as usize;
-    let end_line = ((content_bottom / line_height_px).ceil() as usize).max(start_line + 1);
+    let end_line = ((content_bottom / line_height_px).ceil() as usize).max(start_line.saturating_add(1));
 
     let total_lines = all_lines.len();
     let s_line = start_line.min(total_lines.saturating_sub(1));
-    let e_line = end_line.min(total_lines).max(s_line + 1);
+    let e_line = end_line.min(total_lines).max(s_line.saturating_add(1));
 
-    let left_in_content = (crop.crop_x as f64 - padding_left_px).max(0.0);
+    let left_in_content = (f64::from(crop.crop_x) - padding_left_px).max(0.0);
     let start_col = (left_in_content / char_width_px).floor() as usize;
-    let col_count = ((crop.crop_w as f64) / char_width_px).ceil() as usize;
-    let end_col = start_col + col_count;
+    let col_count = (f64::from(crop.crop_w) / char_width_px).ceil() as usize;
+    let end_col = start_col.saturating_add(col_count);
 
     let mut cropped_lines = Vec::new();
-    for line in &all_lines[s_line..e_line] {
-        let chars: Vec<char> = line.chars().collect();
-        if chars.is_empty() {
-            cropped_lines.push(String::new());
-            continue;
-        }
-
-        // If user positioned the box horizontally past the first 4 columns, slice columns
-        if start_col > 4 && start_col < chars.len() {
-            let sc = start_col.min(chars.len());
-            let ec = end_col.min(chars.len());
-            if ec > sc {
-                cropped_lines.push(chars[sc..ec].iter().collect());
-            } else {
+    if let Some(slice) = all_lines.get(s_line..e_line) {
+        for line in slice {
+            let chars: Vec<char> = line.chars().collect();
+            if chars.is_empty() {
                 cropped_lines.push(String::new());
+                continue;
             }
-        } else if end_col < chars.len() && (crop.crop_w as f64) < crop.client_w * 0.85 {
-            let ec = end_col.min(chars.len());
-            cropped_lines.push(chars[0..ec].iter().collect());
-        } else {
-            // Full line
-            cropped_lines.push((*line).to_string());
+
+            // If user positioned the box horizontally past the first 4 columns, slice columns
+            if start_col > 4 && start_col < chars.len() {
+                let sc = start_col.min(chars.len());
+                let ec = end_col.min(chars.len());
+                if ec > sc {
+                    if let Some(sub) = chars.get(sc..ec) {
+                        cropped_lines.push(sub.iter().collect());
+                    } else {
+                        cropped_lines.push(String::new());
+                    }
+                } else {
+                    cropped_lines.push(String::new());
+                }
+            } else if end_col < chars.len() && f64::from(crop.crop_w) < crop.client_w * 0.85 {
+                let ec = end_col.min(chars.len());
+                if let Some(sub) = chars.get(..ec) {
+                    cropped_lines.push(sub.iter().collect());
+                } else {
+                    cropped_lines.push(chars.iter().collect());
+                }
+            } else {
+                // Full line
+                cropped_lines.push((*line).to_string());
+            }
         }
     }
 
@@ -859,6 +869,7 @@ fn extract_cropped_text(text: &str, crop: ScreenCropMetrics) -> (String, u32) {
 
 /// Generates a clean, standalone terminal vector SVG with macOS title bar and syntax coloring.
 /// If `target_width` is specified, the SVG adapts to that width.
+#[allow(clippy::cast_precision_loss)]
 fn generate_terminal_svg(
     text: &str,
     title: &str,
@@ -879,14 +890,17 @@ fn generate_terminal_svg(
         .unwrap_or(40)
         .max(45);
 
-    let natural_width = ((max_line_len as f64 * char_width) as u32 + padding_x * 2).clamp(520, 1100);
+    let natural_width = (((max_line_len as f64) * char_width) as u32)
+        .saturating_add(padding_x.saturating_mul(2))
+        .clamp(520, 1100);
     let full_width = target_width.unwrap_or(natural_width).clamp(480, 1100);
     let full_height = header_height
-        + (raw_lines.len() as u32 * line_height).max(60)
-        + padding_bottom;
+        .saturating_add((raw_lines.len() as u32).saturating_mul(line_height).max(60))
+        .saturating_add(padding_bottom);
 
     let mut svg = String::with_capacity(4096);
-    svg.push_str(&format!(
+    let _ = write!(
+        svg,
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {full_width} {full_height}" width="{full_width}" height="{full_height}">
   <rect x="0" y="0" width="{full_width}" height="{full_height}" rx="10" ry="10" fill="#090d16" stroke="#1e293b" stroke-width="1"/>
   <!-- Window Header -->
@@ -906,10 +920,10 @@ fn generate_terminal_svg(
         center_x = full_width / 2,
         escaped_title = xml_escape(title),
         font_size = font_size,
-    ));
+    );
 
     for (i, line) in raw_lines.iter().enumerate() {
-        let y = header_height + 24 + (i as u32 * line_height);
+        let y = header_height.saturating_add(24).saturating_add((i as u32).saturating_mul(line_height));
         let trimmed = line.trim_start();
         let (fill, font_weight) = if trimmed.starts_with('$') {
             ("#38bdf8", "700")
@@ -923,15 +937,15 @@ fn generate_terminal_svg(
             ("#cbd5e1", "400")
         };
 
-        svg.push_str(&format!(
-            r#"    <text x="{padding_x}" y="{y}" fill="{fill}" font-weight="{font_weight}" xml:space="preserve">{text}</text>
-"#,
+        let _ = writeln!(
+            svg,
+            r#"    <text x="{padding_x}" y="{y}" fill="{fill}" font-weight="{font_weight}" xml:space="preserve">{text}</text>"#,
             padding_x = padding_x,
             y = y,
             fill = fill,
             font_weight = font_weight,
             text = xml_escape(line)
-        ));
+        );
     }
 
     svg.push_str("  </g>\n</svg>");
@@ -939,6 +953,7 @@ fn generate_terminal_svg(
 }
 
 /// Generates an animated SVG where lines stream out sequentially and loop cleanly.
+#[allow(clippy::cast_precision_loss)]
 fn generate_animated_terminal_svg(
     text: &str,
     title: &str,
@@ -960,17 +975,20 @@ fn generate_animated_terminal_svg(
         .unwrap_or(40)
         .max(45);
 
-    let natural_width = ((max_line_len as f64 * char_width) as u32 + padding_x * 2).clamp(520, 1100);
+    let natural_width = (((max_line_len as f64) * char_width) as u32)
+        .saturating_add(padding_x.saturating_mul(2))
+        .clamp(520, 1100);
     let full_width = target_width.unwrap_or(natural_width).clamp(480, 1100);
     let full_height = header_height
-        + (raw_lines.len() as u32 * line_height).max(60)
-        + padding_bottom;
+        .saturating_add((raw_lines.len() as u32).saturating_mul(line_height).max(60))
+        .saturating_add(padding_bottom);
 
     let total_dur = ((n as f64 * 0.4).max(3.5) + 3.0).min(18.0);
     let hold_ratio = ((total_dur - 1.5) / total_dur).clamp(0.65, 0.92);
 
     let mut svg = String::with_capacity(4096);
-    svg.push_str(&format!(
+    let _ = write!(
+        svg,
         r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {full_width} {full_height}" width="{full_width}" height="{full_height}">
   <rect x="0" y="0" width="{full_width}" height="{full_height}" rx="10" ry="10" fill="#090d16" stroke="#1e293b" stroke-width="1"/>
   <path d="M 0 10 C 0 4.477 4.477 0 10 0 L {w_minus_10} 0 C {w_minus_0} 0 {full_width} 4.477 {full_width} 10 L {full_width} {header_height} L 0 {header_height} Z" fill="#0f172a"/>
@@ -989,10 +1007,10 @@ fn generate_animated_terminal_svg(
         center_x = full_width / 2,
         escaped_title = xml_escape(title),
         font_size = font_size,
-    ));
+    );
 
     for (i, line) in raw_lines.iter().enumerate() {
-        let y = header_height + 24 + (i as u32 * line_height);
+        let y = header_height.saturating_add(24).saturating_add((i as u32).saturating_mul(line_height));
         let trimmed = line.trim_start();
         let (fill, font_weight) = if trimmed.starts_with('$') {
             ("#38bdf8", "700")
@@ -1007,12 +1025,12 @@ fn generate_animated_terminal_svg(
         let start_ratio = ((i as f64 / n as f64) * (hold_ratio - 0.15)).clamp(0.0, 0.85);
         let appear_ratio = (start_ratio + 0.04).min(hold_ratio);
 
-        svg.push_str(&format!(
+        let _ = writeln!(
+            svg,
             r#"    <text x="{padding_x}" y="{y}" fill="{fill}" font-weight="{font_weight}" xml:space="preserve" opacity="0">
       <animate attributeName="opacity" dur="{total_dur:.1}s" values="0;0;1;1;0" keyTimes="0;{start_ratio:.3};{appear_ratio:.3};{hold_ratio:.3};1" repeatCount="indefinite"/>
       {text}
-    </text>
-"#,
+    </text>"#,
             padding_x = padding_x,
             y = y,
             fill = fill,
@@ -1022,7 +1040,7 @@ fn generate_animated_terminal_svg(
             appear_ratio = appear_ratio,
             hold_ratio = hold_ratio,
             text = xml_escape(line)
-        ));
+        );
     }
 
     svg.push_str("  </g>\n</svg>");
@@ -1043,16 +1061,17 @@ fn compile_recorded_frames_to_svg(
     let mut combined_text = String::new();
     for (_, text) in frames {
         if text.len() > combined_text.len() {
-            combined_text = text.clone();
+            combined_text.clone_from(text);
         }
     }
 
-    if let Some(metrics) = crop {
-        let (cropped_text, target_w) = extract_cropped_text(&combined_text, metrics);
-        generate_animated_terminal_svg(&cropped_text, title, Some(target_w)).0
-    } else {
-        generate_animated_terminal_svg(&combined_text, title, None).0
-    }
+    crop.map_or_else(
+        || generate_animated_terminal_svg(&combined_text, title, None).0,
+        |metrics| {
+            let (cropped_text, target_w) = extract_cropped_text(&combined_text, metrics);
+            generate_animated_terminal_svg(&cropped_text, title, Some(target_w)).0
+        },
+    )
 }
 
 fn xml_escape(s: &str) -> String {
@@ -1075,6 +1094,7 @@ fn xml_escape(s: &str) -> String {
 // -----------------------------------------------------------------------------
 
 #[cfg(feature = "hydrate")]
+#[allow(clippy::too_many_arguments)]
 fn save_asset_to_backend(
     project_id: String,
     data_content: String,
@@ -1126,6 +1146,7 @@ fn save_asset_to_backend(
 }
 
 #[cfg(not(feature = "hydrate"))]
+#[allow(clippy::too_many_arguments)]
 fn save_asset_to_backend(
     _project_id: String,
     _data_content: String,
@@ -1140,6 +1161,7 @@ fn save_asset_to_backend(
 }
 
 #[cfg(feature = "hydrate")]
+#[allow(clippy::too_many_arguments)]
 fn render_svg_to_png_and_save(
     project_id: String,
     svg_content: String,
@@ -1205,6 +1227,7 @@ fn render_svg_to_png_and_save(
 }
 
 #[cfg(not(feature = "hydrate"))]
+#[allow(clippy::too_many_arguments)]
 fn render_svg_to_png_and_save(
     _project_id: String,
     _svg_content: String,

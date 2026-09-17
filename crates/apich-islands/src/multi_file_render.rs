@@ -101,7 +101,6 @@ pub fn MultiFileRenderModalIsland(
 
     // Execute multi-file render via fetch
     let on_render_click = {
-        let project_id = project_id.clone();
         let doc_type = doc_type.clone();
         move |_| {
             let cur_items = items.get();
@@ -135,10 +134,10 @@ pub fn MultiFileRenderModalIsland(
                 None
             };
             let save_val = save_source.get().trim().to_string();
-            let save_opt = if !save_val.is_empty() {
-                Some(save_val)
-            } else {
+            let save_opt = if save_val.is_empty() {
                 None
+            } else {
+                Some(save_val)
             };
 
             let payload = MultiRenderApiPayload {
@@ -322,12 +321,15 @@ pub fn MultiFileRenderModalIsland(
                     <div style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1.25rem;">
                         {move || {
                             let cur_items = items.get();
+                            // Captured once here, NOT read from the signal again inside the rows
+                            // below -- see the `prop:disabled` comment on the "move down" button.
+                            let total = cur_items.len();
                             let mut order_counter = 0usize;
 
                             cur_items.into_iter().enumerate().map(|(idx, item)| {
                                 let is_sel = item.selected;
                                 let order_badge = if is_sel {
-                                    order_counter += 1;
+                                    order_counter = order_counter.saturating_add(1);
                                     format!("#{order_counter}")
                                 } else {
                                     "-".to_string()
@@ -373,7 +375,7 @@ pub fn MultiFileRenderModalIsland(
                                             <div style="display:flex; align-items:center; gap:0.4rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                                                 <span style="font-size:0.95rem;">{if is_latex { "📝" } else { "📄" }}</span>
                                                 <span style="font-size:0.85rem; font-family:var(--font-mono); font-weight:500; color:var(--text-main); overflow:hidden; text-overflow:ellipsis;">
-                                                    {item.path.clone()}
+                                                    {item.path}
                                                 </span>
                                             </div>
                                         </div>
@@ -384,7 +386,7 @@ pub fn MultiFileRenderModalIsland(
                                                 type="button"
                                                 class="btn btn-secondary btn-sm"
                                                 style="padding:0.2rem 0.5rem; font-size:0.75rem;"
-                                                prop:disabled=move || idx == 0
+                                                prop:disabled=idx == 0
                                                 on:click=move |_| {
                                                     if idx > 0 {
                                                         items.update(|list| {
@@ -400,7 +402,28 @@ pub fn MultiFileRenderModalIsland(
                                                 type="button"
                                                 class="btn btn-secondary btn-sm"
                                                 style="padding:0.2rem 0.5rem; font-size:0.75rem;"
-                                                prop:disabled=move || idx.saturating_add(1) >= items.get().len()
+                                                // Deliberately a plain value, not `move || ...
+                                                // items.get() ...`. This button is rendered inside
+                                                // the enclosing `move ||` block that already reads
+                                                // `items`, so a nested closure reading the same
+                                                // signal registers a second reactive subscriber
+                                                // whose owner is the very DOM subtree that the
+                                                // outer block tears down and rebuilds on every
+                                                // `items` change. Updating `items` (ticking a
+                                                // checkbox, pressing ⬆/⬇) then invoked that inner
+                                                // closure against a scope being disposed in the
+                                                // same update, which traps the whole wasm module
+                                                // with "closure invoked recursively or after being
+                                                // dropped" -- and because that kills the shared
+                                                // module, *every* island on the page stops
+                                                // responding, not just this modal. `total` comes
+                                                // from the same snapshot the row was built from,
+                                                // so it is always correct for this render pass.
+                                                // Parenthesised on purpose: `view!`'s parser ends
+                                                // an opening tag at the first `>`, so an
+                                                // unbracketed `>=` here silently truncates the
+                                                // attribute instead of comparing.
+                                                prop:disabled={idx.saturating_add(1) >= total}
                                                 on:click=move |_| {
                                                     items.update(|list| {
                                                         if idx.saturating_add(1) < list.len() {

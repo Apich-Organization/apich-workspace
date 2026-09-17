@@ -75,6 +75,7 @@ pub fn AttachModalIsland(
 
     wire_attach_modal_listener(visible, active_tab, reload_files);
 
+    #[allow(clippy::cast_precision_loss)]
     let format_file_size = |bytes: u64| -> String {
         if bytes < 1024 {
             format!("{bytes} B")
@@ -136,7 +137,7 @@ pub fn AttachModalIsland(
         (all, img, doc, data, other)
     };
 
-    let p_id_for_upload = project_id.clone();
+    let p_id_for_upload = project_id;
     let on_submit_upload = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let preset = upload_folder_preset.get();
@@ -239,7 +240,9 @@ pub fn AttachModalIsland(
                                     prop:value=move || search_query.get()
                                     on:input=move |ev| search_query.set(event_target_value(&ev))
                                 />
-                                {move || if !search_query.get().is_empty() {
+                                {move || if search_query.get().is_empty() {
+                                    view! { <span></span> }.into_any()
+                                } else {
                                     view! {
                                         <button
                                             type="button"
@@ -250,8 +253,6 @@ pub fn AttachModalIsland(
                                             "×"
                                         </button>
                                     }.into_any()
-                                } else {
-                                    view! { <span></span> }.into_any()
                                 }}
                             </div>
                             <div class="attach-dropdown-wrap">
@@ -264,15 +265,13 @@ pub fn AttachModalIsland(
                                     {move || {
                                         let (all_cnt, img_cnt, doc_cnt, data_cnt, other_cnt) = counts();
                                         view! {
-                                            <option value="all">{format!("📁 All Categories ({})", all_cnt)}</option>
-                                            <option value="image">{format!("🖼️ Images ({})", img_cnt)}</option>
-                                            <option value="document">{format!("📄 Documents ({})", doc_cnt)}</option>
-                                            <option value="data">{format!("📊 Data & Tables ({})", data_cnt)}</option>
-                                            {if other_cnt > 0 {
-                                                view! { <option value="other">{format!("📦 Other Files ({})", other_cnt)}</option> }.into_any()
-                                            } else {
-                                                view! { <></> }.into_any()
-                                            }}
+                                            <option value="all">{format!("📁 All Categories ({all_cnt})")}</option>
+                                            <option value="image">{format!("🖼️ Images ({img_cnt})")}</option>
+                                            <option value="document">{format!("📄 Documents ({doc_cnt})")}</option>
+                                            <option value="data">{format!("📊 Data & Tables ({data_cnt})")}</option>
+                                            {(other_cnt > 0).then(|| {
+                                                view! { <option value="other">{format!("📦 Other Files ({other_cnt})")}</option> }
+                                            })}
                                         }
                                     }}
                                 </select>
@@ -459,12 +458,13 @@ pub fn AttachModalIsland(
                         // Selected file preview card
                         {move || {
                             selected_file_info.get().map(|(name, size)| {
+                                let title_name = name.clone();
                                 view! {
                                     <div class="attach-selected-card">
                                         <div style="display:flex; align-items:center; gap:0.75rem; min-width:0;">
                                             <span style="font-size:1.5rem;">"📄"</span>
                                             <div style="min-width:0;">
-                                                <div class="attach-selected-name" title=name.clone()>{name.clone()}</div>
+                                                <div class="attach-selected-name" title=title_name>{name}</div>
                                                 <div class="attach-selected-size">{size}</div>
                                             </div>
                                         </div>
@@ -521,6 +521,7 @@ pub fn AttachModalIsland(
                             let pct = upload_progress_pct.get();
                             let speed = format_speed(upload_speed_bps.get());
                             let transferred = format!("{}/{}", format_file_size(upload_loaded_bytes.get()), format_file_size(upload_total_bytes.get()));
+                            let transferred_title = transferred.clone();
                             let eta = format_eta(upload_eta_secs.get(), false);
                             let is_proc = is_processing_upload.get();
 
@@ -528,12 +529,12 @@ pub fn AttachModalIsland(
                                 <div class="upload-live-metrics-panel" style="margin:1rem 0; display:flex; flex-direction:column; gap:0.75rem;">
                                     <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem;">
                                         <span style="font-weight:600; color:var(--text-main, #f0f3f6);">{if is_proc { "Finalizing on server disk..." } else { "Uploading to project..." }}</span>
-                                        <span style="font-weight:700; color:var(--primary, #3b82f6);">{format!("{:.1}%", pct)}</span>
+                                        <span style="font-weight:700; color:var(--primary, #3b82f6);">{format!("{pct:.1}%")}</span>
                                     </div>
                                     <div class="upload-progress-container" style="background:var(--bg-elevated, #282c37); border-radius:10px; height:10px; overflow:hidden; position:relative;">
                                         <div
                                             class="upload-progress-fill"
-                                            style=format!("width: {:.2}%; height:100%; background: linear-gradient(90deg, #3b82f6, #60a5fa, #38bdf8); transition: width 0.15s ease-out; border-radius:10px; position:relative;", pct)
+                                            style=format!("width: {pct:.2}%; height:100%; background: linear-gradient(90deg, #3b82f6, #60a5fa, #38bdf8); transition: width 0.15s ease-out; border-radius:10px; position:relative;")
                                         >
                                             <div class="upload-progress-shine" style="position:absolute; inset:0; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); animation:uploadShine 1.5s infinite linear;"></div>
                                         </div>
@@ -545,7 +546,7 @@ pub fn AttachModalIsland(
                                         </div>
                                         <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
                                             <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"Transferred"</div>
-                                            <div style="font-weight:700; font-size:0.8rem; color:var(--text-main, #f0f3f6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=transferred.clone()>{transferred.clone()}</div>
+                                            <div style="font-weight:700; font-size:0.8rem; color:var(--text-main, #f0f3f6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=transferred_title>{transferred}</div>
                                         </div>
                                         <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
                                             <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"ETA"</div>
@@ -604,13 +605,11 @@ pub fn AttachModalIsland(
 
 /// Generates appropriate syntax snippet based on target file category & active document extension
 fn generate_snippet(item: &ProjectFileItem, active_doc: &str) -> String {
-    let lower_doc = active_doc.to_lowercase();
-    let is_typst = lower_doc.ends_with(".typ") || lower_doc.contains("slide");
-    let is_latex = lower_doc.ends_with(".tex") || lower_doc.ends_with(".latex");
-    let is_md_or_note = lower_doc.ends_with(".md")
-        || lower_doc.ends_with(".anote")
-        || lower_doc.ends_with(".txt")
-        || lower_doc.is_empty();
+    let path_buf = std::path::Path::new(active_doc);
+    let ext = path_buf.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+    let is_typst = ext == "typ" || active_doc.to_lowercase().contains("slide");
+    let is_latex = ext == "tex" || ext == "latex";
+    let is_md_or_note = ext == "md" || ext == "anote" || ext == "txt" || ext.is_empty();
 
     let path = &item.path;
     let name = &item.name;
@@ -636,7 +635,7 @@ fn generate_snippet(item: &ProjectFileItem, active_doc: &str) -> String {
             format!("[{name}]({path})")
         }
     } else {
-        path.to_string()
+        path.clone()
     }
 }
 
@@ -903,6 +902,7 @@ fn upload_selected_file(
 }
 
 #[cfg(not(feature = "hydrate"))]
+#[allow(clippy::too_many_arguments)]
 fn upload_selected_file(
     _project_id: String,
     _folder: String,
@@ -930,7 +930,7 @@ fn extract_selected_file_info(ev: &leptos::ev::Event) -> Option<(String, u64)> {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn extract_selected_file_info(_ev: &leptos::ev::Event) -> Option<(String, u64)> {
+const fn extract_selected_file_info(_ev: &leptos::ev::Event) -> Option<(String, u64)> {
     None
 }
 
@@ -949,7 +949,7 @@ fn clear_file_input() {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn clear_file_input() {}
+const fn clear_file_input() {}
 
 #[cfg(feature = "hydrate")]
 fn insert_text_at_cursor(snippet: &str) {
@@ -1008,7 +1008,7 @@ fn insert_text_at_cursor(snippet: &str) {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn insert_text_at_cursor(_snippet: &str) {}
+const fn insert_text_at_cursor(_snippet: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn copy_to_clipboard(text: &str) {
@@ -1020,7 +1020,7 @@ fn copy_to_clipboard(text: &str) {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn copy_to_clipboard(_text: &str) {}
+const fn copy_to_clipboard(_text: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn utf16_offset_to_byte(s: &str, utf16_offset: usize) -> usize {

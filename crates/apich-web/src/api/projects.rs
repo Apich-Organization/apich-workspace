@@ -207,7 +207,7 @@ async fn get_sandbox_status(
     Ok(Json(sandbox))
 }
 
-async fn snapshot_project(
+pub async fn snapshot_project(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -229,7 +229,7 @@ async fn snapshot_project(
     Ok(Json(summary))
 }
 
-async fn get_project_timeline(
+pub async fn get_project_timeline(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -654,7 +654,7 @@ pub struct RestoreFileRequest {
     pub target_file: String,
 }
 
-async fn get_snapshot_details_action(
+pub async fn get_snapshot_details_action(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path((id, snap_id)): Path<(Uuid, Uuid)>,
@@ -669,7 +669,7 @@ async fn get_snapshot_details_action(
     Ok(Json(details))
 }
 
-async fn get_snapshot_diff_action(
+pub async fn get_snapshot_diff_action(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path((id, snap_id)): Path<(Uuid, Uuid)>,
@@ -688,7 +688,7 @@ async fn get_snapshot_diff_action(
     Ok(Json(diff))
 }
 
-async fn restore_snapshot_file_action(
+pub async fn restore_snapshot_file_action(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path((id, snap_id)): Path<(Uuid, Uuid)>,
@@ -710,7 +710,7 @@ async fn restore_snapshot_file_action(
     Ok(Json(json!({ "status": "success", "message": msg })))
 }
 
-async fn revert_snapshot_action(
+pub async fn revert_snapshot_action(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path((id, snap_id)): Path<(Uuid, Uuid)>,

@@ -272,6 +272,26 @@ pub fn build_ui_router() -> Router<AppState> {
             post(vcs_revert_snapshot_action),
         )
         .route(
+            "/projects/:id/vcs/snapshots/:snap_id/details",
+            get(crate::api::projects::get_snapshot_details_action),
+        )
+        .route(
+            "/projects/:id/vcs/snapshots/:snap_id/diff",
+            get(crate::api::projects::get_snapshot_diff_action),
+        )
+        .route(
+            "/projects/:id/vcs/snapshots/:snap_id/restore",
+            post(crate::api::projects::restore_snapshot_file_action),
+        )
+        .route(
+            "/projects/:id/vcs/snapshots/:snap_id/revert",
+            post(crate::api::projects::revert_snapshot_action),
+        )
+        .route(
+            "/projects/:id/vcs/timeline",
+            get(crate::api::projects::get_project_timeline),
+        )
+        .route(
             "/projects/:id/resolve-conflict",
             post(resolve_conflict_action),
         )
