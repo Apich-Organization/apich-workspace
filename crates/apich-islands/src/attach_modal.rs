@@ -12,6 +12,7 @@
 use leptos::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
+use crate::file_upload::{format_eta, format_speed};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProjectFileItem {
@@ -58,6 +59,12 @@ pub fn AttachModalIsland(
     let selected_file_info = RwSignal::new(Option::<(String, String)>::None);
     let is_uploading = RwSignal::new(false);
     let upload_status = RwSignal::new(Option::<(bool, String)>::None);
+    let upload_progress_pct = RwSignal::new(0.0f64);
+    let upload_speed_bps = RwSignal::new(0.0f64);
+    let upload_loaded_bytes = RwSignal::new(0u64);
+    let upload_total_bytes = RwSignal::new(0u64);
+    let upload_eta_secs = RwSignal::new(0u64);
+    let is_processing_upload = RwSignal::new(false);
 
     let active_doc = StoredValue::new(active_file);
 
@@ -145,6 +152,12 @@ pub fn AttachModalIsland(
             is_uploading,
             upload_status,
             selected_file_info,
+            upload_progress_pct,
+            upload_speed_bps,
+            upload_loaded_bytes,
+            upload_total_bytes,
+            upload_eta_secs,
+            is_processing_upload,
         );
     };
 
@@ -503,6 +516,48 @@ pub fn AttachModalIsland(
                             }}
                         </div>
 
+                        // Upload Progress and Live Metrics View
+                        {move || if is_uploading.get() {
+                            let pct = upload_progress_pct.get();
+                            let speed = format_speed(upload_speed_bps.get());
+                            let transferred = format!("{}/{}", format_file_size(upload_loaded_bytes.get()), format_file_size(upload_total_bytes.get()));
+                            let eta = format_eta(upload_eta_secs.get(), false);
+                            let is_proc = is_processing_upload.get();
+
+                            view! {
+                                <div class="upload-live-metrics-panel" style="margin:1rem 0; display:flex; flex-direction:column; gap:0.75rem;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem;">
+                                        <span style="font-weight:600; color:var(--text-main, #f0f3f6);">{if is_proc { "Finalizing on server disk..." } else { "Uploading to project..." }}</span>
+                                        <span style="font-weight:700; color:var(--primary, #3b82f6);">{format!("{:.1}%", pct)}</span>
+                                    </div>
+                                    <div class="upload-progress-container" style="background:var(--bg-elevated, #282c37); border-radius:10px; height:10px; overflow:hidden; position:relative;">
+                                        <div
+                                            class="upload-progress-fill"
+                                            style=format!("width: {:.2}%; height:100%; background: linear-gradient(90deg, #3b82f6, #60a5fa, #38bdf8); transition: width 0.15s ease-out; border-radius:10px; position:relative;", pct)
+                                        >
+                                            <div class="upload-progress-shine" style="position:absolute; inset:0; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); animation:uploadShine 1.5s infinite linear;"></div>
+                                        </div>
+                                    </div>
+                                    <div class="upload-metrics-grid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem; text-align:center;">
+                                        <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
+                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"Speed"</div>
+                                            <div style="font-weight:700; font-size:0.85rem; color:#38bdf8;">{speed}</div>
+                                        </div>
+                                        <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
+                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"Transferred"</div>
+                                            <div style="font-weight:700; font-size:0.8rem; color:var(--text-main, #f0f3f6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=transferred.clone()>{transferred.clone()}</div>
+                                        </div>
+                                        <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
+                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"ETA"</div>
+                                            <div style="font-weight:700; font-size:0.85rem; color:#a78bfa;">{if is_proc { "Processing...".to_string() } else { eta }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }}
+
                         // Upload Status Banner
                         {move || {
                             upload_status.get().map(|(success, msg)| {
@@ -518,18 +573,27 @@ pub fn AttachModalIsland(
                             })
                         }}
 
-                        <div class="attach-upload-footer">
-                            <button
-                                type="submit"
-                                class="btn btn-primary attach-submit-btn"
-                                disabled=move || is_uploading.get()
-                            >
-                                {move || if is_uploading.get() {
-                                    "⏳ Uploading to Project..."
-                                } else {
-                                    "📤 Upload & Make Available"
-                                }}
-                            </button>
+                        <div class="attach-upload-footer" style="display:flex; justify-content:flex-end; gap:0.75rem;">
+                            {move || if is_uploading.get() {
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="btn btn-danger btn-sm"
+                                        onclick="window.dispatchEvent(new CustomEvent('apich-abort-attach-upload'))"
+                                    >
+                                        "🛑 Cancel Upload"
+                                    </button>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <button
+                                        type="submit"
+                                        class="btn btn-primary attach-submit-btn"
+                                    >
+                                        "📤 Upload & Make Available"
+                                    </button>
+                                }.into_any()
+                            }}
                         </div>
                     </form>
                 </div>
@@ -650,8 +714,15 @@ fn upload_selected_file(
     is_uploading: RwSignal<bool>,
     upload_status: RwSignal<Option<(bool, String)>>,
     selected_file_info: RwSignal<Option<(String, String)>>,
+    upload_progress_pct: RwSignal<f64>,
+    upload_speed_bps: RwSignal<f64>,
+    upload_loaded_bytes: RwSignal<u64>,
+    upload_total_bytes: RwSignal<u64>,
+    upload_eta_secs: RwSignal<u64>,
+    is_processing_upload: RwSignal<bool>,
 ) {
     use wasm_bindgen::JsCast;
+    use wasm_bindgen::closure::Closure;
 
     let Some(win) = web_sys::window() else { return };
     let Some(doc) = win.document() else { return };
@@ -669,63 +740,166 @@ fn upload_selected_file(
     }
 
     let Some(file) = file_list.get(0) else { return };
+    let file_size = file.size() as u64;
 
-    wasm_bindgen_futures::spawn_local(async move {
-        is_uploading.set(true);
-        upload_status.set(None);
+    if file_size > 200 * 1024 * 1024 {
+        upload_status.set(Some((false, "File exceeds 200MB limit.".to_string())));
+        return;
+    }
 
-        let form_data = match web_sys::FormData::new() {
-            | Ok(fd) => fd,
-            | Err(_) => {
-                is_uploading.set(false);
-                upload_status.set(Some((false, "Could not create form data.".to_string())));
-                return;
-            },
-        };
+    let form_data = match web_sys::FormData::new() {
+        | Ok(fd) => fd,
+        | Err(_) => {
+            upload_status.set(Some((false, "Could not create form data.".to_string())));
+            return;
+        },
+    };
 
-        let _ = form_data.append_with_blob("file", &file);
-        let _ = form_data.append_with_str("folder", &folder);
+    let _ = form_data.append_with_blob("file", &file);
+    let _ = form_data.append_with_str("folder", &folder);
 
-        let url = format!("/projects/{}/files/upload.json", project_id);
-        let req = match gloo_net::http::Request::post(&url).body(&form_data) {
-            | Ok(r) => r,
-            | Err(e) => {
-                is_uploading.set(false);
-                upload_status.set(Some((false, format!("Failed to create request: {e}"))));
-                return;
-            },
-        };
+    let xhr = match web_sys::XmlHttpRequest::new() {
+        | Ok(x) => x,
+        | Err(_) => {
+            upload_status.set(Some((false, "Failed to create request.".to_string())));
+            return;
+        },
+    };
 
-        match req.send().await {
-            | Ok(resp) => {
-                if let Ok(upload_res) = resp.json::<UploadFileResponse>().await {
-                    if upload_res.success {
-                        let path = upload_res.file_path.unwrap_or_default();
-                        upload_status.set(Some((
-                            true,
-                            format!("Uploaded successfully to {path}! Available in files list."),
-                        )));
-                        input.set_value("");
-                        selected_file_info.set(None);
-                        // Refresh files list
-                        fetch_project_files(project_id, files, RwSignal::new(false));
-                    } else {
-                        let err = upload_res
-                            .error
-                            .unwrap_or_else(|| "Upload failed.".to_string());
-                        upload_status.set(Some((false, err)));
-                    }
-                } else {
-                    upload_status.set(Some((false, "Invalid response from server.".to_string())));
+    let url = format!("/projects/{}/files/upload.json", project_id);
+    if xhr.open_with_async("POST", &url, true).is_err() {
+        upload_status.set(Some((false, "Failed to open connection.".to_string())));
+        return;
+    }
+
+    is_uploading.set(true);
+    is_processing_upload.set(false);
+    upload_progress_pct.set(0.0);
+    upload_loaded_bytes.set(0);
+    upload_total_bytes.set(file_size);
+    upload_speed_bps.set(0.0);
+    upload_eta_secs.set(0);
+    upload_status.set(None);
+
+    if let Ok(upload_target) = xhr.upload() {
+        let start_time = js_sys::Date::now();
+        let mut last_calc_time = start_time;
+        let mut last_loaded = 0.0f64;
+
+        let on_progress = Closure::wrap(Box::new(move |ev: web_sys::ProgressEvent| {
+            let total = ev.total();
+            let loaded = ev.loaded();
+            let effective_total = if total > 0.0 { total } else { file_size as f64 };
+
+            let pct = if effective_total > 0.0 {
+                (loaded / effective_total * 100.0).clamp(0.0, 100.0)
+            } else {
+                0.0
+            };
+
+            upload_progress_pct.set(pct);
+            upload_loaded_bytes.set(loaded as u64);
+            upload_total_bytes.set(effective_total as u64);
+
+            let now = js_sys::Date::now();
+            let dt = (now - last_calc_time) / 1000.0;
+            if dt >= 0.2 || pct >= 99.9 {
+                let bytes_diff = loaded - last_loaded;
+                let instant_speed = if dt > 0.0 { (bytes_diff / dt).max(0.0) } else { 0.0 };
+                let total_elapsed = (now - start_time) / 1000.0;
+                let average_speed = if total_elapsed > 0.0 { (loaded / total_elapsed).max(0.0) } else { 0.0 };
+                let current_speed = 0.7 * instant_speed + 0.3 * average_speed;
+                upload_speed_bps.set(current_speed);
+
+                if current_speed > 10.0 {
+                    let remaining_bytes = (effective_total - loaded).max(0.0);
+                    let remaining_secs = (remaining_bytes / current_speed).round() as u64;
+                    upload_eta_secs.set(remaining_secs);
                 }
-            },
-            | Err(e) => {
-                upload_status.set(Some((false, format!("Upload network error: {e}"))));
-            },
+
+                last_calc_time = now;
+                last_loaded = loaded;
+            }
+
+            if pct >= 99.99 {
+                is_processing_upload.set(true);
+            }
+        }) as Box<dyn FnMut(web_sys::ProgressEvent)>);
+
+        let _ = upload_target.add_event_listener_with_callback("progress", on_progress.as_ref().unchecked_ref());
+        on_progress.forget();
+    }
+
+    let xhr_load = xhr.clone();
+    let project_id_refresh = project_id.clone();
+    let file_name_copy = file.name();
+
+    let on_load = Closure::wrap(Box::new(move |_ev: web_sys::Event| {
+        is_uploading.set(false);
+        is_processing_upload.set(false);
+
+        let status = xhr_load.status().unwrap_or(0);
+        let resp_text = xhr_load.response_text().ok().flatten().unwrap_or_default();
+
+        if status >= 200 && status < 300 {
+            if let Ok(upload_res) = serde_json::from_str::<UploadFileResponse>(&resp_text) {
+                if upload_res.success {
+                    let path = upload_res.file_path.unwrap_or_else(|| file_name_copy.clone());
+                    upload_status.set(Some((
+                        true,
+                        format!("Uploaded successfully to {path}! Available in files list."),
+                    )));
+                    if let Some(win) = web_sys::window() {
+                        if let Some(doc) = win.document() {
+                            if let Some(el) = doc.get_element_by_id("attach-file-input") {
+                                if let Ok(input_el) = el.dyn_into::<web_sys::HtmlInputElement>() {
+                                    input_el.set_value("");
+                                }
+                            }
+                        }
+                    }
+                    selected_file_info.set(None);
+                    // Refresh files list
+                    fetch_project_files(project_id_refresh.clone(), files, RwSignal::new(false));
+                    return;
+                } else {
+                    let err = upload_res.error.unwrap_or_else(|| "Upload failed.".to_string());
+                    upload_status.set(Some((false, err)));
+                    return;
+                }
+            }
         }
 
+        upload_status.set(Some((false, "Upload failed. Please try again.".to_string())));
+    }) as Box<dyn FnMut(web_sys::Event)>);
+
+    let _ = xhr.add_event_listener_with_callback("load", on_load.as_ref().unchecked_ref());
+    on_load.forget();
+
+    let on_error = Closure::wrap(Box::new(move |_ev: web_sys::Event| {
         is_uploading.set(false);
-    });
+        is_processing_upload.set(false);
+        upload_status.set(Some((false, "Network error occurred during upload.".to_string())));
+    }) as Box<dyn FnMut(web_sys::Event)>);
+    let _ = xhr.add_event_listener_with_callback("error", on_error.as_ref().unchecked_ref());
+    on_error.forget();
+
+    let on_abort = Closure::wrap(Box::new(move |_ev: web_sys::Event| {
+        is_uploading.set(false);
+        is_processing_upload.set(false);
+        upload_status.set(Some((false, "Upload cancelled.".to_string())));
+    }) as Box<dyn FnMut(web_sys::Event)>);
+    let _ = xhr.add_event_listener_with_callback("abort", on_abort.as_ref().unchecked_ref());
+    on_abort.forget();
+
+    let xhr_abort = xhr.clone();
+    let on_cancel_event = Closure::wrap(Box::new(move |_ev: web_sys::CustomEvent| {
+        let _ = xhr_abort.abort();
+    }) as Box<dyn FnMut(web_sys::CustomEvent)>);
+    let _ = win.add_event_listener_with_callback("apich-abort-attach-upload", on_cancel_event.as_ref().unchecked_ref());
+    on_cancel_event.forget();
+
+    let _ = xhr.send_with_opt_form_data(Some(&form_data));
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -736,6 +910,12 @@ fn upload_selected_file(
     _is_uploading: RwSignal<bool>,
     _upload_status: RwSignal<Option<(bool, String)>>,
     _selected_file_info: RwSignal<Option<(String, String)>>,
+    _upload_progress_pct: RwSignal<f64>,
+    _upload_speed_bps: RwSignal<f64>,
+    _upload_loaded_bytes: RwSignal<u64>,
+    _upload_total_bytes: RwSignal<u64>,
+    _upload_eta_secs: RwSignal<u64>,
+    _is_processing_upload: RwSignal<bool>,
 ) {
 }
 

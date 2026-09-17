@@ -68,6 +68,12 @@ web-sys = { version = "0.3", optional = true, features = [
     "HtmlTableCellElement",
     "NodeList",
     "HtmlCollection",
+    "XmlHttpRequest",
+    "XmlHttpRequestEventTarget",
+    "XmlHttpRequestUpload",
+    "ProgressEvent",
+    "DragEvent",
+    "DataTransfer",
 ] }
 urlencoding = "2.1"
 js-sys = { version = "0.3", optional = true }

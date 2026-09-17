@@ -3226,6 +3226,65 @@ html.dark select.form-control {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
+/* Enhanced File Upload Modal & Metrics */
+.upload-dropzone {
+    border: 2px dashed var(--border-subtle, #424758);
+    border-radius: 10px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    background: var(--bg-elevated, rgba(255,255,255,0.02));
+    transition: all 0.2s ease-in-out;
+}
+.upload-dropzone:hover,
+.upload-dropzone.is-dragover {
+    border-color: var(--primary, #3b82f6) !important;
+    background: rgba(59, 130, 246, 0.08) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.15);
+}
+.upload-selected-card {
+    transition: all 0.2s ease;
+}
+.upload-selected-card:hover {
+    border-color: var(--border-strong, #4f566b) !important;
+}
+.upload-progress-container {
+    background: var(--bg-elevated, #282c37);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+}
+.upload-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa, #38bdf8);
+    transition: width 0.15s ease-out;
+    border-radius: 10px;
+    position: relative;
+}
+.upload-progress-shine {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+    animation: uploadShine 1.8s infinite linear;
+}
+@keyframes uploadShine {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+@keyframes uploadSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.upload-metric-card {
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.upload-metric-card:hover {
+    transform: translateY(-1px);
+    border-color: var(--primary, #3b82f6) !important;
+}
+
 /* Honour the OS "reduce motion" setting: transitions collapse to effectively instant rather
    than being removed, so state changes still land in the right place. */
 @media (prefers-reduced-motion: reduce) {

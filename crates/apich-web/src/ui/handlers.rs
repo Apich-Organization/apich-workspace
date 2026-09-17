@@ -2458,7 +2458,7 @@ async fn upload_file_json_action(
     let Some(AuthUser(user)) = auth else {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
+            Json(json!({"success": false, "error": "Unauthorized"})),
         )
             .into_response();
     };
@@ -2466,7 +2466,7 @@ async fn upload_file_json_action(
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Project not found"})),
+            Json(json!({"success": false, "error": "Project not found"})),
         )
             .into_response();
     };
@@ -2476,10 +2476,10 @@ async fn upload_file_json_action(
             .await
             .unwrap_or(false);
     if !can_access {
-        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+        return (StatusCode::FORBIDDEN, Json(json!({"success": false, "error": "Forbidden"}))).into_response();
     }
 
-    let mut folder = "assets".to_string();
+    let mut folder_specified: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut file_bytes: Option<Vec<u8>> = None;
 
@@ -2487,9 +2487,7 @@ async fn upload_file_json_action(
         match field.name().unwrap_or("") {
             | "folder" => {
                 let f = field.text().await.unwrap_or_default().trim().to_string();
-                if !f.is_empty() {
-                    folder = f;
-                }
+                folder_specified = Some(f);
             },
             | "file" => {
                 file_name = field.file_name().map(str::to_string);
@@ -2497,7 +2495,7 @@ async fn upload_file_json_action(
                     if bytes.len() > MAX_UPLOAD_BYTES {
                         return (
                             StatusCode::PAYLOAD_TOO_LARGE,
-                            Json(json!({"error": format!("File too large (max {}MB)", MAX_UPLOAD_BYTES / (1024 * 1024))})),
+                            Json(json!({"success": false, "error": format!("File too large (max {}MB)", MAX_UPLOAD_BYTES / (1024 * 1024))})),
                         )
                             .into_response();
                     }
@@ -2511,14 +2509,14 @@ async fn upload_file_json_action(
     let Some(name) = file_name.filter(|n| !n.trim().is_empty()) else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "No file provided"})),
+            Json(json!({"success": false, "error": "No file provided"})),
         )
             .into_response();
     };
     let Some(bytes) = file_bytes else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Empty file content"})),
+            Json(json!({"success": false, "error": "Empty file content"})),
         )
             .into_response();
     };
@@ -2527,6 +2525,7 @@ async fn upload_file_json_action(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&name);
+    let folder = folder_specified.unwrap_or_else(|| "assets".to_string());
     let folder = folder.trim().trim_matches('/');
     let rel_path = if folder.is_empty() {
         base_name.to_string()
@@ -2541,7 +2540,7 @@ async fn upload_file_json_action(
     {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to save file: {e}")})),
+            Json(json!({"success": false, "error": format!("Failed to save file: {e}")})),
         )
             .into_response();
     }

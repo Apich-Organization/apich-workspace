@@ -553,7 +553,6 @@ fn render_files_tab(
     // Each modal below is an island whose children must be `'static`, so every one that
     // pre-fills the browsed directory needs its own owned copy.
     let folder_options_for_new_file = folder_select_options(&all_folders, &cur_dir);
-    let folder_options_for_upload = folder_select_options(&all_folders, &cur_dir);
     let folder_options_for_new_folder = folder_select_options(&all_folders, &cur_dir);
 
     // "Browsing: root / assets / videos" -- each ancestor clickable to jump back up. Only
@@ -856,24 +855,15 @@ fn render_files_tab(
                             </div>
                         </form>
                     </apich_islands::ModalIsland>
-                    <apich_islands::ModalIsland trigger_label="⬆ Upload File".to_string() trigger_class="btn btn-secondary".to_string() title="Upload File".to_string()>
-                        <form method="post" action=format!("/projects/{}/files/upload", project_id) enctype="multipart/form-data">
-                            <div class="form-group">
-                                <label>"File"</label>
-                                <input type="file" name="file" required=true class="form-control" />
-                            </div>
-                            <div class="form-group">
-                                <label>"Destination Folder"</label>
-                                <select name="folder" class="form-control">{folder_options_for_upload}</select>
-                            </div>
-                            <p style="font-size:0.78rem; color:var(--text-sub); margin:0.25rem 0 0;">
-                                "Any file type -- video, audio, images, etc. Max 200MB per file."
-                            </p>
-                            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                                <button type="submit" class="btn btn-primary">"Upload"</button>
-                            </div>
-                        </form>
-                    </apich_islands::ModalIsland>
+                    <apich_islands::FileUploadModalIsland
+                        project_id=project_id.to_string()
+                        folders_json=folders_json.clone()
+                        existing_files_json=existing_files_json.clone()
+                        cur_dir=cur_dir.clone()
+                        is_zh=i18n.is_zh()
+                        trigger_label=if i18n.is_zh() { "⬆ 上传文件".to_string() } else { "⬆ Upload File".to_string() }
+                        trigger_class="btn btn-secondary".to_string()
+                    />
                 </div>
             </div>
             {breadcrumb_bar}
