@@ -57,6 +57,7 @@ pub fn ProjectDetailPage(
     apichignore_content: String,
     new_file_templates: Vec<apich_db::TemplateWithLatestVersion>,
     active_tab: ProjectTab,
+    active_file: Option<String>,
     notice: Option<String>,
     signature_statuses: std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
     milestones: Vec<Snapshot>,
@@ -151,6 +152,7 @@ pub fn ProjectDetailPage(
                 ignore_config,
                 gitignore_content,
                 apichignore_content,
+                active_file,
                 i18n,
             })
             .into_any()
@@ -932,6 +934,7 @@ struct VcsTabArgs<'a> {
     ignore_config: apich_vcs::IgnoreConfig,
     gitignore_content: String,
     apichignore_content: String,
+    active_file: Option<String>,
     i18n: I18n,
 }
 
@@ -949,6 +952,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
         ignore_config,
         gitignore_content,
         apichignore_content,
+        active_file,
         i18n,
     } = args;
     let project_id = project.id;
@@ -1047,6 +1051,34 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
         }.into_any()
     };
 
+    let initial_snapshots: Vec<apich_islands::SnapshotTimelineItem> = snapshots
+        .iter()
+        .map(|snap| {
+            let id_str = snap.id.to_string();
+            let parent_snapshot_id = snap.parent_snapshot_id.map(|p| p.to_string());
+            let time_str = snap.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+            let is_verified = if project.vigilant_mode {
+                matches!(
+                    signature_statuses.get(&snap.id),
+                    Some(apich_vcs::SignatureStatus::Valid { .. })
+                )
+            } else {
+                false
+            };
+            apich_islands::SnapshotTimelineItem {
+                id: id_str,
+                parent_snapshot_id,
+                created_at: time_str,
+                message: snap.message.clone(),
+                author: snap.author.clone(),
+                is_milestone: snap.is_milestone,
+                milestone_name: snap.milestone_name.clone(),
+                tree_hash: snap.tree_hash.clone(),
+                is_verified,
+            }
+        })
+        .collect();
+
     let timeline = if snapshots.is_empty() {
         view! {
             <div class="empty-state">
@@ -1055,45 +1087,14 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
             </div>
         }.into_any()
     } else {
-        let items: Vec<_> = snapshots
-            .iter()
-            .enumerate()
-            .map(|(idx, snap)| {
-                let id_str = snap.id.to_string();
-                let short_id = id_str.chars().take(8).collect::<String>();
-                let short_tree: String = snap.tree_hash.chars().take(8).collect();
-                let time_str = snap.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string();
-                let signature_badge = if project.vigilant_mode {
-                    let (label, class) = if snap.gpg_signature.is_none() {
-                        ("⚠ Unverified", "badge badge-idle")
-                    } else {
-                        match signature_statuses.get(&snap.id) {
-                            Some(apich_vcs::SignatureStatus::Valid { .. }) => ("✓ Verified", "badge badge-active"),
-                            _ => ("⚠ Unverified", "badge badge-idle"),
-                        }
-                    };
-                    Some(view! { <span class=class style="font-size:0.7rem;">{label}</span> })
-                } else {
-                    None
-                };
-                view! {
-                    <div class="timeline-item">
-                        <div class="timeline-dot" class:active=idx == 0></div>
-                        <div class="timeline-content">
-                            <div class="timeline-header">
-                                <span class="timeline-msg">{snap.message.clone()} " " {signature_badge}</span>
-                                <span class="timeline-time">{time_str}</span>
-                            </div>
-                            <div class="timeline-meta">
-                                <span>"Snapshot: "<code>{short_id}</code></span>
-                                <span>"Tree: "<code>{short_tree}</code></span>
-                            </div>
-                        </div>
-                    </div>
-                }
-            })
-            .collect();
-        view! { <div class="timeline-list">{items}</div> }.into_any()
+        view! {
+            <apich_islands::VcsTimelineIsland
+                project_id=project_id.to_string()
+                initial_snapshots=initial_snapshots
+                active_file=active_file.unwrap_or_default()
+                is_zh=i18n.is_zh()
+            />
+        }.into_any()
     };
 
     let remote_desc = git

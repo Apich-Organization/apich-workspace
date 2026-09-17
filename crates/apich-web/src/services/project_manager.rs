@@ -11,6 +11,10 @@ use apich_sandbox::SandboxManager;
 use apich_vcs::api::ProjectVcs;
 use apich_vcs::IgnoreFilter;
 use apich_vcs::Snapshot;
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1334,6 +1338,218 @@ impl ProjectManager {
             }
         }
         Ok(results)
+    }
+
+    /// Retrieve detailed information about a snapshot, including added, modified, and removed files
+    pub async fn get_snapshot_details(
+        &self,
+        project_id: Uuid,
+        snapshot_id: Uuid,
+    ) -> WebResult<SnapshotDetailsView> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let snap = vcs.get_snapshot(snapshot_id)?;
+        let snap_tree = vcs.get_tree(&snap.tree_hash)?;
+        let mut all_files: Vec<String> = snap_tree.entries.keys().cloned().collect();
+        all_files.sort();
+
+        let (added_files, modified_files, removed_files) = if let Some(parent_id) = snap.parent_snapshot_id {
+            vcs.diff_snapshots(parent_id, snapshot_id)
+                .unwrap_or_else(|_| (all_files.clone(), Vec::new(), Vec::new()))
+        } else {
+            (all_files.clone(), Vec::new(), Vec::new())
+        };
+
+        Ok(SnapshotDetailsView {
+            id: snap.id,
+            parent_snapshot_id: snap.parent_snapshot_id,
+            created_at: snap.created_at,
+            message: snap.message,
+            author: snap.author,
+            is_milestone: snap.is_milestone,
+            milestone_name: snap.milestone_name,
+            tree_hash: snap.tree_hash,
+            gpg_signature: snap.gpg_signature,
+            added_files,
+            modified_files,
+            removed_files,
+            all_files,
+        })
+    }
+
+    /// Compute line-by-line unified diff of a file in a given snapshot compared to its parent snapshot
+    pub async fn get_file_diff_in_snapshot(
+        &self,
+        project_id: Uuid,
+        snapshot_id: Uuid,
+        rel_path: &str,
+    ) -> WebResult<FileDiffResult> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let snap = vcs.get_snapshot(snapshot_id)?;
+
+        let new_bytes = vcs.read_file_content(Some(snapshot_id), rel_path).ok();
+        let old_bytes = if let Some(parent_id) = snap.parent_snapshot_id {
+            vcs.read_file_content(Some(parent_id), rel_path).ok()
+        } else {
+            None
+        };
+
+        let status = match (&old_bytes, &new_bytes) {
+            | (None, Some(_)) => "added".to_string(),
+            | (Some(_), None) => "removed".to_string(),
+            | (Some(o), Some(n)) if o == n => "unchanged".to_string(),
+            | (Some(_), Some(_)) => "modified".to_string(),
+            | (None, None) => {
+                return Err(WebError::NotFound(format!("File '{rel_path}' not found in snapshot or parent")));
+            },
+        };
+
+        let is_binary = match (&old_bytes, &new_bytes) {
+            | (_, Some(bytes)) | (Some(bytes), None) => {
+                bytes.iter().take(1024).any(|&b| b == 0)
+            },
+            | (None, None) => false,
+        };
+
+        if is_binary {
+            return Ok(FileDiffResult {
+                file_path: rel_path.to_string(),
+                is_binary: true,
+                status,
+                old_content: None,
+                new_content: None,
+                diff_lines: Vec::new(),
+            });
+        }
+
+        let old_str = old_bytes.as_ref().and_then(|b| std::str::from_utf8(b).ok());
+        let new_str = new_bytes.as_ref().and_then(|b| std::str::from_utf8(b).ok());
+
+        let diff_lines = compute_unified_diff(old_str.unwrap_or(""), new_str.unwrap_or(""));
+
+        Ok(FileDiffResult {
+            file_path: rel_path.to_string(),
+            is_binary: false,
+            status,
+            old_content: old_str.map(std::string::ToString::to_string),
+            new_content: new_str.map(std::string::ToString::to_string),
+            diff_lines,
+        })
+    }
+
+    /// Restore a specific file from a historical snapshot, either overwriting the current file
+    /// or writing it out to a brand new file path.
+    pub async fn restore_file_from_snapshot(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        snapshot_id: Uuid,
+        source_file: &str,
+        target_file: &str,
+    ) -> WebResult<String> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let file_bytes = vcs
+            .read_file_content(Some(snapshot_id), source_file)
+            .map_err(|e| WebError::NotFound(format!("Failed to read '{source_file}' from snapshot: {e}")))?;
+
+        let short_id = if snapshot_id.to_string().len() >= 8 {
+            snapshot_id.to_string()[..8].to_string()
+        } else {
+            snapshot_id.to_string()
+        };
+        let is_overwrite = source_file == target_file;
+        let snap_msg = if is_overwrite {
+            format!("Restored '{target_file}' from snapshot {short_id}")
+        } else {
+            format!("Restored '{source_file}' as '{target_file}' from snapshot {short_id}")
+        };
+
+        self.write_file_bytes(project_id, user_id, target_file, &file_bytes, Some(&snap_msg)).await?;
+
+        Ok(snap_msg)
+    }
+
+    /// Revert the entire project working copy to a specific snapshot in history
+    pub async fn revert_project_to_snapshot(
+        &self,
+        project_id: Uuid,
+        _user_id: Uuid,
+        snapshot_id: Uuid,
+    ) -> WebResult<String> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        vcs.revert_to(snapshot_id)?;
+
+        let short_id = if snapshot_id.to_string().len() >= 8 {
+            snapshot_id.to_string()[..8].to_string()
+        } else {
+            snapshot_id.to_string()
+        };
+        let msg = format!("Reverted entire project to snapshot {short_id}");
+        Ok(msg)
+    }
+
+    /// Write arbitrary bytes to file and record VCS snapshot
+    pub async fn write_file_bytes(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+        bytes: &[u8],
+        snapshot_msg: Option<&str>,
+    ) -> WebResult<()> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let clean = rel_path.trim().trim_start_matches('/');
+        if clean.contains("..") || clean.is_empty() {
+            return Err(WebError::BadRequest("Invalid file path".to_string()));
+        }
+
+        let full_path = PathBuf::from(&proj.storage_path).join(clean);
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                WebError::Internal(format!("Failed to create parent directory: {e}"))
+            })?;
+        }
+
+        tokio::fs::write(&full_path, bytes)
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to write file: {e}")))?;
+
+        let user_hex = user_id.simple().to_string();
+        let user_suffix = &user_hex[24..];
+        let default_msg = format!("Update {clean} (by user {user_suffix})");
+        let msg = snapshot_msg.unwrap_or(&default_msg);
+        let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+        let _ = vcs.snapshot_if_changed(msg)?;
+
+        Ok(())
     }
 
     /// Export a project's full apich-vcs history as a downloadable bundle (tar.gz), for
@@ -3118,3 +3334,145 @@ fn parse_conflict_snippets(content: &str) -> (String, String) {
 
     (ours.trim().to_string(), theirs.trim().to_string())
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotDetailsView {
+    pub id: Uuid,
+    pub parent_snapshot_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub message: String,
+    pub author: String,
+    pub is_milestone: bool,
+    pub milestone_name: Option<String>,
+    pub tree_hash: String,
+    pub gpg_signature: Option<String>,
+    pub added_files: Vec<String>,
+    pub modified_files: Vec<String>,
+    pub removed_files: Vec<String>,
+    pub all_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffLine {
+    pub kind: String, // "added", "removed", "context"
+    pub old_lineno: Option<usize>,
+    pub new_lineno: Option<usize>,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileDiffResult {
+    pub file_path: String,
+    pub is_binary: bool,
+    pub status: String, // "added", "modified", "removed", "unchanged"
+    pub old_content: Option<String>,
+    pub new_content: Option<String>,
+    pub diff_lines: Vec<DiffLine>,
+}
+
+/// Compute line-by-line unified diff between two text strings using dynamic programming LCS
+pub fn compute_unified_diff(old_text: &str, new_text: &str) -> Vec<DiffLine> {
+    let old_lines: Vec<&str> = old_text.lines().collect();
+    let new_lines: Vec<&str> = new_text.lines().collect();
+
+    if old_lines.is_empty() {
+        return new_lines
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| DiffLine {
+                kind: "added".to_string(),
+                old_lineno: None,
+                new_lineno: Some(i + 1),
+                content: l.to_string(),
+            })
+            .collect();
+    }
+
+    if new_lines.is_empty() {
+        return old_lines
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| DiffLine {
+                kind: "removed".to_string(),
+                old_lineno: Some(i + 1),
+                new_lineno: None,
+                content: l.to_string(),
+            })
+            .collect();
+    }
+
+    let n = old_lines.len();
+    let m = new_lines.len();
+
+    // Fallback if either file is excessively large to avoid huge memory allocations
+    if n * m > 3_000_000 {
+        let mut lines = Vec::new();
+        for (i, l) in old_lines.into_iter().enumerate().take(500) {
+            lines.push(DiffLine {
+                kind: "removed".to_string(),
+                old_lineno: Some(i + 1),
+                new_lineno: None,
+                content: l.to_string(),
+            });
+        }
+        for (i, l) in new_lines.into_iter().enumerate().take(500) {
+            lines.push(DiffLine {
+                kind: "added".to_string(),
+                old_lineno: None,
+                new_lineno: Some(i + 1),
+                content: l.to_string(),
+            });
+        }
+        return lines;
+    }
+
+    // Standard LCS table
+    let mut dp = vec![vec![0u32; m + 1]; n + 1];
+    for i in 0..n {
+        for j in 0..m {
+            if old_lines[i] == new_lines[j] {
+                dp[i + 1][j + 1] = dp[i][j] + 1;
+            } else {
+                dp[i + 1][j + 1] = dp[i + 1][j].max(dp[i][j + 1]);
+            }
+        }
+    }
+
+    // Backtrack to build diff
+    let mut i = n;
+    let mut j = m;
+    let mut reversed_diff = Vec::new();
+
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && old_lines[i - 1] == new_lines[j - 1] {
+            reversed_diff.push(DiffLine {
+                kind: "context".to_string(),
+                old_lineno: Some(i),
+                new_lineno: Some(j),
+                content: old_lines[i - 1].to_string(),
+            });
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+            reversed_diff.push(DiffLine {
+                kind: "added".to_string(),
+                old_lineno: None,
+                new_lineno: Some(j),
+                content: new_lines[j - 1].to_string(),
+            });
+            j -= 1;
+        } else if i > 0 && (j == 0 || dp[i][j - 1] < dp[i - 1][j]) {
+            reversed_diff.push(DiffLine {
+                kind: "removed".to_string(),
+                old_lineno: Some(i),
+                new_lineno: None,
+                content: old_lines[i - 1].to_string(),
+            });
+            i -= 1;
+        }
+    }
+
+    reversed_diff.reverse();
+    reversed_diff
+}
+

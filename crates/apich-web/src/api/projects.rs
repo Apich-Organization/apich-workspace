@@ -1,6 +1,8 @@
 use crate::auth::AuthUser;
 use crate::error::WebError;
 use crate::error::WebResult;
+use crate::services::project_manager::FileDiffResult;
+use crate::services::project_manager::SnapshotDetailsView;
 use crate::services::KnowledgeSyncService;
 use crate::services::SqliteTableService;
 use crate::state::AppState;
@@ -32,6 +34,22 @@ pub fn router() -> Router<AppState> {
         .route("/projects/:id/sandbox/status", get(get_sandbox_status))
         .route("/projects/:id/vcs/snapshot", post(snapshot_project))
         .route("/projects/:id/vcs/timeline", get(get_project_timeline))
+        .route(
+            "/projects/:id/vcs/snapshots/:snap_id/details",
+            get(get_snapshot_details_action),
+        )
+        .route(
+            "/projects/:id/vcs/snapshots/:snap_id/diff",
+            get(get_snapshot_diff_action),
+        )
+        .route(
+            "/projects/:id/vcs/snapshots/:snap_id/restore",
+            post(restore_snapshot_file_action),
+        )
+        .route(
+            "/projects/:id/vcs/snapshots/:snap_id/revert",
+            post(revert_snapshot_action),
+        )
         .route("/projects/:id/archive", post(archive_project))
         .route(
             "/projects/:id/members",
@@ -624,3 +642,92 @@ async fn get_project_hub_links(
     let links = repo.resolve_hub_links(proj.org_id, proj.team_id).await?;
     Ok(Json(links))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct SnapshotDiffQuery {
+    pub file: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RestoreFileRequest {
+    pub file: String,
+    pub target_file: String,
+}
+
+async fn get_snapshot_details_action(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path((id, snap_id)): Path<(Uuid, Uuid)>,
+) -> WebResult<Json<SnapshotDetailsView>> {
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+
+    let details = state.project_manager.get_snapshot_details(id, snap_id).await?;
+    Ok(Json(details))
+}
+
+async fn get_snapshot_diff_action(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path((id, snap_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<SnapshotDiffQuery>,
+) -> WebResult<Json<FileDiffResult>> {
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, id).await?;
+    if !can_access {
+        return Err(WebError::Forbidden("Access denied to project".to_string()));
+    }
+
+    let diff = state
+        .project_manager
+        .get_file_diff_in_snapshot(id, snap_id, &query.file)
+        .await?;
+    Ok(Json(diff))
+}
+
+async fn restore_snapshot_file_action(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path((id, snap_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<RestoreFileRequest>,
+) -> WebResult<Json<serde_json::Value>> {
+    let can_edit =
+        IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
+    if !can_edit {
+        return Err(WebError::Forbidden(
+            "Edit privileges required to restore file".to_string(),
+        ));
+    }
+
+    let msg = state
+        .project_manager
+        .restore_file_from_snapshot(id, user.id, snap_id, &payload.file, &payload.target_file)
+        .await?;
+
+    Ok(Json(json!({ "status": "success", "message": msg })))
+}
+
+async fn revert_snapshot_action(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path((id, snap_id)): Path<(Uuid, Uuid)>,
+) -> WebResult<Json<serde_json::Value>> {
+    let can_edit =
+        IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, id).await?;
+    if !can_edit {
+        return Err(WebError::Forbidden(
+            "Edit privileges required to revert project".to_string(),
+        ));
+    }
+
+    let msg = state
+        .project_manager
+        .revert_project_to_snapshot(id, user.id, snap_id)
+        .await?;
+
+    Ok(Json(json!({ "status": "success", "message": msg })))
+}
+

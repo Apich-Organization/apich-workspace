@@ -264,6 +264,14 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/vcs-undo", post(vcs_undo_action))
         .route("/projects/:id/vcs-redo", post(vcs_redo_action))
         .route(
+            "/projects/:id/vcs-restore-file",
+            post(vcs_restore_file_action),
+        )
+        .route(
+            "/projects/:id/vcs-revert-snapshot",
+            post(vcs_revert_snapshot_action),
+        )
+        .route(
             "/projects/:id/resolve-conflict",
             post(resolve_conflict_action),
         )
@@ -1397,6 +1405,7 @@ async fn project_detail_page(
                 apichignore_content=apichignore_content
                 new_file_templates=new_file_templates
                 active_tab=crate::app::pages::project_detail::ProjectTab::from_str(&active_tab)
+                active_file=params.get("file").cloned()
                 notice=notice
                 i18n=i18n
                 current_path=current_path
@@ -3988,6 +3997,59 @@ async fn vcs_redo_action(
     };
     Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice={notice}")).into_response())
 }
+
+#[derive(Debug, Deserialize)]
+pub struct VcsRestoreFileForm {
+    pub snapshot_id: Uuid,
+    pub source_file: String,
+    pub target_file: String,
+}
+
+async fn vcs_restore_file_action(
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<VcsRestoreFileForm>,
+) -> Result<Response, WebError> {
+    let source = payload.source_file.trim();
+    let target = payload.target_file.trim();
+    if source.is_empty() || target.is_empty() {
+        return Ok(Redirect::to(&format!(
+            "/projects/{id}?tab=vcs&error=File+path+cannot+be+empty"
+        ))
+        .into_response());
+    }
+    match state
+        .project_manager
+        .restore_file_from_snapshot(id, user.id, payload.snapshot_id, source, target)
+        .await
+    {
+        Ok(_) => Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=file_restored")).into_response()),
+        Err(e) => Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&error={}", urlencoding::encode(&e.to_string()))).into_response()),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VcsRevertSnapshotForm {
+    pub snapshot_id: Uuid,
+}
+
+async fn vcs_revert_snapshot_action(
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Form(payload): Form<VcsRevertSnapshotForm>,
+) -> Result<Response, WebError> {
+    match state
+        .project_manager
+        .revert_project_to_snapshot(id, user.id, payload.snapshot_id)
+        .await
+    {
+        Ok(_) => Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=project_reverted")).into_response()),
+        Err(e) => Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&error={}", urlencoding::encode(&e.to_string()))).into_response()),
+    }
+}
+
 
 /// Resolve conflict from web UI
 async fn resolve_conflict_action(

@@ -245,7 +245,7 @@ pub fn DocumentEditorPage(
                     >
                         "📎 " {i18n.attach()}
                     </button>
-                    <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm" title="View version control timeline and file history">"🌿 History"</a>
+                    <a href=format!("/projects/{}?tab=vcs&file={}", project_id, urlencoding::encode(&file_path)) class="btn btn-secondary btn-sm" title="View version control timeline and file history">"🌿 History"</a>
                     <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
                     {multi_render_btn}

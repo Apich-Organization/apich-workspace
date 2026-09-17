@@ -41,6 +41,7 @@ pub mod spreadsheet;
 pub mod sql_console;
 pub mod terminal;
 pub mod user_select;
+pub mod vcs_timeline;
 pub mod webauthn;
 pub mod whiteboard;
 pub use ai_drawer::AiDrawerIsland;
@@ -83,6 +84,8 @@ pub use webauthn::PasskeyLoginIsland;
 pub use whiteboard::WhiteboardIsland;
 pub use user_select::UserItem;
 pub use user_select::UserSelectIsland;
+pub use vcs_timeline::SnapshotTimelineItem;
+pub use vcs_timeline::VcsTimelineIsland;
 
 /// Minimal bilingual-string helper for islands.
 ///
