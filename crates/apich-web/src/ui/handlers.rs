@@ -8183,6 +8183,12 @@ async fn terminal_exec_action(
         return axum::Json(serde_json::json!({ "output": "" })).into_response();
     }
 
+    // Enforce command security policy to block host server inspection (e.g. `df -H`, `lscpu`, `ip a`)
+    if let Err(violation) = crate::services::command_security::CommandSecurityGuard::validate_command(cmd) {
+        let msg = violation.to_terminal_message();
+        return axum::Json(serde_json::json!({ "output": format!("{msg}\n") })).into_response();
+    }
+
     // Runs inside the project's real sandbox container (auto-starting it if needed), not on
     // the host -- this used to shell out directly on the web server process with no isolation
     // and no permission check at all.

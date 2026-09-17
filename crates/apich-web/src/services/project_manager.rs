@@ -205,6 +205,11 @@ impl ProjectManager {
         user_id: Uuid,
         command: &str,
     ) -> WebResult<String> {
+        // Enforce command security policy to block host server inspection (e.g. `df -H`, `lscpu`, `ip a`)
+        if let Err(violation) = crate::services::command_security::CommandSecurityGuard::validate_command(command) {
+            return Ok(format!("{}\n", violation.to_terminal_message()));
+        }
+
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
@@ -344,6 +349,34 @@ impl ProjectManager {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
+
+        if !args.trim().is_empty() {
+            if let Err(violation) = crate::services::command_security::CommandSecurityGuard::validate_command(args) {
+                return Ok(crate::services::document_renderer::ScriptRunResult {
+                    success: false,
+                    exit_code: Some(1),
+                    stdout: String::new(),
+                    stderr: format!("{}\n", violation.to_terminal_message()),
+                    execution_time_ms: 0,
+                    output_images: Vec::new(),
+                });
+            }
+        }
+
+        if ext == "sh" || ext == "bash" {
+            if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
+                if let Err(violation) = crate::services::command_security::CommandSecurityGuard::validate_command(&content) {
+                    return Ok(crate::services::document_renderer::ScriptRunResult {
+                        success: false,
+                        exit_code: Some(1),
+                        stdout: String::new(),
+                        stderr: format!("{}\n", violation.to_terminal_message()),
+                        execution_time_ms: 0,
+                        output_images: Vec::new(),
+                    });
+                }
+            }
+        }
 
         let container = self.ensure_agent_container(project_id, user_id).await?;
 

@@ -5,6 +5,7 @@
 pub(crate) mod agent_login;
 pub(crate) mod ai_service;
 pub(crate) mod cargo_slide_helpers;
+pub(crate) mod command_security;
 /// Default template seeding service.
 pub mod default_templates;
 pub(crate) mod demo_project;
@@ -20,6 +21,8 @@ pub(crate) mod sso_service;
 pub(crate) mod template_library;
 
 pub(crate) use agent_login::AgentLoginStatus;
+pub(crate) use command_security::CommandSecurityGuard;
+pub(crate) use command_security::SecurityViolation;
 pub(crate) use gpg_keys::gpg_key_fingerprint;
 pub(crate) use identity_service::IdentityService;
 pub(crate) use knowledge_sync::KnowledgeSyncService;
