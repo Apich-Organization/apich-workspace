@@ -276,6 +276,100 @@ impl DocumentRenderer {
         Ok(bytes)
     }
 
+    /// Compile multiple Typst files into a single unified PDF.
+    /// Files are compiled in the exact sequence specified in `ordered_files`.
+    pub async fn compile_multiple_typst_pdf<P: AsRef<Path>>(
+        project_root: P,
+        ordered_files: &[String],
+        add_pagebreaks: bool,
+    ) -> Result<Vec<u8>, String> {
+        if ordered_files.is_empty() {
+            return Err("No files specified for multi-file rendering".to_string());
+        }
+
+        let root = project_root.as_ref();
+        for f in ordered_files {
+            let path = root.join(f);
+            if !path.exists() {
+                return Err(format!("File not found: {f}"));
+            }
+        }
+
+        // Generate master Typst source with sequential #include calls
+        let mut master_src = String::from("// APICH Multi-File Unified Document\n");
+        for (idx, f) in ordered_files.iter().enumerate() {
+            if idx > 0 && add_pagebreaks {
+                master_src.push_str("\n#pagebreak(weak: true)\n");
+            }
+            let clean_f = f.replace('\\', "/").replace('"', "\\\"");
+            master_src.push_str(&format!("#include \"{clean_f}\"\n"));
+        }
+
+        let tmp_parent = Path::new("/home/user/tmp");
+        if !tmp_parent.exists() {
+            std::fs::create_dir_all(tmp_parent).ok();
+        }
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let master_file_path = root.join(format!("_multi_{run_id}.typ"));
+        let out_pdf_path = tmp_parent.join(format!("typst_multi_{run_id}.pdf"));
+
+        // Write master file into project root so Typst resolves relative `#include` paths correctly
+        if let Err(e) = std::fs::write(&master_file_path, master_src) {
+            return Err(format!("Failed to create temporary master Typst file: {e}"));
+        }
+
+        let typst_bin = if Path::new("/home/user/.cargo/bin/typst").exists() {
+            "/home/user/.cargo/bin/typst"
+        } else {
+            "typst"
+        };
+
+        let mut cmd = tokio::process::Command::new(typst_bin);
+        cmd.env("TMPDIR", "/home/user/tmp")
+            .arg("compile")
+            .arg("--format")
+            .arg("pdf")
+            .arg("--root")
+            .arg(root)
+            .arg(&master_file_path)
+            .arg(&out_pdf_path);
+
+        let output_res = cmd.output().await;
+
+        // Clean up temporary master file immediately
+        let _ = std::fs::remove_file(&master_file_path);
+
+        let output = output_res.map_err(|e| format!("Failed to execute typst binary: {e}"))?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
+
+        let bytes = std::fs::read(&out_pdf_path)
+            .map_err(|e| format!("Typst compiled successfully but no output PDF was found: {e}"))?;
+        let _ = std::fs::remove_file(&out_pdf_path);
+        Ok(bytes)
+    }
+
+    /// Generate combined source code for multiple Typst files
+    pub fn generate_combined_typst_source(
+        ordered_files: &[String],
+        add_pagebreaks: bool,
+    ) -> String {
+        let mut out = String::from("// APICH Multi-File Unified Document\n// Ordered files:\n");
+        for (i, f) in ordered_files.iter().enumerate() {
+            out.push_str(&format!("// {}. {}\n", i + 1, f));
+        }
+        out.push('\n');
+        for (idx, f) in ordered_files.iter().enumerate() {
+            if idx > 0 && add_pagebreaks {
+                out.push_str("\n#pagebreak(weak: true)\n");
+            }
+            let clean = f.replace('\\', "/").replace('"', "\\\"");
+            out.push_str(&format!("#include \"{clean}\"\n"));
+        }
+        out
+    }
+
     /// Helper to collect and sort generated SVG pages
     fn collect_svg_pages(dir: &Path) -> Vec<String> {
         let mut svgs = Vec::new();

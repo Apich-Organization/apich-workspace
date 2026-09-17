@@ -526,6 +526,211 @@ impl ProjectManager {
         }
     }
 
+    /// Compile multiple LaTeX files into a single unified PDF inside the project's sandbox.
+    pub async fn compile_multiple_latex_in_sandbox(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        ordered_files: &[String],
+        engine: &str,
+        add_pagebreaks: bool,
+    ) -> WebResult<Result<Vec<u8>, String>> {
+        if ordered_files.is_empty() {
+            return Ok(Err("No LaTeX files specified for multi-file rendering".to_string()));
+        }
+
+        let container = self.ensure_agent_container(project_id, user_id).await?;
+        let run_id = uuid::Uuid::new_v4().to_string();
+
+        // Read all selected files from container workspace
+        let mut file_contents: Vec<(String, String)> = Vec::new();
+        for f in ordered_files {
+            match container.read_file_str(f).await {
+                Ok(content) => file_contents.push((f.clone(), content)),
+                Err(e) => return Ok(Err(format!("Could not read LaTeX file '{f}': {e}"))),
+            }
+        }
+
+        let combined_tex = Self::generate_combined_latex_source(&file_contents, add_pagebreaks);
+
+        let master_stem = format!("_multi_{run_id}");
+        let master_tex_name = format!("{master_stem}.tex");
+        let master_pdf_name = format!("{master_stem}.pdf");
+        let master_log_name = format!("{master_stem}.log");
+
+        let proj = self
+            .db
+            .repository()
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let master_full_path = PathBuf::from(&proj.storage_path).join(&master_tex_name);
+        tokio::fs::write(&master_full_path, &combined_tex).await.map_err(|e| {
+            WebError::Internal(format!("Failed to write master LaTeX file: {e}"))
+        })?;
+
+        let clean_engine = match engine {
+            "xelatex" => "xelatex",
+            "lualatex" => "lualatex",
+            _ => "pdflatex",
+        };
+
+        let cmd = vec![
+            clean_engine.to_string(),
+            "-interaction=nonstopmode".to_string(),
+            "-halt-on-error".to_string(),
+            master_tex_name.clone(),
+        ];
+
+        let _ = container.exec(cmd.clone()).await?;
+        let result = container.exec(cmd).await?;
+
+        // Cleanup temporary master .tex and auxiliary files
+        let _ = tokio::fs::remove_file(&master_full_path).await;
+        let _ = container
+            .exec([
+                "rm",
+                "-f",
+                &format!("{master_stem}.aux"),
+                &format!("{master_stem}.out"),
+                &format!("{master_stem}.toc"),
+            ])
+            .await;
+
+        if !result.success() {
+            // Fallback: compile each standalone file and combine using pdfpages
+            let mut compiled_pdfs = Vec::new();
+            let mut compile_err = None;
+
+            for f in ordered_files {
+                let stem = std::path::Path::new(f)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("doc");
+                let sub_cmd = vec![
+                    clean_engine.to_string(),
+                    "-interaction=nonstopmode".to_string(),
+                    "-halt-on-error".to_string(),
+                    f.clone(),
+                ];
+                let _ = container.exec(sub_cmd.clone()).await;
+                let sub_res = container.exec(sub_cmd).await?;
+                if sub_res.success() {
+                    compiled_pdfs.push(format!("{stem}.pdf"));
+                } else {
+                    let log = container
+                        .read_file_str(&format!("{stem}.log"))
+                        .await
+                        .unwrap_or_else(|_| {
+                            format!("{}{}", sub_res.stdout_lossy(), sub_res.stderr_lossy())
+                        });
+                    compile_err = Some(format!("Failed to compile '{f}':\n{log}"));
+                    break;
+                }
+            }
+
+            if let Some(err) = compile_err {
+                let _ = container.exec(["rm", "-f", &master_log_name, &master_pdf_name]).await;
+                return Ok(Err(err));
+            }
+
+            let mut pdfpages_wrapper = String::from(
+                "\\documentclass{article}\n\\usepackage{pdfpages}\n\\begin{document}\n",
+            );
+            for pdf_file in &compiled_pdfs {
+                pdfpages_wrapper.push_str(&format!("\\includepdf[pages=-]{{{pdf_file}}}\n"));
+            }
+            pdfpages_wrapper.push_str("\\end{document}\n");
+
+            let wrapper_tex_name = format!("_wrap_{run_id}.tex");
+            let wrapper_full_path = PathBuf::from(&proj.storage_path).join(&wrapper_tex_name);
+            let _ = tokio::fs::write(&wrapper_full_path, &pdfpages_wrapper).await;
+
+            let wrap_cmd = vec![
+                "pdflatex".to_string(),
+                "-interaction=nonstopmode".to_string(),
+                "-halt-on-error".to_string(),
+                wrapper_tex_name.clone(),
+            ];
+            let wrap_res = container.exec(wrap_cmd).await?;
+            let _ = tokio::fs::remove_file(&wrapper_full_path).await;
+            let _ = container
+                .exec([
+                    "rm",
+                    "-f",
+                    &format!("_wrap_{run_id}.aux"),
+                    &format!("_wrap_{run_id}.log"),
+                ])
+                .await;
+
+            let wrapper_pdf_name = format!("_wrap_{run_id}.pdf");
+            if wrap_res.success() {
+                if let Ok(bytes) = container.read_file(&wrapper_pdf_name).await {
+                    let _ = container.exec(["rm", "-f", &wrapper_pdf_name]).await;
+                    return Ok(Ok(bytes));
+                }
+            }
+
+            let log = container
+                .read_file_str(&master_log_name)
+                .await
+                .unwrap_or_else(|_| format!("{}{}", result.stdout_lossy(), result.stderr_lossy()));
+            let _ = container.exec(["rm", "-f", &master_log_name, &master_pdf_name]).await;
+            return Ok(Err(log));
+        }
+
+        let pdf_bytes = match container.read_file(&master_pdf_name).await {
+            Ok(bytes) => Ok(bytes),
+            Err(e) => Err(format!(
+                "LaTeX reported success but output PDF could not be read: {e}"
+            )),
+        };
+        let _ = container.exec(["rm", "-f", &master_log_name, &master_pdf_name]).await;
+
+        Ok(pdf_bytes)
+    }
+
+    /// Generate combined source code for multiple LaTeX files
+    pub fn generate_combined_latex_source(
+        file_contents: &[(String, String)],
+        add_pagebreaks: bool,
+    ) -> String {
+        let mut preamble = String::new();
+        let mut bodies = Vec::new();
+
+        for (name, content) in file_contents {
+            if let Some(doc_start) = content.find(r"\begin{document}") {
+                if preamble.is_empty() {
+                    preamble = content[..doc_start].to_string();
+                }
+                let body_start = doc_start + r"\begin{document}".len();
+                let body_end = content.find(r"\end{document}").unwrap_or(content.len());
+                bodies.push((name, &content[body_start..body_end]));
+            } else {
+                bodies.push((name, content.as_str()));
+            }
+        }
+
+        if preamble.is_empty() {
+            preamble = String::from(
+                "\\documentclass[11pt]{article}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amsmath,amssymb}\n\\usepackage{graphicx}\n\\usepackage{hyperref}\n",
+            );
+        }
+
+        let mut combined_tex = preamble;
+        combined_tex.push_str("\n\\begin{document}\n");
+        for (idx, (name, body)) in bodies.iter().enumerate() {
+            if idx > 0 && add_pagebreaks {
+                combined_tex.push_str("\n\\clearpage\n");
+            }
+            combined_tex.push_str(&format!("\n% === File: {name} ===\n"));
+            combined_tex.push_str(body);
+            combined_tex.push('\n');
+        }
+        combined_tex.push_str("\n\\end{document}\n");
+        combined_tex
+    }
+
     /// Compiles a LaTeX file that doesn't belong to any real project -- a Template Library
     /// template's own content, previewed before anyone has applied it anywhere -- by spinning up
     /// a genuinely throwaway container (own scratch host directory, own container name, `pdflatex`

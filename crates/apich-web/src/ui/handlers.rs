@@ -309,6 +309,18 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/projects/:id/editor/latex-sync", post(latex_sync_action))
         .route("/projects/:id/editor/typst-pdf", get(typst_pdf_action))
         .route(
+            "/projects/:id/editor/render-multiple-typst",
+            post(render_multiple_typst_action),
+        )
+        .route(
+            "/projects/:id/editor/render-multiple-latex",
+            post(render_multiple_latex_action),
+        )
+        .route(
+            "/projects/:id/editor/multi-pdf",
+            get(multi_file_pdf_action),
+        )
+        .route(
             "/projects/:id/editor/slide-binary/start",
             post(slide_binary_start_action),
         )
@@ -2694,6 +2706,29 @@ fn mime_type_for_path(path: &str) -> &'static str {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct MultiFileRenderRequest {
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub pagebreaks: Option<bool>,
+    #[serde(default)]
+    pub engine: Option<String>,
+    #[serde(default)]
+    pub save_as: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MultiFilePdfQuery {
+    pub doc_type: String, // "typst" | "latex"
+    pub files: String,
+    #[serde(default)]
+    pub engine: Option<String>,
+    #[serde(default)]
+    pub pagebreaks: Option<bool>,
+    #[serde(default)]
+    pub download: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct EditorQuery {
     pub file: Option<String>,
     pub notice: Option<String>,
@@ -2737,14 +2772,15 @@ async fn project_editor_page(
         .await
         .unwrap_or(false);
 
+    let all_files = state
+        .project_manager
+        .list_files(project.id)
+        .await
+        .unwrap_or_default();
+
     let file_path = if let Some(ref f) = query.file {
         f.clone()
     } else {
-        let all_files = state
-            .project_manager
-            .list_files(project.id)
-            .await
-            .unwrap_or_default();
         all_files
             .iter()
             .find(|f| f.path == "slides.typ" || f.category == "slide")
@@ -2848,6 +2884,22 @@ async fn project_editor_page(
     let notice = query.notice;
     let error = query.error;
 
+    let available_sibling_files: Vec<String> = if is_typ || is_slide_typ || is_slide {
+        all_files
+            .iter()
+            .filter(|f| f.category == "typst" || f.category == "slide" || f.path.ends_with(".typ"))
+            .map(|f| f.path.clone())
+            .collect()
+    } else if is_tex {
+        all_files
+            .iter()
+            .filter(|f| f.category == "latex" || f.path.ends_with(".tex") || f.path.ends_with(".latex"))
+            .map(|f| f.path.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let html = crate::app::components::render_document(move || {
         leptos::prelude::view! {
             <crate::app::pages::document_editor_page::DocumentEditorPage
@@ -2866,6 +2918,7 @@ async fn project_editor_page(
                 template_kind=file_template_kind.map(std::string::ToString::to_string)
                 own_file_templates=own_file_templates
                 visible_file_templates=visible_file_templates
+                available_sibling_files=available_sibling_files
                 notice=notice
                 error=error
                 i18n=i18n
@@ -3087,6 +3140,312 @@ async fn typst_pdf_action(
                 html_escape(&compile_log)
             )),
         ).into_response(),
+    }
+}
+
+/// Asynchronously compile multiple Typst files into a single unified PDF
+async fn render_multiple_typst_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    axum::Json(payload): axum::Json<MultiFileRenderRequest>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({ "success": false, "error": "Unauthorized" })),
+        )
+            .into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({ "success": false, "error": "Project not found" })),
+        )
+            .into_response();
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+        .await
+        .unwrap_or(false);
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "success": false, "error": "Forbidden" })),
+        )
+            .into_response();
+    }
+
+    if payload.files.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({ "success": false, "error": "No files provided" })),
+        )
+            .into_response();
+    }
+
+    let add_pagebreaks = payload.pagebreaks.unwrap_or(true);
+
+    if let Some(ref save_name) = payload.save_as {
+        let clean_name = save_name.trim();
+        if !clean_name.is_empty() {
+            let combined_src = crate::services::document_renderer::DocumentRenderer::generate_combined_typst_source(
+                &payload.files,
+                add_pagebreaks,
+            );
+            let _ = state
+                .project_manager
+                .write_file(project.id, user.id, clean_name, &combined_src)
+                .await;
+        }
+    }
+
+    match crate::services::document_renderer::DocumentRenderer::compile_multiple_typst_pdf(
+        &project.storage_path,
+        &payload.files,
+        add_pagebreaks,
+    )
+    .await
+    {
+        Ok(_) => {
+            let files_csv = payload.files.join(",");
+            let pdf_url = format!(
+                "/projects/{}/editor/multi-pdf?doc_type=typst&files={}&pagebreaks={}&_r={}",
+                project.id,
+                urlencoding::encode(&files_csv),
+                add_pagebreaks,
+                chrono::Utc::now().timestamp_millis()
+            );
+            let download_url = format!("{}&download=true", pdf_url);
+            axum::Json(serde_json::json!({
+                "success": true,
+                "pdf_url": pdf_url,
+                "download_url": download_url,
+                "file_count": payload.files.len()
+            }))
+            .into_response()
+        },
+        Err(e) => {
+            axum::Json(serde_json::json!({
+                "success": false,
+                "error": e
+            }))
+            .into_response()
+        },
+    }
+}
+
+/// Asynchronously compile multiple LaTeX files into a single unified PDF inside project sandbox
+async fn render_multiple_latex_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    axum::Json(payload): axum::Json<MultiFileRenderRequest>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({ "success": false, "error": "Unauthorized" })),
+        )
+            .into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({ "success": false, "error": "Project not found" })),
+        )
+            .into_response();
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+        .await
+        .unwrap_or(false);
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "success": false, "error": "Forbidden" })),
+        )
+            .into_response();
+    }
+
+    if payload.files.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({ "success": false, "error": "No files provided" })),
+        )
+            .into_response();
+    }
+
+    let engine = sanitize_latex_engine(payload.engine.as_deref());
+    let add_pagebreaks = payload.pagebreaks.unwrap_or(true);
+
+    if let Some(ref save_name) = payload.save_as {
+        let clean_name = save_name.trim();
+        if !clean_name.is_empty() {
+            let mut file_contents = Vec::new();
+            for f in &payload.files {
+                if let Ok(c) = state.project_manager.read_file(project.id, f).await {
+                    file_contents.push((f.clone(), c));
+                }
+            }
+            let combined_src =
+                crate::services::project_manager::ProjectManager::generate_combined_latex_source(
+                    &file_contents,
+                    add_pagebreaks,
+                );
+            let _ = state
+                .project_manager
+                .write_file(project.id, user.id, clean_name, &combined_src)
+                .await;
+        }
+    }
+
+    match state
+        .project_manager
+        .compile_multiple_latex_in_sandbox(
+            project.id,
+            user.id,
+            &payload.files,
+            engine,
+            add_pagebreaks,
+        )
+        .await
+    {
+        Ok(Ok(_)) => {
+            let files_csv = payload.files.join(",");
+            let pdf_url = format!(
+                "/projects/{}/editor/multi-pdf?doc_type=latex&files={}&engine={}&pagebreaks={}&_r={}",
+                project.id,
+                urlencoding::encode(&files_csv),
+                engine,
+                add_pagebreaks,
+                chrono::Utc::now().timestamp_millis()
+            );
+            let download_url = format!("{}&download=true", pdf_url);
+            axum::Json(serde_json::json!({
+                "success": true,
+                "pdf_url": pdf_url,
+                "download_url": download_url,
+                "file_count": payload.files.len()
+            }))
+            .into_response()
+        },
+        Ok(Err(e)) => {
+            axum::Json(serde_json::json!({
+                "success": false,
+                "error": e
+            }))
+            .into_response()
+        },
+        Err(e) => {
+            axum::Json(serde_json::json!({
+                "success": false,
+                "error": e.to_string()
+            }))
+            .into_response()
+        },
+    }
+}
+
+/// Stream the multi-file compiled PDF for in-browser preview or download
+async fn multi_file_pdf_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<MultiFilePdfQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
+    };
+    let can_access = IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+        .await
+        .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
+    }
+
+    let files: Vec<String> = query
+        .files
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if files.is_empty() {
+        return (StatusCode::BAD_REQUEST, Html("No files specified")).into_response();
+    }
+
+    let add_pagebreaks = query.pagebreaks.unwrap_or(true);
+    let is_download = query.download.unwrap_or(false);
+    let disposition = if is_download {
+        format!("attachment; filename=\"combined_{}.pdf\"", query.doc_type)
+    } else {
+        "inline".to_string()
+    };
+
+    if query.doc_type == "typst" {
+        match crate::services::document_renderer::DocumentRenderer::compile_multiple_typst_pdf(
+            &project.storage_path,
+            &files,
+            add_pagebreaks,
+        )
+        .await
+        {
+            Ok(bytes) => (
+                [
+                    (header::CONTENT_TYPE, "application/pdf".to_string()),
+                    (header::CONTENT_DISPOSITION, disposition),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Err(e) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                Html(format!(
+                    "<html><body style=\"background:#1e1e1e; color:#f87171; font-family:monospace; white-space:pre-wrap; padding:1.5rem; margin:0;\">⚠️ Typst Multi-File Compilation Failed:\n\n{}</body></html>",
+                    html_escape(&e)
+                )),
+            )
+                .into_response(),
+        }
+    } else {
+        let engine = sanitize_latex_engine(query.engine.as_deref());
+        match state
+            .project_manager
+            .compile_multiple_latex_in_sandbox(
+                project.id,
+                user.id,
+                &files,
+                engine,
+                add_pagebreaks,
+            )
+            .await
+        {
+            Ok(Ok(bytes)) => (
+                [
+                    (header::CONTENT_TYPE, "application/pdf".to_string()),
+                    (header::CONTENT_DISPOSITION, disposition),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Ok(Err(e)) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                Html(format!(
+                    "<html><body style=\"background:#1e1e1e; color:#f87171; font-family:monospace; white-space:pre-wrap; padding:1.5rem; margin:0;\">⚠️ LaTeX Multi-File Compilation Failed:\n\n{}</body></html>",
+                    html_escape(&e)
+                )),
+            )
+                .into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                Html(format!("⚠️ Internal error: {}", html_escape(&e.to_string()))),
+            )
+                .into_response(),
+        }
     }
 }
 

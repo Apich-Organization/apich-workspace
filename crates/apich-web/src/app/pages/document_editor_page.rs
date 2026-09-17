@@ -32,6 +32,7 @@ pub fn DocumentEditorPage(
     template_kind: Option<String>,
     own_file_templates: Vec<apich_db::Template>,
     visible_file_templates: Vec<apich_db::TemplateWithLatestVersion>,
+    available_sibling_files: Vec<String>,
     notice: Option<String>,
     error: Option<String>,
     i18n: I18n,
@@ -147,6 +148,18 @@ pub fn DocumentEditorPage(
     let download_slide_bin_btn = is_slide.then(|| view! {
         <apich_islands::SlideBuildIsland project_id=project_id.to_string() file_path=file_path.clone() />
     });
+    let multi_render_btn = (is_typst_preview || is_latex_preview).then(|| {
+        let doc_type = if is_typst_preview { "typst" } else { "latex" };
+        view! {
+            <apich_islands::MultiFileRenderModalIsland
+                project_id=project_id.to_string()
+                active_file=file_path.clone()
+                doc_type=doc_type.to_string()
+                available_files=available_sibling_files
+                is_zh=i18n.is_zh()
+            />
+        }
+    });
     let rendered_markdown_html =
         (!is_script && !is_typst_preview && !is_latex_preview).then(|| {
             crate::services::document_renderer::DocumentRenderer::render_markdown_interactive(
@@ -235,6 +248,7 @@ pub fn DocumentEditorPage(
                     <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm" title="View version control timeline and file history">"🌿 History"</a>
                     <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
+                    {multi_render_btn}
                     {download_pdf_btn}
                     {download_slide_bin_btn}
                     {slide_present_btn}
