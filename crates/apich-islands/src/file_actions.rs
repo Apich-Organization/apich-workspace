@@ -36,6 +36,7 @@ pub fn FileActionDropdownIsland(
     let sh_users = share_users_csv.unwrap_or_default();
 
     let is_open = RwSignal::new(false);
+    let is_dropup = RwSignal::new(false);
     let is_favorite = RwSignal::new(false);
 
     // Check favorite status from localStorage
@@ -116,7 +117,32 @@ pub fn FileActionDropdownIsland(
     );
 
     let container_ref = NodeRef::<leptos::html::Div>::new();
-    wire_outside_click(container_ref, is_open);
+    let btn_ref = NodeRef::<leptos::html::Button>::new();
+    wire_outside_click(container_ref, is_open, file_path.clone());
+
+    let file_path_toggle = file_path.clone();
+    let on_toggle_click = move |ev: leptos::ev::MouseEvent| {
+        ev.stop_propagation();
+        let next = !is_open.get();
+        if next {
+            dispatch_close_other_dropdowns(&file_path_toggle);
+            #[cfg(feature = "hydrate")]
+            {
+                if let Some(btn_el) = btn_ref.get() {
+                    let rect = btn_el.get_bounding_client_rect();
+                    if let Some(win) = web_sys::window() {
+                        if let Ok(inner_h) = win.inner_height() {
+                            if let Some(h) = inner_h.as_f64() {
+                                let space_below = h - rect.bottom();
+                                is_dropup.set(space_below < 380.0 && rect.top() > 300.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        is_open.set(next);
+    };
 
     view! {
         <div node_ref=container_ref class="file-more-wrap" style="position:relative; display:inline-flex; align-items:center; gap:0.25rem;">
@@ -126,19 +152,18 @@ pub fn FileActionDropdownIsland(
                 view! { <span></span> }.into_any()
             }}
             <button
+                node_ref=btn_ref
                 type="button"
                 class="file-more-btn"
                 class:is-active=move || is_open.get()
                 title=t(zh, "More options", "更多选项")
-                on:click=move |ev| {
-                    ev.stop_propagation();
-                    is_open.update(|v| *v = !*v);
-                }
+                on:click=on_toggle_click
             >
                 "···"
             </button>
             <div
                 class="file-action-menu"
+                class:dropup=move || is_dropup.get()
                 style:display=move || if is_open.get() { "flex" } else { "none" }
             >
                 // 1. Open
@@ -905,7 +930,20 @@ fn submit_form_post(action: &str, fields: &[(&str, &str)]) {
 const fn submit_form_post(_action: &str, _fields: &[(&str, &str)]) {}
 
 #[cfg(feature = "hydrate")]
-fn wire_outside_click(container: NodeRef<leptos::html::Div>, is_open: RwSignal<bool>) {
+fn dispatch_close_other_dropdowns(file_path: &str) {
+    if let Some(win) = web_sys::window() {
+        let init = web_sys::CustomEventInit::new();
+        init.set_detail(&wasm_bindgen::JsValue::from_str(file_path));
+        if let Ok(ev) = web_sys::CustomEvent::new_with_event_init_dict("apich-close-other-file-menus", &init) {
+            let _ = win.dispatch_event(&ev);
+        }
+    }
+}
+#[cfg(not(feature = "hydrate"))]
+const fn dispatch_close_other_dropdowns(_file_path: &str) {}
+
+#[cfg(feature = "hydrate")]
+fn wire_outside_click(container: NodeRef<leptos::html::Div>, is_open: RwSignal<bool>, current_file_path: String) {
     Effect::new(move |_| {
         use wasm_bindgen::closure::Closure;
         use wasm_bindgen::JsCast;
@@ -926,14 +964,28 @@ fn wire_outside_click(container: NodeRef<leptos::html::Div>, is_open: RwSignal<b
             }
         }) as Box<dyn FnMut(web_sys::MouseEvent)>);
 
+        let my_file_path = current_file_path.clone();
+        let close_cb = Closure::wrap(Box::new(move |ev: web_sys::CustomEvent| {
+            if !is_open.get_untracked() {
+                return;
+            }
+            if let Some(opened_path) = ev.detail().as_string() {
+                if opened_path != my_file_path {
+                    is_open.set(false);
+                }
+            }
+        }) as Box<dyn FnMut(web_sys::CustomEvent)>);
+
         if let Some(win) = web_sys::window() {
             let _ = win.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref());
+            let _ = win.add_event_listener_with_callback("apich-close-other-file-menus", close_cb.as_ref().unchecked_ref());
         }
         cb.forget();
+        close_cb.forget();
     });
 }
 #[cfg(not(feature = "hydrate"))]
-const fn wire_outside_click(_container: NodeRef<leptos::html::Div>, _is_open: RwSignal<bool>) {}
+fn wire_outside_click(_container: NodeRef<leptos::html::Div>, _is_open: RwSignal<bool>, _current_file_path: String) {}
 
 #[cfg(feature = "hydrate")]
 #[allow(clippy::too_many_arguments)]

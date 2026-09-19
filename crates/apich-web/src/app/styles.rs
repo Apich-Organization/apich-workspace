@@ -1165,7 +1165,8 @@ select::-ms-expand {
     background: var(--bg-surface);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: visible;
     box-shadow: var(--shadow-sm);
 }
 .file-table {
@@ -1296,6 +1297,10 @@ select::-ms-expand {
     display: flex;
     flex-direction: column;
     animation: fadeIn 0.12s ease-out;
+}
+.file-action-menu.dropup {
+    top: auto;
+    bottom: calc(100% + 4px);
 }
 .file-action-item {
     display: flex;
