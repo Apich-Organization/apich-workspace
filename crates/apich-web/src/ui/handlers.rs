@@ -251,6 +251,14 @@ pub fn build_ui_router() -> Router<AppState> {
             post(upload_file_json_action)
                 .layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
+        .route(
+            "/projects/:id/search-text",
+            post(search_project_text_action),
+        )
+        .route(
+            "/projects/:id/replace-text",
+            post(replace_project_text_action),
+        )
         .route("/projects/:id/sandbox/start", post(start_sandbox_action))
         .route("/projects/:id/sandbox/stop", post(stop_sandbox_action))
         .route("/projects/:id/snapshot", post(snapshot_action))
@@ -2615,6 +2623,158 @@ async fn upload_file_json_action(
         })),
     )
         .into_response()
+}
+
+/// Request payload for searching text across project files
+#[derive(Debug, Deserialize)]
+pub struct SearchProjectTextPayload {
+    /// Query string to find
+    pub query: String,
+    /// Optional replacement text (used to compute line previews)
+    pub replacement: Option<String>,
+    /// Match case if true
+    #[serde(default)]
+    pub case_sensitive: bool,
+    /// Match whole word boundaries if true
+    #[serde(default)]
+    pub whole_word: bool,
+    /// Treat query as a regular expression if true
+    #[serde(default)]
+    pub is_regex: bool,
+    /// Optional specific files to search
+    pub file_paths: Option<Vec<String>>,
+    /// Optional extension filter
+    pub extension_filter: Option<String>,
+}
+
+/// Search for text occurrences across single or multiple files in a project
+async fn search_project_text_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<SearchProjectTextPayload>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let options = crate::services::project_manager::SearchProjectOptions {
+        query: payload.query,
+        replacement: payload.replacement,
+        case_sensitive: payload.case_sensitive,
+        whole_word: payload.whole_word,
+        is_regex: payload.is_regex,
+        file_paths: payload.file_paths,
+        extension_filter: payload.extension_filter,
+    };
+
+    match state.project_manager.search_text_in_project(project.id, options).await {
+        Ok(res) => (StatusCode::OK, Json(json!({
+            "success": true,
+            "query": res.query,
+            "total_matches": res.total_matches,
+            "files_count": res.files_count,
+            "results": res.results,
+        }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": e.to_string()})),
+        ).into_response(),
+    }
+}
+
+/// Request payload for replacing text across project files
+#[derive(Debug, Deserialize)]
+pub struct ReplaceProjectTextPayload {
+    /// Query string to find
+    pub query: String,
+    /// Replacement string
+    pub replacement: String,
+    /// Match case if true
+    #[serde(default)]
+    pub case_sensitive: bool,
+    /// Match whole word boundaries if true
+    #[serde(default)]
+    pub whole_word: bool,
+    /// Treat query as a regular expression if true
+    #[serde(default)]
+    pub is_regex: bool,
+    /// Target file paths to execute replacements in
+    pub file_paths: Vec<String>,
+}
+
+/// Replace text occurrences across single or multiple files in a project and record VCS snapshot
+async fn replace_project_text_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    State(state): State<AppState>,
+    Json(payload): Json<ReplaceProjectTextPayload>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let can_edit =
+        IdentityPermissionResolver::can_edit_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_edit {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden: write access required"}))).into_response();
+    }
+
+    let options = crate::services::project_manager::ReplaceProjectOptions {
+        query: payload.query,
+        replacement: payload.replacement,
+        case_sensitive: payload.case_sensitive,
+        whole_word: payload.whole_word,
+        is_regex: payload.is_regex,
+        file_paths: payload.file_paths,
+    };
+
+    match state.project_manager.replace_text_in_project(project.id, user.id, options).await {
+        Ok(res) => (StatusCode::OK, Json(json!({
+            "success": res.success,
+            "files_modified": res.files_modified,
+            "total_replacements": res.total_replacements,
+            "modified_files": res.modified_files,
+        }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": e.to_string()})),
+        ).into_response(),
+    }
 }
 
 #[derive(Debug, Deserialize)]

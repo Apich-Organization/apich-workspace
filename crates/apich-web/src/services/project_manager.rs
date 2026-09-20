@@ -3195,6 +3195,412 @@ status: "in_progress"
 
         Ok(new_rel_path)
     }
+
+    /// Search for text occurrences across single or multiple files in a project.
+    /// Search for text occurrences across single or multiple files in a project.
+    pub async fn search_text_in_project(
+        &self,
+        project_id: Uuid,
+        options: SearchProjectOptions,
+    ) -> WebResult<SearchProjectResult> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let proj_root = PathBuf::from(&proj.storage_path);
+        let all_files = self.list_files(project_id).await?;
+
+        let candidate_paths: Vec<String> = if let Some(ref paths) = options.file_paths {
+            if paths.is_empty() {
+                all_files.into_iter().filter(|f| !f.is_dir).map(|f| f.path).collect()
+            } else {
+                paths.clone()
+            }
+        } else {
+            all_files.into_iter().filter(|f| !f.is_dir).map(|f| f.path).collect()
+        };
+
+        Self::search_text_in_dir(&proj_root, &candidate_paths, options).await
+    }
+
+    /// Helper to normalize replacement string for regex replacement.
+    /// Converts `\0`..`\9` capture group references to `$0`..`$9` while keeping escaped `\\` intact.
+    pub fn normalize_regex_replacement(rep: &str) -> String {
+        let mut out = String::with_capacity(rep.len());
+        let mut chars = rep.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                if let Some(&next_ch) = chars.peek() {
+                    if next_ch.is_ascii_digit() {
+                        out.push('$');
+                        out.push(next_ch);
+                        chars.next();
+                        continue;
+                    } else if next_ch == '\\' {
+                        out.push('\\');
+                        out.push('\\');
+                        chars.next();
+                        continue;
+                    }
+                }
+                out.push('\\');
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
+    /// Search for text occurrences within a directory for specified candidate file paths.
+    pub async fn search_text_in_dir(
+        proj_root: &Path,
+        candidate_paths: &[String],
+        options: SearchProjectOptions,
+    ) -> WebResult<SearchProjectResult> {
+        let query = options.query.trim();
+        if query.is_empty() {
+            return Ok(SearchProjectResult {
+                query: String::new(),
+                total_matches: 0,
+                files_count: 0,
+                results: Vec::new(),
+            });
+        }
+
+        let pattern_str = if options.is_regex {
+            if options.whole_word {
+                format!(r"\b(?:{query})\b")
+            } else {
+                query.to_string()
+            }
+        } else {
+            let esc = regex::escape(query);
+            if options.whole_word {
+                format!(r"\b{esc}\b")
+            } else {
+                esc
+            }
+        };
+
+        let re = regex::RegexBuilder::new(&pattern_str)
+            .case_insensitive(!options.case_sensitive)
+            .multi_line(true)
+            .build()
+            .map_err(|e| WebError::BadRequest(format!("Invalid search regex pattern: {e}")))?;
+
+        let ext_filters: Option<Vec<String>> = options.extension_filter.as_ref().and_then(|ef| {
+            let trimmed = ef.trim();
+            if trimmed.is_empty() || trimmed == "*" || trimmed == "*.*" {
+                None
+            } else {
+                Some(
+                    trimmed
+                        .split(&[',', ';', ' '][..])
+                        .map(|s| s.trim().trim_start_matches('*').trim_start_matches('.').to_lowercase())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                )
+            }
+        });
+
+        let mut results = Vec::new();
+        let mut total_matches = 0usize;
+
+        for rel_path in candidate_paths {
+            let clean = rel_path.trim().trim_start_matches('/');
+            if clean.contains("..") || clean.is_empty() {
+                continue;
+            }
+
+            if let Some(ref allowed_exts) = ext_filters {
+                let ext = Path::new(clean)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if !allowed_exts.iter().any(|allowed| allowed == &ext) {
+                    continue;
+                }
+            }
+
+            let full_path = proj_root.join(clean);
+            if !full_path.is_file() {
+                continue;
+            }
+
+            let bytes = match tokio::fs::read(&full_path).await {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+
+            let sample_len = bytes.len().min(8192);
+            if let Some(sample) = bytes.get(..sample_len) {
+                if sample.contains(&0u8) {
+                    continue;
+                }
+            }
+
+            let content = match std::str::from_utf8(&bytes) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            let mut file_matches = Vec::new();
+            for (idx, line) in content.lines().enumerate() {
+                let line_num = idx.saturating_add(1);
+                for m in re.find_iter(line) {
+                    let preview = options.replacement.as_ref().map(|rep| {
+                        if options.is_regex {
+                            let norm = Self::normalize_regex_replacement(rep);
+                            re.replace_all(line, norm.as_str()).to_string()
+                        } else {
+                            re.replace_all(line, regex::NoExpand(rep.as_str())).to_string()
+                        }
+                    });
+                    file_matches.push(SearchMatchOccurrence {
+                        line_number: line_num,
+                        line_content: line.to_string(),
+                        match_text: m.as_str().to_string(),
+                        match_start: m.start(),
+                        match_end: m.end(),
+                        preview_replaced: preview,
+                    });
+                }
+            }
+
+            if !file_matches.is_empty() {
+                let match_count = file_matches.len();
+                total_matches = total_matches.saturating_add(match_count);
+                results.push(SearchFileResult {
+                    file_path: clean.to_string(),
+                    match_count,
+                    matches: file_matches,
+                });
+            }
+        }
+
+        let files_count = results.len();
+        Ok(SearchProjectResult {
+            query: options.query,
+            total_matches,
+            files_count,
+            results,
+        })
+    }
+
+    /// Replace text occurrences across single or multiple files in a project, recording a VCS snapshot.
+    pub async fn replace_text_in_project(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        options: ReplaceProjectOptions,
+    ) -> WebResult<ReplaceProjectResult> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let proj_root = PathBuf::from(&proj.storage_path);
+        let query_snapshot = options.query.clone();
+        let replacement_snapshot = options.replacement.clone();
+        let res = Self::replace_text_in_dir(&proj_root, options).await?;
+
+        if res.total_replacements > 0 {
+            let user_hex = user_id.simple().to_string();
+            let user_suffix = user_hex.get(24..).unwrap_or("user");
+            let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
+            let file_count = res.files_modified;
+            let _ = vcs.snapshot_if_changed(format!(
+                "Search & replace '{query_snapshot}' -> '{replacement_snapshot}' in {file_count} files (by user {user_suffix})"
+            ))?;
+        }
+
+        Ok(res)
+    }
+
+    /// Replace text occurrences within a directory across specified candidate file paths.
+    pub async fn replace_text_in_dir(
+        proj_root: &Path,
+        options: ReplaceProjectOptions,
+    ) -> WebResult<ReplaceProjectResult> {
+        let query = options.query.trim();
+        if query.is_empty() {
+            return Err(WebError::BadRequest("Search query cannot be empty".to_string()));
+        }
+
+        if options.file_paths.is_empty() {
+            return Err(WebError::BadRequest("At least one target file must be selected for replacement".to_string()));
+        }
+
+        let pattern_str = if options.is_regex {
+            if options.whole_word {
+                format!(r"\b(?:{query})\b")
+            } else {
+                query.to_string()
+            }
+        } else {
+            let esc = regex::escape(query);
+            if options.whole_word {
+                format!(r"\b{esc}\b")
+            } else {
+                esc
+            }
+        };
+
+        let re = regex::RegexBuilder::new(&pattern_str)
+            .case_insensitive(!options.case_sensitive)
+            .multi_line(true)
+            .build()
+            .map_err(|e| WebError::BadRequest(format!("Invalid search regex pattern: {e}")))?;
+
+        let mut modified_files = Vec::new();
+        let mut total_replacements = 0usize;
+
+        for rel_path in &options.file_paths {
+            let clean = rel_path.trim().trim_start_matches('/');
+            if clean.contains("..") || clean.is_empty() {
+                continue;
+            }
+
+            let full_path = proj_root.join(clean);
+            if !full_path.is_file() {
+                continue;
+            }
+
+            let bytes = tokio::fs::read(&full_path)
+                .await
+                .map_err(|e| WebError::Internal(format!("Failed to read '{clean}': {e}")))?;
+
+            let sample_len = bytes.len().min(8192);
+            if let Some(sample) = bytes.get(..sample_len) {
+                if sample.contains(&0u8) {
+                    continue;
+                }
+            }
+
+            let content = match std::str::from_utf8(&bytes) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            let match_count = re.find_iter(content).count();
+            if match_count > 0 {
+                let replaced = if options.is_regex {
+                    let norm = Self::normalize_regex_replacement(&options.replacement);
+                    re.replace_all(content, norm.as_str()).to_string()
+                } else {
+                    re.replace_all(content, regex::NoExpand(options.replacement.as_str())).to_string()
+                };
+                tokio::fs::write(&full_path, replaced.as_bytes())
+                    .await
+                    .map_err(|e| WebError::Internal(format!("Failed to write '{clean}': {e}")))?;
+
+                modified_files.push(clean.to_string());
+                total_replacements = total_replacements.saturating_add(match_count);
+            }
+        }
+
+        let files_modified = modified_files.len();
+        Ok(ReplaceProjectResult {
+            success: true,
+            files_modified,
+            total_replacements,
+            modified_files,
+        })
+    }
+}
+
+/// Options for searching text across project files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchProjectOptions {
+    /// Text or pattern to search for
+    pub query: String,
+    /// Optional replacement text (used to compute line replacement previews)
+    pub replacement: Option<String>,
+    /// Match case if true
+    pub case_sensitive: bool,
+    /// Match whole word boundaries if true
+    pub whole_word: bool,
+    /// Treat query as a regular expression if true
+    pub is_regex: bool,
+    /// Optional specific files to search; if None or empty, all text files in the project are searched
+    pub file_paths: Option<Vec<String>>,
+    /// Optional extension filter, e.g. "typ,tex,md,py" or "*.typ, *.tex"
+    pub extension_filter: Option<String>,
+}
+
+/// A single occurrence of a search match in a file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMatchOccurrence {
+    /// Line number (1-indexed)
+    pub line_number: usize,
+    /// Content of the matched line
+    pub line_content: String,
+    /// Exact text matched by the search pattern
+    pub match_text: String,
+    /// Character offset start of match in the line
+    pub match_start: usize,
+    /// Character offset end of match in the line
+    pub match_end: usize,
+    /// Preview of the line if replacement is applied
+    pub preview_replaced: Option<String>,
+}
+
+/// Search results for a single file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchFileResult {
+    /// Project-relative path to the file
+    pub file_path: String,
+    /// Total occurrences in this file
+    pub match_count: usize,
+    /// List of occurrences
+    pub matches: Vec<SearchMatchOccurrence>,
+}
+
+/// Overall search results across all searched files in a project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchProjectResult {
+    /// The query that was searched
+    pub query: String,
+    /// Total number of matches across all files
+    pub total_matches: usize,
+    /// Number of files that had at least one match
+    pub files_count: usize,
+    /// List of per-file results
+    pub results: Vec<SearchFileResult>,
+}
+
+/// Options for replacing text across project files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplaceProjectOptions {
+    /// Text or pattern to find
+    pub query: String,
+    /// Replacement string
+    pub replacement: String,
+    /// Match case if true
+    pub case_sensitive: bool,
+    /// Match whole word boundaries if true
+    pub whole_word: bool,
+    /// Treat query as a regular expression if true
+    pub is_regex: bool,
+    /// Target file paths to execute replacements in (must not be empty)
+    pub file_paths: Vec<String>,
+}
+
+/// Outcome of a search & replace operation across files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplaceProjectResult {
+    /// Whether the operation succeeded
+    pub success: bool,
+    /// Number of files modified
+    pub files_modified: usize,
+    /// Total occurrences replaced
+    pub total_replacements: usize,
+    /// List of modified file paths
+    pub modified_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default, PartialEq, Eq)]
@@ -3474,5 +3880,310 @@ pub fn compute_unified_diff(old_text: &str, new_text: &str) -> Vec<DiffLine> {
 
     reversed_diff.reverse();
     reversed_diff
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_search_and_replace_text_in_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        let f1 = root.join("main.typ");
+        let f2 = root.join("chapter.tex");
+        let f3 = root.join("notes.md");
+        let f_bin = root.join("binary.dat");
+
+        tokio::fs::write(&f1, b"Hello World!\nThis is a test.\nHello again!").await.unwrap();
+        tokio::fs::write(&f2, b"\\section{Hello}\nWorld is hello.\nDone.").await.unwrap();
+        tokio::fs::write(&f3, b"Unrelated content here.").await.unwrap();
+        tokio::fs::write(&f_bin, b"Hello\x00Binary\x00World").await.unwrap();
+
+        let candidate_paths = vec![
+            "main.typ".to_string(),
+            "chapter.tex".to_string(),
+            "notes.md".to_string(),
+            "binary.dat".to_string(),
+        ];
+
+        // 1. Case-insensitive search
+        let opts = SearchProjectOptions {
+            query: "hello".to_string(),
+            replacement: Some("Hi".to_string()),
+            case_sensitive: false,
+            whole_word: false,
+            is_regex: false,
+            file_paths: None,
+            extension_filter: None,
+        };
+
+        let res = ProjectManager::search_text_in_dir(root, &candidate_paths, opts).await.unwrap();
+        assert_eq!(res.files_count, 2);
+        assert_eq!(res.total_matches, 4);
+
+        // 2. Case-sensitive search
+        let opts_case = SearchProjectOptions {
+            query: "Hello".to_string(),
+            replacement: None,
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: false,
+            file_paths: None,
+            extension_filter: None,
+        };
+        let res_case = ProjectManager::search_text_in_dir(root, &candidate_paths, opts_case).await.unwrap();
+        assert_eq!(res_case.total_matches, 3);
+
+        // 3. Whole word search
+        let opts_word = SearchProjectOptions {
+            query: "World".to_string(),
+            replacement: None,
+            case_sensitive: true,
+            whole_word: true,
+            is_regex: false,
+            file_paths: None,
+            extension_filter: None,
+        };
+        let res_word = ProjectManager::search_text_in_dir(root, &candidate_paths, opts_word).await.unwrap();
+        assert_eq!(res_word.total_matches, 2);
+
+        // 4. Regex search
+        let opts_regex = SearchProjectOptions {
+            query: "H[a-z]+o".to_string(),
+            replacement: None,
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: true,
+            file_paths: None,
+            extension_filter: None,
+        };
+        let res_regex = ProjectManager::search_text_in_dir(root, &candidate_paths, opts_regex).await.unwrap();
+        assert_eq!(res_regex.total_matches, 3);
+
+        // 5. Extension filter
+        let opts_filter = SearchProjectOptions {
+            query: "Hello".to_string(),
+            replacement: None,
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: false,
+            file_paths: None,
+            extension_filter: Some("typ".to_string()),
+        };
+        let res_filter = ProjectManager::search_text_in_dir(root, &candidate_paths, opts_filter).await.unwrap();
+        assert_eq!(res_filter.files_count, 1);
+        assert_eq!(res_filter.total_matches, 2);
+
+        // 6. Replace in selected multiple files
+        let rep_opts = ReplaceProjectOptions {
+            query: "Hello".to_string(),
+            replacement: "Greetings".to_string(),
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: false,
+            file_paths: vec!["main.typ".to_string(), "chapter.tex".to_string()],
+        };
+        let rep_res = ProjectManager::replace_text_in_dir(root, rep_opts).await.unwrap();
+        assert_eq!(rep_res.files_modified, 2);
+        assert_eq!(rep_res.total_replacements, 3);
+
+        let content_f1 = tokio::fs::read_to_string(&f1).await.unwrap();
+        assert!(content_f1.contains("Greetings World!"));
+        assert!(content_f1.contains("Greetings again!"));
+
+        let content_f2 = tokio::fs::read_to_string(&f2).await.unwrap();
+        assert!(content_f2.contains("\\section{Greetings}"));
+        assert!(content_f2.contains("World is hello."));
+    }
+
+    #[tokio::test]
+    async fn test_search_and_replace_single_file_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        let f1 = root.join("doc1.typ");
+        let f2 = root.join("doc2.typ");
+
+        tokio::fs::write(&f1, b"Target Word in doc1").await.unwrap();
+        tokio::fs::write(&f2, b"Target Word in doc2").await.unwrap();
+
+        let candidate_paths = vec!["doc1.typ".to_string(), "doc2.typ".to_string()];
+
+        // Search only doc1
+        let search_opts = SearchProjectOptions {
+            query: "Target Word".to_string(),
+            replacement: Some("Replacement".to_string()),
+            case_sensitive: true,
+            whole_word: true,
+            is_regex: false,
+            file_paths: Some(vec!["doc1.typ".to_string()]),
+            extension_filter: None,
+        };
+        let search_res = ProjectManager::search_text_in_dir(root, &["doc1.typ".to_string()], search_opts).await.unwrap();
+        assert_eq!(search_res.files_count, 1);
+        assert_eq!(search_res.total_matches, 1);
+        assert_eq!(search_res.results[0].file_path, "doc1.typ");
+
+        // Replace only in doc1
+        let rep_opts = ReplaceProjectOptions {
+            query: "Target Word".to_string(),
+            replacement: "Updated Word".to_string(),
+            case_sensitive: true,
+            whole_word: true,
+            is_regex: false,
+            file_paths: vec!["doc1.typ".to_string()],
+        };
+        let rep_res = ProjectManager::replace_text_in_dir(root, rep_opts).await.unwrap();
+        assert_eq!(rep_res.files_modified, 1);
+        assert_eq!(rep_res.total_replacements, 1);
+
+        let content_f1 = tokio::fs::read_to_string(&f1).await.unwrap();
+        assert_eq!(content_f1, "Updated Word in doc1");
+
+        let content_f2 = tokio::fs::read_to_string(&f2).await.unwrap();
+        assert_eq!(content_f2, "Target Word in doc2"); // untouched!
+    }
+
+    #[tokio::test]
+    async fn test_search_and_replace_validation_and_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        // Empty query search
+        let empty_search = SearchProjectOptions {
+            query: "".to_string(),
+            replacement: None,
+            case_sensitive: false,
+            whole_word: false,
+            is_regex: false,
+            file_paths: None,
+            extension_filter: None,
+        };
+        let res = ProjectManager::search_text_in_dir(root, &[], empty_search).await.unwrap();
+        assert_eq!(res.total_matches, 0);
+
+        // Invalid regex search
+        let invalid_regex = SearchProjectOptions {
+            query: "[unclosed".to_string(),
+            replacement: None,
+            case_sensitive: false,
+            whole_word: false,
+            is_regex: true,
+            file_paths: None,
+            extension_filter: None,
+        };
+        let res_err = ProjectManager::search_text_in_dir(root, &[], invalid_regex).await;
+        assert!(res_err.is_err());
+
+        // Replace with empty file_paths
+        let rep_err = ReplaceProjectOptions {
+            query: "find".to_string(),
+            replacement: "rep".to_string(),
+            case_sensitive: false,
+            whole_word: false,
+            is_regex: false,
+            file_paths: Vec::new(),
+        };
+        let res_rep_err = ProjectManager::replace_text_in_dir(root, rep_err).await;
+        assert!(res_rep_err.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_search_and_replace_regex_capture_groups() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        let f = root.join("code.typ");
+        tokio::fs::write(&f, b"#let author = \"Alice Smith\"\n#let reviewer = \"Bob Jones\"").await.unwrap();
+
+        let candidate_paths = vec!["code.typ".to_string()];
+
+        // 1. Search with regex and verify match_text and preview
+        let search_opts = SearchProjectOptions {
+            query: r#"#let (\w+) = "([^"]+)""#.to_string(),
+            replacement: Some(r#"// $1 was $2"#.to_string()),
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: true,
+            file_paths: None,
+            extension_filter: None,
+        };
+
+        let s_res = ProjectManager::search_text_in_dir(root, &candidate_paths, search_opts).await.unwrap();
+        assert_eq!(s_res.total_matches, 2);
+        assert_eq!(s_res.results[0].matches[0].match_text, r#"#let author = "Alice Smith""#);
+        assert_eq!(
+            s_res.results[0].matches[0].preview_replaced.as_deref(),
+            Some("// author was Alice Smith")
+        );
+
+        // 2. Replace using \1 and \2 syntax (normalized to $1, $2)
+        let rep_opts = ReplaceProjectOptions {
+            query: r#"#let (\w+) = "([^"]+)""#.to_string(),
+            replacement: r#"#set \1(name: "\2")"#.to_string(),
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: true,
+            file_paths: vec!["code.typ".to_string()],
+        };
+
+        let rep_res = ProjectManager::replace_text_in_dir(root, rep_opts).await.unwrap();
+        assert_eq!(rep_res.files_modified, 1);
+        assert_eq!(rep_res.total_replacements, 2);
+
+        let content = tokio::fs::read_to_string(&f).await.unwrap();
+        assert_eq!(content, "#set author(name: \"Alice Smith\")\n#set reviewer(name: \"Bob Jones\")");
+    }
+
+    #[tokio::test]
+    async fn test_search_and_replace_literal_with_dollar() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        let f = root.join("price.txt");
+        tokio::fs::write(&f, b"Cost: 50 EUR per item [special]").await.unwrap();
+
+        let candidate_paths = vec!["price.txt".to_string()];
+
+        // Literal search containing regex-special brackets "[special]"
+        let search_opts = SearchProjectOptions {
+            query: "50 EUR per item [special]".to_string(),
+            replacement: Some("$100 USD [special]".to_string()),
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: false,
+            file_paths: None,
+            extension_filter: None,
+        };
+
+        let s_res = ProjectManager::search_text_in_dir(root, &candidate_paths, search_opts).await.unwrap();
+        assert_eq!(s_res.total_matches, 1);
+        assert_eq!(s_res.results[0].matches[0].match_text, "50 EUR per item [special]");
+        // Verify preview doesn't treat $100 as capture group
+        assert_eq!(
+            s_res.results[0].matches[0].preview_replaced.as_deref(),
+            Some("Cost: $100 USD [special]")
+        );
+
+        // Replace literal with string containing $ sign
+        let rep_opts = ReplaceProjectOptions {
+            query: "50 EUR per item [special]".to_string(),
+            replacement: "$100 USD [special]".to_string(),
+            case_sensitive: true,
+            whole_word: false,
+            is_regex: false,
+            file_paths: vec!["price.txt".to_string()],
+        };
+
+        let rep_res = ProjectManager::replace_text_in_dir(root, rep_opts).await.unwrap();
+        assert_eq!(rep_res.files_modified, 1);
+        assert_eq!(rep_res.total_replacements, 1);
+
+        let content = tokio::fs::read_to_string(&f).await.unwrap();
+        assert_eq!(content, "Cost: $100 USD [special]");
+    }
 }
 

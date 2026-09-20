@@ -866,6 +866,13 @@ fn render_files_tab(
                         trigger_label=if i18n.is_zh() { "⬆ 上传文件".to_string() } else { "⬆ Upload File".to_string() }
                         trigger_class="btn btn-secondary".to_string()
                     />
+                    <apich_islands::SearchReplaceModalIsland
+                        project_id=project_id.to_string()
+                        files_json=existing_files_json.clone()
+                        is_zh=i18n.is_zh()
+                        trigger_label=if i18n.is_zh() { "🔍 查找与替换".to_string() } else { "🔍 Search / Replace".to_string() }
+                        trigger_class="btn btn-secondary".to_string()
+                    />
                 </div>
             </div>
             {breadcrumb_bar}

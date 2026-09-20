@@ -13,6 +13,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+export PATH="${HOME}/.cargo/bin:${PATH}"
 
 cargo build -p apich-islands --target wasm32-unknown-unknown --no-default-features --features hydrate --release
 

@@ -216,6 +216,7 @@ pub fn DocumentEditorIsland(
     // need this bridge at all -- they're real `on:click` handlers on real Leptos-rendered
     // elements.
     crate::jump_to_line::wire_jump_to_line_listener("code-editor-input");
+    crate::jump_to_line::wire_initial_jump_from_url("code-editor-input");
 
     let on_code_input = {
         let project_id = project_id.clone();

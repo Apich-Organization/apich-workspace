@@ -110,6 +110,13 @@ pub fn FileActionDropdownIsland(
         toggle_favorite(&proj_id_fav, &file_path_fav, is_favorite, zh);
     };
 
+    let proj_id_sr = project_id.clone();
+    let file_path_sr = file_path.clone();
+    let on_search_replace = move |_| {
+        is_open.set(false);
+        dispatch_search_replace_event(&proj_id_sr, &file_path_sr);
+    };
+
     let download_url = format!(
         "/projects/{}/files/raw?file={}&download=1",
         project_id,
@@ -217,6 +224,14 @@ pub fn FileActionDropdownIsland(
                     <button type="button" class="file-action-item" on:click=on_copy_to>
                         <span class="action-icon">"📑"</span>
                         <span>{t(zh, "Copy to", "复制到文件夹")}</span>
+                    </button>
+                })}
+
+                // Search & Replace (files only)
+                {(!is_dir_val).then(|| view! {
+                    <button type="button" class="file-action-item" on:click=on_search_replace>
+                        <span class="action-icon">"🔍"</span>
+                        <span>{t(zh, "Search & Replace in file", "单文件查找与替换")}</span>
                     </button>
                 })}
 
@@ -838,6 +853,23 @@ fn dispatch_copy_event(project_id: &str, file_path: &str, file_name: &str) {
 }
 #[cfg(not(feature = "hydrate"))]
 const fn dispatch_copy_event(_project_id: &str, _file_path: &str, _file_name: &str) {}
+
+#[cfg(feature = "hydrate")]
+fn dispatch_search_replace_event(project_id: &str, file_path: &str) {
+    if let Some(win) = web_sys::window() {
+        let detail = serde_json::json!({
+            "project_id": project_id,
+            "file": file_path,
+        }).to_string();
+        let init = web_sys::CustomEventInit::new();
+        init.set_detail(&wasm_bindgen::JsValue::from_str(&detail));
+        if let Ok(ev) = web_sys::CustomEvent::new_with_event_init_dict("apich-open-search-replace", &init) {
+            let _ = win.dispatch_event(&ev);
+        }
+    }
+}
+#[cfg(not(feature = "hydrate"))]
+const fn dispatch_search_replace_event(_project_id: &str, _file_path: &str) {}
 
 #[cfg(feature = "hydrate")]
 fn dispatch_share_event(path: &str, mode: &str, role: &str, users: &str) {

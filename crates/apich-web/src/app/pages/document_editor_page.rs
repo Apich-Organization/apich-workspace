@@ -155,7 +155,7 @@ pub fn DocumentEditorPage(
                 project_id=project_id.to_string()
                 active_file=file_path.clone()
                 doc_type=doc_type.to_string()
-                available_files=available_sibling_files
+                available_files=available_sibling_files.clone()
                 is_zh=i18n.is_zh()
             />
         }
@@ -248,6 +248,14 @@ pub fn DocumentEditorPage(
                     <a href=format!("/projects/{}?tab=vcs&file={}", project_id, urlencoding::encode(&file_path)) class="btn btn-secondary btn-sm" title="View version control timeline and file history">"🌿 History"</a>
                     <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
+                    <apich_islands::SearchReplaceModalIsland
+                        project_id=project_id.to_string()
+                        active_file=file_path.clone()
+                        files_json=serde_json::to_string(&available_sibling_files).unwrap_or_else(|_| "[]".to_string())
+                        is_zh=i18n.is_zh()
+                        trigger_label=if i18n.is_zh() { "🔍 查找与替换".to_string() } else { "🔍 Find / Replace".to_string() }
+                        trigger_class="btn btn-secondary btn-sm".to_string()
+                    />
                     {multi_render_btn}
                     {download_pdf_btn}
                     {download_slide_bin_btn}
