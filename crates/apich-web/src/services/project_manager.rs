@@ -2014,11 +2014,30 @@ impl ProjectManager {
         Ok(())
     }
 
+    /// Helper to find a user's GitHub access token if remote is github.com
+    async fn resolve_remote_auth_token(
+        &self,
+        user_id: Option<Uuid>,
+        vcs: &ProjectVcs,
+        remote: &str,
+    ) -> Option<String> {
+        let uid = user_id?;
+        let remotes = vcs.git_remotes().ok()?;
+        let (_, url) = remotes.iter().find(|(name, _)| name == remote)?;
+        if url.contains("github.com") {
+            let repo = self.db.repository();
+            let cred = repo.get_user_git_credential(uid, "github").await.ok().flatten()?;
+            return Some(cred.access_token);
+        }
+        None
+    }
+
     /// Fetch from a Git remote without merging.
     pub async fn git_fetch(
         &self,
         project_id: Uuid,
         remote: &str,
+        user_id: Option<Uuid>,
     ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
@@ -2026,7 +2045,8 @@ impl ProjectManager {
             .await?
             .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        vcs.git_fetch(remote)?;
+        let auth_token = self.resolve_remote_auth_token(user_id, &vcs, remote).await;
+        vcs.git_fetch_with_auth(remote, auth_token.as_deref())?;
         Ok(())
     }
 
@@ -2054,14 +2074,27 @@ impl ProjectManager {
         project_id: Uuid,
         remote: &str,
         branch: &str,
+        user_id: Option<Uuid>,
     ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
             .get_project_by_id(project_id)
             .await?
             .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+        let storage_path = std::path::PathBuf::from(&proj.storage_path);
+        crate::services::git_server::ensure_working_exported_to_git(&storage_path)
+            .await
+            .map_err(|e| WebError::Internal(e.to_string()))?;
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        vcs.git_push(remote, branch)?;
+        let target_branch = if branch.trim().is_empty() {
+            vcs.current_branch()?.unwrap_or_else(|| "main".to_string())
+        } else {
+            branch.trim().to_string()
+        };
+        let auth_token = self.resolve_remote_auth_token(user_id, &vcs, remote).await;
+        vcs.git_push_with_auth(remote, &target_branch, auth_token.as_deref())?;
+        // Keep internal bare mirror in sync
+        let _ = crate::services::git_server::sync_mirror_from_working(&storage_path).await;
         Ok(())
     }
 
@@ -2071,6 +2104,7 @@ impl ProjectManager {
         project_id: Uuid,
         remote: &str,
         branch: &str,
+        user_id: Option<Uuid>,
     ) -> WebResult<()> {
         let repo = self.db.repository();
         let proj = repo
@@ -2078,9 +2112,48 @@ impl ProjectManager {
             .await?
             .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
         let vcs = ProjectVcs::open_or_init(&proj.storage_path)?;
-        vcs.git_pull(remote, branch)?;
-        let _ = vcs.snapshot_if_changed(format!("Pulled from {remote} {branch}"));
+        let target_branch = if branch.trim().is_empty() {
+            vcs.current_branch()?.unwrap_or_else(|| "main".to_string())
+        } else {
+            branch.trim().to_string()
+        };
+        let auth_token = self.resolve_remote_auth_token(user_id, &vcs, remote).await;
+        vcs.git_pull_with_auth(remote, &target_branch, auth_token.as_deref())?;
+        let _ = vcs.snapshot_if_changed(format!("Pulled from {remote} {target_branch}"));
+        // Keep internal bare mirror in sync with newly pulled state
+        let storage_path = std::path::PathBuf::from(&proj.storage_path);
+        let _ = crate::services::git_server::sync_mirror_from_working(&storage_path).await;
         Ok(())
+    }
+
+    /// Retrieve stored Git credential for a user and provider.
+    pub async fn get_user_git_credential(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> WebResult<Option<apich_db::UserGitCredential>> {
+        let repo = self.db.repository();
+        Ok(repo.get_user_git_credential(user_id, provider).await?)
+    }
+
+    /// Save or update a user's Git credential.
+    pub async fn upsert_user_git_credential(
+        &self,
+        user_id: Uuid,
+        dto: &apich_db::UpsertGitCredentialDto,
+    ) -> WebResult<apich_db::UserGitCredential> {
+        let repo = self.db.repository();
+        Ok(repo.upsert_user_git_credential(user_id, dto).await?)
+    }
+
+    /// Disconnect / delete a user's Git credential.
+    pub async fn delete_user_git_credential(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> WebResult<bool> {
+        let repo = self.db.repository();
+        Ok(repo.delete_user_git_credential(user_id, provider).await?)
     }
 
     /// Archive a project and cleanly terminate any active containers

@@ -23,38 +23,119 @@ fn bare_mirror_path(project_root: &Path) -> PathBuf {
     project_root.join(".apich").join("git-server.git")
 }
 
+/// Check if the bare mirror repository already has at least one valid commit reachable from HEAD or any ref.
+pub async fn bare_mirror_has_commits(bare_path: &Path) -> bool {
+    let head_ok = Command::new("git")
+        .arg("--git-dir")
+        .arg(bare_path)
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg("HEAD")
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if head_ok {
+        return true;
+    }
+    Command::new("git")
+        .arg("--git-dir")
+        .arg(bare_path)
+        .arg("rev-list")
+        .arg("-n")
+        .arg("1")
+        .arg("--all")
+        .output()
+        .await
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+/// Ensure the project's current working directory / apich-vcs snapshot is exported into the project's `.git`.
+pub async fn ensure_working_exported_to_git(project_root: &Path) -> io::Result<()> {
+    let root = project_root.to_path_buf();
+    tokio::task::spawn_blocking(move || -> io::Result<()> {
+        let vcs = apich_vcs::ProjectVcs::open_or_init(&root)
+            .map_err(|e| io::Error::other(format!("vcs open failed: {e}")))?;
+        vcs.git_init()
+            .map_err(|e| io::Error::other(format!("git init failed: {e}")))?;
+        let branch = vcs
+            .current_branch()
+            .map_err(|e| io::Error::other(format!("vcs branch failed: {e}")))?
+            .unwrap_or_else(|| "main".to_string());
+
+        let head = vcs
+            .head_snapshot()
+            .map_err(|e| io::Error::other(format!("vcs head snapshot failed: {e}")))?;
+
+        let current_snap = match head {
+            | Some(s) => {
+                if let Ok(Some(new_snap)) =
+                    vcs.snapshot_if_changed("Workspace autosave for git export")
+                {
+                    new_snap
+                } else {
+                    s
+                }
+            },
+            | None => match vcs.snapshot("Initial workspace snapshot") {
+                | Ok(s) => s,
+                | Err(_) => return Ok(()),
+            },
+        };
+
+        let git_has_head = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .arg("rev-parse")
+            .arg("--verify")
+            .arg("HEAD")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if current_snap.git_commit_oid.is_none() || !git_has_head {
+            let _ = vcs.git_export_commit(
+                &branch,
+                &current_snap.message,
+                "APICH System",
+                "dev@apich.org",
+            );
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| io::Error::other(e.to_string()))??;
+
+    Ok(())
+}
+
 /// Create the bare mirror repo if it doesn't exist yet, seeding it from the project's own
-/// working `.git` (if any) so a first clone isn't empty.
+/// working `.git` / workspace so a first clone isn't empty.
 pub async fn ensure_git_server_mirror(project_root: &Path) -> io::Result<PathBuf> {
     let apich_dir = project_root.join(".apich");
     let bare_path = bare_mirror_path(project_root);
-    if bare_path.exists() {
-        return Ok(bare_path);
-    }
-    tokio::fs::create_dir_all(&apich_dir).await?;
-    let init_out = Command::new("git")
-        .arg("init")
-        .arg("--bare")
-        .arg(&bare_path)
-        .output()
-        .await?;
-    if !init_out.status.success() {
-        return Err(io::Error::other(format!(
-            "git init --bare failed: {}",
-            String::from_utf8_lossy(&init_out.stderr)
-        )));
-    }
-    if project_root.join(".git").exists() {
-        let _ = Command::new("git")
-            .arg("-C")
-            .arg(project_root)
-            .arg("push")
+    if !bare_path.exists() {
+        tokio::fs::create_dir_all(&apich_dir).await?;
+        let init_out = Command::new("git")
+            .arg("init")
+            .arg("--bare")
             .arg(&bare_path)
-            .arg("--all")
             .output()
-            .await;
-        let _ = point_bare_head_at_working_branch(project_root, &bare_path).await;
+            .await?;
+        if !init_out.status.success() {
+            return Err(io::Error::other(format!(
+                "git init --bare failed: {}",
+                String::from_utf8_lossy(&init_out.stderr)
+            )));
+        }
     }
+
+    if !bare_mirror_has_commits(&bare_path).await {
+        let _ = sync_mirror_from_working(project_root).await;
+    }
+
     Ok(bare_path)
 }
 
@@ -75,11 +156,50 @@ async fn point_bare_head_at_working_branch(
         .arg("--show-current")
         .output()
         .await?;
-    let branch = String::from_utf8_lossy(&branch_out.stdout)
+    let mut branch = String::from_utf8_lossy(&branch_out.stdout)
         .trim()
         .to_string();
     if branch.is_empty() {
-        return Ok(());
+        let head_out = Command::new("git")
+            .arg("-C")
+            .arg(project_root)
+            .arg("symbolic-ref")
+            .arg("--short")
+            .arg("HEAD")
+            .output()
+            .await;
+        if let Ok(out) = head_out {
+            let b = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !b.is_empty() {
+                branch = b;
+            }
+        }
+    }
+    if branch.is_empty() {
+        let bare_branches = Command::new("git")
+            .arg("--git-dir")
+            .arg(bare_path)
+            .arg("for-each-ref")
+            .arg("--format=%(refname:short)")
+            .arg("refs/heads/")
+            .output()
+            .await;
+        if let Ok(out) = bare_branches {
+            let list = String::from_utf8_lossy(&out.stdout);
+            for b in list.lines() {
+                let trimmed = b.trim();
+                if trimmed == "main" || trimmed == "master" {
+                    branch = trimmed.to_string();
+                    break;
+                }
+                if !trimmed.is_empty() && branch.is_empty() {
+                    branch = trimmed.to_string();
+                }
+            }
+        }
+    }
+    if branch.is_empty() {
+        branch = "main".to_string();
     }
     let _ = Command::new("git")
         .arg("--git-dir")
@@ -93,22 +213,44 @@ async fn point_bare_head_at_working_branch(
 }
 
 /// Push the working repo's branches into the bare mirror so external clones see the latest
-/// exported Git history. Called after `git_export_commit` ("Sync to Git"). Force-push is safe
-/// here specifically because the working repo is always the authoritative source in this
-/// direction -- the bare mirror is never edited directly except by `sync_working_from_mirror...`
-/// running in the opposite direction under this module's own control.
+/// exported Git history. Called after `git_export_commit` ("Sync to Git") or before serving
+/// a clone/fetch request. Force-push is safe here specifically because the working repo is
+/// always the authoritative source in this direction -- the bare mirror is never edited directly
+/// except by `sync_working_from_mirror...` running in the opposite direction under this module's
+/// own control.
 pub async fn sync_mirror_from_working(project_root: &Path) -> io::Result<()> {
-    let bare_path = ensure_git_server_mirror(project_root).await?;
-    let _ = Command::new("git")
-        .arg("-C")
-        .arg(project_root)
-        .arg("push")
-        .arg(&bare_path)
-        .arg("--all")
-        .arg("--force")
-        .output()
-        .await?;
-    point_bare_head_at_working_branch(project_root, &bare_path).await?;
+    let _ = ensure_working_exported_to_git(project_root).await;
+
+    let bare_path = bare_mirror_path(project_root);
+    if !bare_path.exists() {
+        let apich_dir = project_root.join(".apich");
+        tokio::fs::create_dir_all(&apich_dir).await?;
+        let init_out = Command::new("git")
+            .arg("init")
+            .arg("--bare")
+            .arg(&bare_path)
+            .output()
+            .await?;
+        if !init_out.status.success() {
+            return Err(io::Error::other(format!(
+                "git init --bare failed: {}",
+                String::from_utf8_lossy(&init_out.stderr)
+            )));
+        }
+    }
+
+    if project_root.join(".git").exists() {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(project_root)
+            .arg("push")
+            .arg(&bare_path)
+            .arg("--all")
+            .arg("--force")
+            .output()
+            .await;
+        point_bare_head_at_working_branch(project_root, &bare_path).await?;
+    }
     Ok(())
 }
 
@@ -148,6 +290,17 @@ pub async fn sync_working_from_mirror_and_snapshot(project_root: &Path) -> io::R
             "checkout after push failed: {}",
             String::from_utf8_lossy(&checkout_out.stderr)
         )));
+    }
+
+    if project_root.join(".git").exists() {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(project_root)
+            .arg("fetch")
+            .arg(&bare_path)
+            .arg(format!("refs/heads/{branch}:refs/heads/{branch}"))
+            .output()
+            .await;
     }
 
     if let Ok(vcs) = apich_vcs::ProjectVcs::open_or_init(project_root) {

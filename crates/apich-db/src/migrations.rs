@@ -106,6 +106,11 @@ impl MigrationManager {
             name: "012_two_factor_auth",
             sql: TWO_FACTOR_AUTH_SQL,
         });
+        manager.register(Migration {
+            version: 13,
+            name: "013_user_git_credentials",
+            sql: USER_GIT_CREDENTIALS_SQL,
+        });
         manager
     }
 
@@ -946,5 +951,17 @@ CREATE TABLE IF NOT EXISTS user_2fa_challenges (
 CREATE INDEX IF NOT EXISTS idx_user_2fa_challenges_user ON user_2fa_challenges(user_id);
 ";
 
-
-
+/// SQL schema migration 013: User Git credentials for GitHub and external remote sync
+pub const USER_GIT_CREDENTIALS_SQL: &str = r"
+CREATE TABLE IF NOT EXISTS user_git_credentials (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(32) NOT NULL DEFAULT 'github',
+    account_username VARCHAR(128) NOT NULL,
+    access_token TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_user_provider UNIQUE (user_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_user_git_credentials_user ON user_git_credentials(user_id);
+";

@@ -61,6 +61,7 @@ pub fn ProjectDetailPage(
     notice: Option<String>,
     signature_statuses: std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
     milestones: Vec<Snapshot>,
+    github_cred: Option<apich_db::UserGitCredential>,
     i18n: I18n,
     current_path: String,
 ) -> impl IntoView {
@@ -149,6 +150,7 @@ pub fn ProjectDetailPage(
                 signature_statuses,
                 milestones,
                 git: git_status,
+                github_cred,
                 ignore_config,
                 gitignore_content,
                 apichignore_content,
@@ -938,6 +940,7 @@ struct VcsTabArgs<'a> {
     signature_statuses: std::collections::HashMap<uuid::Uuid, apich_vcs::SignatureStatus>,
     milestones: Vec<Snapshot>,
     git: GitStatusView,
+    github_cred: Option<apich_db::UserGitCredential>,
     ignore_config: apich_vcs::IgnoreConfig,
     gitignore_content: String,
     apichignore_content: String,
@@ -956,6 +959,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
         signature_statuses,
         milestones,
         git,
+        github_cred,
         ignore_config,
         gitignore_content,
         apichignore_content,
@@ -1225,7 +1229,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
             <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem; margin-bottom:0.75rem;">
                 <div style="font-size:0.8rem; font-weight:600; margin-bottom:0.35rem;">"With a real Git client (git clone, GitHub Desktop, etc.)"</div>
                 <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">
-                    "Requires a " <a href="/settings#pat">"personal access token"</a> " as the password (username can be anything). Only sees whatever has been synced via \"" {i18n.git_sync_btn()} "\" above."
+                    "Requires a " <a href="/settings#pat">"personal access token"</a> " as the password (username can be anything). Automatically syncs the latest project files and history on clone and pull."
                 </p>
                 <apich_islands::CopyLinkIsland link=format!("/git/{}.git", project.slug) button_label="Copy Git URL".to_string() />
             </div>
@@ -1238,6 +1242,31 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
             </div>
 
             <h3 class="card-subtitle">"Remotes"</h3>
+            {if let Some(ref gh) = github_cred {
+                let quick_url = format!("https://github.com/{}/{}.git", gh.account_username, project.slug);
+                view! {
+                    <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem; margin-bottom:1rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+                            <div>
+                                <span style="color:var(--success); margin-right:0.35rem;">"●"</span>
+                                <strong>"GitHub Connected"</strong>
+                                <span class="text-muted" style="margin-left:0.35rem; font-size:0.8rem;">"(@" {gh.account_username.clone()} ") — stored token automatically authenticates push/pull."</span>
+                            </div>
+                            <form method="post" action=format!("/projects/{}/git-remote-add", project_id) class="inline-form" style="margin:0;">
+                                <input type="hidden" name="name" value="origin" />
+                                <input type="hidden" name="url" value=quick_url />
+                                <button type="submit" class="btn btn-primary btn-sm">"⚡ Quick Link GitHub (origin)"</button>
+                            </form>
+                        </div>
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <p class="text-muted" style="font-size:0.8rem; margin-bottom:1rem;">
+                        "Tip: You can connect your GitHub account once in " <a href="/settings#github">"Settings → GitHub Integration"</a> " to automatically authenticate all projects without entering tokens in repository URLs."
+                    </p>
+                }.into_any()
+            }}
             {if git.remotes.is_empty() {
                 view! { <p class="text-muted" style="font-size:0.85rem;">"No remotes configured."</p> }.into_any()
             } else {
@@ -1246,17 +1275,20 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                 }).collect();
                 view! { <div class="info-list" style="margin-bottom:1rem;">{rows}</div> }.into_any()
             }}
-            <form method="post" action=format!("/projects/{}/git-remote-add", project_id) class="form-row" style="align-items:flex-end; margin-bottom:1.5rem;">
+            <form method="post" action=format!("/projects/{}/git-remote-add", project_id) class="form-row" style="align-items:flex-end; margin-bottom:0.75rem;">
                 <div class="form-group" style="margin-bottom:0;">
                     <label>"Remote name"</label>
                     <input type="text" name="name" value="origin" required=true class="form-control" style="width:120px;" />
                 </div>
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
                     <label>"Remote URL:"</label>
-                    <input type="text" name="url" placeholder="https://github.com/user/repo.git" required=true class="form-control" />
+                    <input type="text" name="url" placeholder="https://github.com/user/repo.git or git@github.com:user/repo.git" required=true class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary">"Add Remote"</button>
+                <button type="submit" class="btn btn-secondary">"Save Remote"</button>
             </form>
+            <p class="text-muted" style="font-size:0.75rem; margin-bottom:1.5rem;">
+                "HTTPS URLs (e.g. " <code>"https://github.com/owner/repo.git"</code> ") automatically use your connected GitHub token, or you can embed a token directly."
+            </p>
 
             <h3 class="card-subtitle">"Sync with remote"</h3>
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
@@ -1275,7 +1307,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                     <button type="submit" class="btn btn-secondary btn-sm">"⬆ Push"</button>
                 </form>
                 <form method="post" action=format!("/projects/{}/git-rebase", project_id) class="inline-form" style="display:flex; gap:0.4rem; align-items:center;">
-                    <input type="text" name="upstream" placeholder="origin/main" required=true class="form-control" style="width:150px; height:32px; font-size:0.8rem;" />
+                    <input type="text" name="upstream" value="origin/main" required=true class="form-control" style="width:150px; height:32px; font-size:0.8rem;" />
                     <button type="submit" class="btn btn-secondary btn-sm">"Rebase"</button>
                 </form>
             </div>

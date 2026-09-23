@@ -20,6 +20,7 @@ pub fn SettingsPage(
     gpg_keys: Vec<GpgPublicKey>,
     new_pat_token: Option<String>,
     totp_setup: Option<crate::auth::TotpSetupData>,
+    github_cred: Option<apich_db::UserGitCredential>,
     notice: Option<String>,
     error: Option<String>,
     i18n: I18n,
@@ -508,6 +509,60 @@ pub fn SettingsPage(
                         <button type="submit" class="btn btn-primary btn-sm" style="height:36px; padding:0 1rem;">"Generate Token"</button>
                     </form>
                     {pat_list}
+                </div>
+
+                <div class="section-card" id="github">
+                    <h2 class="section-title">"GitHub Integration"</h2>
+                    <p class="text-muted" style="font-size:0.875rem; margin-bottom:1.25rem;">
+                        "Connect your GitHub account to enable automated authentication and one-click remote syncing across all your projects without having to paste tokens into individual repository URLs."
+                    </p>
+                    {if let Some(cred) = github_cred {
+                        let ends_with = cred.access_token.chars().rev().take(4).collect::<String>().chars().rev().collect::<String>();
+                        view! {
+                            <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem; margin-bottom:1.25rem;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+                                    <div>
+                                        <div style="font-weight:600; font-size:0.95rem; margin-bottom:0.25rem;">
+                                            <span style="color:var(--success); margin-right:0.4rem;">"●"</span>
+                                            "Connected as @" {cred.account_username.clone()}
+                                        </div>
+                                        <div class="text-muted" style="font-size:0.8rem;">
+                                            "Token active (ends with ..." {ends_with} ")"
+                                        </div>
+                                    </div>
+                                    <form method="post" action="/settings/github/disconnect" onsubmit="return confirm('Are you sure you want to disconnect your GitHub account?');">
+                                        <button type="submit" class="btn btn-secondary btn-sm" style="color:var(--danger); border-color:var(--danger);">"Disconnect"</button>
+                                    </form>
+                                </div>
+                            </div>
+                            <h3 class="card-subtitle" style="font-size:0.9rem; margin-bottom:0.5rem;">"Update GitHub Token"</h3>
+                            <form method="post" action="/settings/github/save" class="form-row" style="align-items:flex-end; max-width:600px;">
+                                <input type="hidden" name="username" value=cred.account_username.clone() />
+                                <div class="form-group" style="margin-bottom:0; flex-grow:1;">
+                                    <label>"New Personal Access Token (PAT)"</label>
+                                    <input type="password" name="token" required=true placeholder="ghp_..." class="form-control" />
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm" style="height:36px;">"Update Token"</button>
+                            </form>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <form method="post" action="/settings/github/save" style="max-width:540px;">
+                                <div class="form-group">
+                                    <label>"GitHub Username"</label>
+                                    <input type="text" name="username" placeholder="e.g. octocat" required=true class="form-control" />
+                                </div>
+                                <div class="form-group">
+                                    <label>"Personal Access Token (PAT)"</label>
+                                    <input type="password" name="token" placeholder="ghp_..." required=true class="form-control" />
+                                    <p class="text-muted" style="font-size:0.75rem; margin-top:0.35rem;">
+                                        "Need a token? " <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" rel="noopener noreferrer">"Generate a token with 'repo' scope on GitHub →"</a>
+                                    </p>
+                                </div>
+                                <button type="submit" class="btn btn-primary">"Connect GitHub Account"</button>
+                            </form>
+                        }.into_any()
+                    }}
                 </div>
 
                 <div class="section-card" id="ssh">

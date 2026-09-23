@@ -45,11 +45,13 @@ use crate::models::UpdateOrganizationDto;
 use crate::models::UpdateSystemSettingsDto;
 use crate::models::UpdateTeamDto;
 use crate::models::UpdateUserProfileDto;
+use crate::models::UpsertGitCredentialDto;
 use crate::models::User;
+use crate::models::User2faChallenge;
+use crate::models::UserGitCredential;
 use crate::models::UserOrgMembership;
 use crate::models::UserRole;
 use crate::models::UserTeamMembership;
-use crate::models::User2faChallenge;
 use crate::models::UserSession;
 use crate::models::Workspace;
 use crate::models::WorkspaceMember;
@@ -3107,5 +3109,76 @@ impl<'a> Repository<'a> {
                 .execute(self.pool)
                 .await?;
         Ok(result.rows_affected())
+    }
+
+    /// Retrieve stored Git credential for a user and provider (e.g. "github").
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn get_user_git_credential(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> Result<Option<UserGitCredential>> {
+        let cred = sqlx::query_as::<_, UserGitCredential>(
+            r"
+            SELECT * FROM user_git_credentials
+            WHERE user_id = $1 AND provider = $2
+            ",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(cred)
+    }
+
+    /// Upsert a Git credential for a user and provider.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn upsert_user_git_credential(
+        &self,
+        user_id: Uuid,
+        dto: &UpsertGitCredentialDto,
+    ) -> Result<UserGitCredential> {
+        let cred = sqlx::query_as::<_, UserGitCredential>(
+            r"
+            INSERT INTO user_git_credentials (user_id, provider, account_username, access_token, updated_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id, provider)
+            DO UPDATE SET
+                account_username = EXCLUDED.account_username,
+                access_token = EXCLUDED.access_token,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *;
+            ",
+        )
+        .bind(user_id)
+        .bind(&dto.provider)
+        .bind(&dto.account_username)
+        .bind(&dto.access_token)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(cred)
+    }
+
+    /// Delete a Git credential for a user and provider.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn delete_user_git_credential(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> Result<bool> {
+        let res = sqlx::query(
+            "DELETE FROM user_git_credentials WHERE user_id = $1 AND provider = $2",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .execute(self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
     }
 }

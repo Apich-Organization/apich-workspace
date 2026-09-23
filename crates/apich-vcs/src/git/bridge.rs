@@ -236,7 +236,11 @@ impl GitBridge {
         url: &str,
     ) -> Result<()> {
         let repo = self.open_or_init()?;
-        repo.remote(name, url)?;
+        if repo.find_remote(name).is_ok() {
+            repo.remote_set_url(name, url)?;
+        } else {
+            repo.remote(name, url)?;
+        }
         Ok(())
     }
 
@@ -262,7 +266,8 @@ impl GitBridge {
     // All of these shell out to the real `git` binary rather than using git2, matching `push`/
     // `pull` below: credential handling (SSH agent, stored HTTPS credentials, credential helpers)
     // is delegated entirely to the user's own real git installation, instead of reimplementing
-    // auth flows here.
+    // auth flows here. `GIT_TERMINAL_PROMPT=0` ensures that git non-interactively errors on auth
+    // failures instead of hanging the server process.
 
     /// Clone a remote Git repository directly into `dest` (which must not already exist).
     ///
@@ -282,11 +287,38 @@ impl GitBridge {
             .arg("clone")
             .arg(url)
             .arg(dest)
+            .env("GIT_TERMINAL_PROMPT", "0")
             .output()
             .map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             return Err(VcsError::Internal(format!("git clone failed: {stderr}")));
+        }
+        Ok(())
+    }
+
+    /// Fetches changes from the specified remote repository with optional auth token.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
+    pub fn fetch_with_auth(
+        &self,
+        remote: &str,
+        auth_token: Option<&str>,
+    ) -> Result<()> {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(&self.project_root);
+        if let Some(token) = auth_token {
+            cmd.env("APICH_GIT_AUTH_TOKEN", token);
+            cmd.arg("-c")
+                .arg("credential.helper=!f() { echo username=oauth2; echo \"password=$APICH_GIT_AUTH_TOKEN\"; }; f");
+        }
+        cmd.arg("fetch").arg(remote).env("GIT_TERMINAL_PROMPT", "0");
+
+        let output = cmd.output().map_err(VcsError::Io)?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(VcsError::Internal(format!("git fetch failed: {stderr}")));
         }
         Ok(())
     }
@@ -299,18 +331,7 @@ impl GitBridge {
         &self,
         remote: &str,
     ) -> Result<()> {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(&self.project_root)
-            .arg("fetch")
-            .arg(remote)
-            .output()
-            .map_err(VcsError::Io)?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git fetch failed: {stderr}")));
-        }
-        Ok(())
+        self.fetch_with_auth(remote, None)
     }
 
     /// Rebases current branch commits onto the specified upstream branch.
@@ -326,11 +347,42 @@ impl GitBridge {
             .arg(&self.project_root)
             .arg("rebase")
             .arg(upstream)
+            .env("GIT_TERMINAL_PROMPT", "0")
             .output()
             .map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             return Err(VcsError::Internal(format!("git rebase failed: {stderr}")));
+        }
+        Ok(())
+    }
+
+    /// Pushes local commits on the specified branch to the remote repository with optional auth token.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
+    pub fn push_with_auth(
+        &self,
+        remote: &str,
+        branch: &str,
+        auth_token: Option<&str>,
+    ) -> Result<()> {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(&self.project_root);
+        if let Some(token) = auth_token {
+            cmd.env("APICH_GIT_AUTH_TOKEN", token);
+            cmd.arg("-c")
+                .arg("credential.helper=!f() { echo username=oauth2; echo \"password=$APICH_GIT_AUTH_TOKEN\"; }; f");
+        }
+        cmd.arg("push")
+            .arg(remote)
+            .arg(branch)
+            .env("GIT_TERMINAL_PROMPT", "0");
+
+        let output = cmd.output().map_err(VcsError::Io)?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(VcsError::Internal(format!("git push failed: {stderr}")));
         }
         Ok(())
     }
@@ -344,17 +396,35 @@ impl GitBridge {
         remote: &str,
         branch: &str,
     ) -> Result<()> {
+        self.push_with_auth(remote, branch, None)
+    }
+
+    /// Pulls changes from the remote repository branch into the current working copy with optional auth token.
+    ///
+    /// # Errors
+    /// Returns an error if the Git operation or repository conversion fails.
+    pub fn pull_with_auth(
+        &self,
+        remote: &str,
+        branch: &str,
+        auth_token: Option<&str>,
+    ) -> Result<()> {
         let mut cmd = Command::new("git");
-        cmd.arg("-C")
-            .arg(&self.project_root)
-            .arg("push")
+        cmd.arg("-C").arg(&self.project_root);
+        if let Some(token) = auth_token {
+            cmd.env("APICH_GIT_AUTH_TOKEN", token);
+            cmd.arg("-c")
+                .arg("credential.helper=!f() { echo username=oauth2; echo \"password=$APICH_GIT_AUTH_TOKEN\"; }; f");
+        }
+        cmd.arg("pull")
             .arg(remote)
-            .arg(branch);
+            .arg(branch)
+            .env("GIT_TERMINAL_PROMPT", "0");
 
         let output = cmd.output().map_err(VcsError::Io)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git push failed: {stderr}")));
+            return Err(VcsError::Internal(format!("git pull failed: {stderr}")));
         }
         Ok(())
     }
@@ -368,18 +438,6 @@ impl GitBridge {
         remote: &str,
         branch: &str,
     ) -> Result<()> {
-        let mut cmd = Command::new("git");
-        cmd.arg("-C")
-            .arg(&self.project_root)
-            .arg("pull")
-            .arg(remote)
-            .arg(branch);
-
-        let output = cmd.output().map_err(VcsError::Io)?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(VcsError::Internal(format!("git pull failed: {stderr}")));
-        }
-        Ok(())
+        self.pull_with_auth(remote, branch, None)
     }
 }

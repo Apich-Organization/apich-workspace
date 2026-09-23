@@ -4,6 +4,8 @@ pub mod audit;
 pub mod auth;
 /// Document storage and full-text search models.
 pub mod document;
+/// External Git provider credentials for users (GitHub, GitLab).
+pub mod git_credential;
 /// Knowledge graph nodes and edges models.
 pub mod knowledge;
 /// Dynamic and extensible metadata traits and helpers.
@@ -40,6 +42,8 @@ pub use document::CreateDocumentDto;
 pub use document::DocType;
 pub use document::Document;
 pub use document::DocumentSearchResult;
+pub use git_credential::UpsertGitCredentialDto;
+pub use git_credential::UserGitCredential;
 pub use knowledge::CreateKnowledgeEdgeDto;
 pub use knowledge::CreateKnowledgeNodeDto;
 pub use knowledge::KnowledgeEdge;

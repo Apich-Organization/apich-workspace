@@ -877,6 +877,19 @@ impl ProjectVcs {
         self.git_bridge.remote_add(name, url)
     }
 
+    /// Pushes the specified branch to a Git remote with optional auth token.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
+    pub fn git_push_with_auth(
+        &self,
+        remote: &str,
+        branch: &str,
+        auth_token: Option<&str>,
+    ) -> Result<()> {
+        self.git_bridge.push_with_auth(remote, branch, auth_token)
+    }
+
     /// Pushes the specified branch to a Git remote.
     ///
     /// # Errors
@@ -887,6 +900,19 @@ impl ProjectVcs {
         branch: &str,
     ) -> Result<()> {
         self.git_bridge.push(remote, branch)
+    }
+
+    /// Pulls changes from a Git remote branch into the current branch with optional auth token.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
+    pub fn git_pull_with_auth(
+        &self,
+        remote: &str,
+        branch: &str,
+        auth_token: Option<&str>,
+    ) -> Result<()> {
+        self.git_bridge.pull_with_auth(remote, branch, auth_token)
     }
 
     /// Pulls changes from a Git remote branch into the current branch.
@@ -907,6 +933,18 @@ impl ProjectVcs {
     /// Returns an error if the VCS operation fails.
     pub fn git_remotes(&self) -> Result<Vec<(String, String)>> {
         self.git_bridge.remote_list()
+    }
+
+    /// Fetches changes from the specified Git remote with optional auth token.
+    ///
+    /// # Errors
+    /// Returns an error if the VCS operation fails.
+    pub fn git_fetch_with_auth(
+        &self,
+        remote: &str,
+        auth_token: Option<&str>,
+    ) -> Result<()> {
+        self.git_bridge.fetch_with_auth(remote, auth_token)
     }
 
     /// Fetches changes from the specified Git remote.

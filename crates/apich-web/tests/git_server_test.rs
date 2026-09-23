@@ -308,4 +308,49 @@ async fn test_git_http_server_real_clone_and_push() {
         std::fs::read_to_string(second_clone_dest.join("pushed_from_real_git.txt")).unwrap(),
         "hello from a real git client\n"
     );
+
+    // --- Verify cloning a project that NEVER had git-sync clicked succeeds and is not empty ---
+    let create_demo2 = session_client
+        .post(format!("{}/projects/demo/create", base_url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_demo2.status(), StatusCode::SEE_OTHER);
+    let demo2_loc = create_demo2
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let proj2_id = demo2_loc
+        .split('/')
+        .nth(2)
+        .unwrap()
+        .split('?')
+        .next()
+        .unwrap()
+        .to_string();
+
+    // No manual git-sync performed!
+    let clone2_url = format!(
+        "http://dr_gitserver:{}@127.0.0.1:{}/git/{}.git",
+        pat, server_port, proj2_id
+    );
+    let clone2_workdir = test_temp_dir();
+    let clone2_dest = clone2_workdir.path().join("cloned_unsynced");
+    let clone2_out = run_git(
+        &["clone", &clone2_url, clone2_dest.to_str().unwrap()],
+        clone2_workdir.path(),
+    )
+    .await;
+    assert!(
+        clone2_out.status.success(),
+        "git clone without manual git-sync failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&clone2_out.stdout),
+        String::from_utf8_lossy(&clone2_out.stderr),
+    );
+    assert!(
+        clone2_dest.join("slides.typ").exists(),
+        "cloned unsynced repo should contain the demo project's real files directly"
+    );
 }

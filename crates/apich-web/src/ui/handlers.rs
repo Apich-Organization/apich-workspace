@@ -498,6 +498,14 @@ pub fn build_ui_router() -> Router<AppState> {
         .route("/settings", get(settings_page))
         .route("/settings/profile", post(update_profile_form))
         .route("/settings/password", post(change_password_form))
+        .route(
+            "/settings/github/save",
+            post(save_github_credentials_action),
+        )
+        .route(
+            "/settings/github/disconnect",
+            post(disconnect_github_action),
+        )
         .route("/settings/pat/create", post(create_pat_action))
         .route("/settings/pat/:id/revoke", post(revoke_pat_action))
         .route("/settings/ssh/add", post(add_ssh_key_action))
@@ -1373,6 +1381,8 @@ async fn project_detail_page(
             | "vcs_nothing_to_redo" => "Nothing to redo.",
             | "collaborator_added" => "Collaborator added successfully.",
             | "collaborator_removed" => "Collaborator removed.",
+            | "github_connected" => "GitHub account linked successfully.",
+            | "github_disconnected" => "GitHub account disconnected.",
             | "sharing_updated" => "Sharing settings updated.",
             | "ignore_updated" => "Ignore rules updated.",
             | _ => s.as_str(),
@@ -1384,6 +1394,11 @@ async fn project_detail_page(
         .resolve_hub_links(project.org_id, project.team_id)
         .await
         .ok();
+
+    let github_cred = repo
+        .get_user_git_credential(user.id, "github")
+        .await
+        .unwrap_or(None);
 
     // Templates the "+ New File" modal can start a brand-new single file from -- kanban-kind
     // templates are excluded (see `create_file_action`'s own comment: they apply onto a
@@ -1437,6 +1452,7 @@ async fn project_detail_page(
                 notice=notice
                 i18n=i18n
                 current_path=current_path
+                github_cred=github_cred
             />
         }
     });
@@ -3937,6 +3953,10 @@ async fn git_http_backend_action(
     }
 
     let storage_path = std::path::PathBuf::from(&project.storage_path);
+    if !is_write && (path.contains("info/refs") || path.contains("upload-pack")) {
+        let _ = crate::services::git_server::sync_mirror_from_working(&storage_path).await;
+    }
+
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok());
@@ -4290,14 +4310,14 @@ pub struct GitRemoteForm {
 }
 
 async fn git_fetch_action(
-    AuthUser(_user): AuthUser,
+    AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
     Form(payload): Form<GitRemoteForm>,
 ) -> Result<Response, WebError> {
     state
         .project_manager
-        .git_fetch(id, payload.remote.trim())
+        .git_fetch(id, payload.remote.trim(), Some(user.id))
         .await?;
     Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=git_fetched")).into_response())
 }
@@ -4309,27 +4329,37 @@ pub struct GitRemoteBranchForm {
 }
 
 async fn git_pull_action(
-    AuthUser(_user): AuthUser,
+    AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
     Form(payload): Form<GitRemoteBranchForm>,
 ) -> Result<Response, WebError> {
     state
         .project_manager
-        .git_pull(id, payload.remote.trim(), payload.branch.trim())
+        .git_pull(
+            id,
+            payload.remote.trim(),
+            payload.branch.trim(),
+            Some(user.id),
+        )
         .await?;
     Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=git_pulled")).into_response())
 }
 
 async fn git_push_action(
-    AuthUser(_user): AuthUser,
+    AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
     Form(payload): Form<GitRemoteBranchForm>,
 ) -> Result<Response, WebError> {
     state
         .project_manager
-        .git_push(id, payload.remote.trim(), payload.branch.trim())
+        .git_push(
+            id,
+            payload.remote.trim(),
+            payload.branch.trim(),
+            Some(user.id),
+        )
         .await?;
     Ok(Redirect::to(&format!("/projects/{id}?tab=vcs&notice=git_pushed")).into_response())
 }
@@ -4731,7 +4761,14 @@ async fn settings_page(
     };
 
     let i18n = get_i18n(&headers, Some(&params));
-    let notice = params.get("notice").cloned();
+    let notice = params.get("notice").map(|s| {
+        match s.as_str() {
+            | "github_connected" => "GitHub account linked successfully.",
+            | "github_disconnected" => "GitHub account disconnected.",
+            | _ => s.as_str(),
+        }
+        .to_string()
+    });
     let error = params.get("error").cloned();
     let is_org_admin = state
         .identity_service
@@ -4749,6 +4786,10 @@ async fn settings_page(
         .unwrap_or_default();
     let ssh_keys = repo.list_ssh_public_keys(user.id).await.unwrap_or_default();
     let gpg_keys = repo.list_gpg_public_keys(user.id).await.unwrap_or_default();
+    let github_cred = repo
+        .get_user_git_credential(user.id, "github")
+        .await
+        .unwrap_or(None);
     let new_pat_token = params.get("new_pat_token").cloned();
 
     let totp_setup = if !user.totp_enabled {
@@ -4768,6 +4809,7 @@ async fn settings_page(
                 gpg_keys=gpg_keys
                 new_pat_token=new_pat_token
                 totp_setup=totp_setup
+                github_cred=github_cred
                 notice=notice
                 error=error
                 i18n=i18n
@@ -5118,6 +5160,65 @@ async fn change_password_form(
     {
         | Ok(()) => redirect_notice("/settings", "Password changed successfully"),
         | Err(e) => redirect_error("/settings", e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveGithubCredentialForm {
+    pub username: String,
+    pub token: String,
+    pub redirect_to: Option<String>,
+}
+
+async fn save_github_credentials_action(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<SaveGithubCredentialForm>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+
+    let username = payload.username.trim();
+    let token = payload.token.trim();
+    let redirect = payload.redirect_to.as_deref().unwrap_or("/settings#github");
+
+    if username.is_empty() || token.is_empty() {
+        return redirect_error(redirect, "GitHub username and token cannot be empty");
+    }
+
+    let dto = apich_db::UpsertGitCredentialDto {
+        provider: "github".to_string(),
+        account_username: username.to_string(),
+        access_token: token.to_string(),
+    };
+
+    let repo = state.db.repository();
+    match repo.upsert_user_git_credential(user.id, &dto).await {
+        Ok(_) => redirect_notice(redirect, "github_connected"),
+        Err(e) => redirect_error(redirect, format!("Failed to save GitHub credentials: {e}")),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DisconnectGithubForm {
+    pub redirect_to: Option<String>,
+}
+
+async fn disconnect_github_action(
+    auth: Option<AuthUser>,
+    State(state): State<AppState>,
+    Form(payload): Form<DisconnectGithubForm>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return Redirect::to("/login").into_response();
+    };
+
+    let redirect = payload.redirect_to.as_deref().unwrap_or("/settings#github");
+    let repo = state.db.repository();
+    match repo.delete_user_git_credential(user.id, "github").await {
+        Ok(_) => redirect_notice(redirect, "github_disconnected"),
+        Err(e) => redirect_error(redirect, format!("Failed to disconnect GitHub: {e}")),
     }
 }
 
