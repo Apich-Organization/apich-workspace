@@ -11,12 +11,12 @@ use tiny_http::Response;
 use tiny_http::Server;
 use tiny_http::StatusCode;
 
-// Embedded prebuilt Leptos CSR web application assets
-pub const INDEX_HTML: &str = include_str!("../../../slide-web/assets/index.html");
-pub const BOOTSTRAP_JS: &str = include_str!("../../../slide-web/assets/bootstrap.js");
-pub const STYLE_CSS: &str = include_str!("../../../slide-web/assets/style.css");
-pub const SLIDE_WEB_JS: &str = include_str!("../../../slide-web/pkg/slide_web.js");
-pub const SLIDE_WEB_WASM: &[u8] = include_bytes!("../../../slide-web/pkg/slide_web_bg.wasm");
+// Embedded prebuilt Leptos CSR web application assets bundled in cargo-slide's own pkg/ directory
+pub const INDEX_HTML: &str = include_str!("../../pkg/index.html");
+pub const BOOTSTRAP_JS: &str = include_str!("../../pkg/bootstrap.js");
+pub const STYLE_CSS: &str = include_str!("../../pkg/style.css");
+pub const SLIDE_WEB_JS: &str = include_str!("../../pkg/slide_web.js");
+pub const SLIDE_WEB_WASM: &[u8] = include_bytes!("../../pkg/slide_web_bg.wasm");
 
 /// Prepare a standalone CSR distribution directory with all web player assets and `deck.json`.
 #[allow(clippy::pedantic, clippy::nursery)]
@@ -195,6 +195,7 @@ pub fn execute(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_http_request(
     request: tiny_http::Request,
     root_dir: &Path,

@@ -12,7 +12,7 @@ members = [
 default-members = ["crates/cargo-slide"]
 
 [workspace.package]
-version = "0.1.3"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.89"
 authors = [
@@ -44,10 +44,10 @@ exclude = [
 ]
 
 [workspace.dependencies]
-slide-core = { path = "crates/slide-core", version = "0.1.3" }
-slide-player = { path = "crates/slide-player", version = "0.1.3" }
-slide-theme = { path = "crates/slide-theme", version = "0.1.3" }
-slide-viewer = { path = "crates/slide-viewer", version = "0.1.3" }
+slide-core = { path = "crates/slide-core", version = "0.2.0" }
+slide-player = { path = "crates/slide-player", version = "0.2.0" }
+slide-theme = { path = "crates/slide-theme", version = "0.2.0" }
+slide-viewer = { path = "crates/slide-viewer", version = "0.2.0" }
 
 resvg = "0.48"
 usvg = "0.48"
@@ -88,3 +88,58 @@ debug = false
 debug-assertions = false
 overflow-checks = false
 incremental = true
+
+[workspace.lints.rust]
+# ==============================================================================
+# LEVEL 1: CRITICAL ERRORS (Forbid)
+# ==============================================================================
+unreachable_code = "forbid"
+improper_ctypes_definitions = "forbid"
+future_incompatible = { level = "forbid", priority = -1 }
+nonstandard_style = { level = "forbid", priority = -1 }
+rust_2018_idioms = { level = "forbid", priority = -1 }
+missing_docs = "forbid"
+# ------------------------------------------------------------------------
+# LEVEL 2: STYLE WARNINGS (Warn)
+# ------------------------------------------------------------------------
+dead_code = "warn"
+warnings = { level = "warn", priority = -1 }
+unsafe_code = "warn"
+# ------------------------------------------------------------------------
+# LEVEL 3: ALLOW/IGNORABLE (Allow)
+# ------------------------------------------------------------------------
+unused_doc_comments = "allow"
+
+[workspace.lints.clippy]
+# ==============================================================================
+# LEVEL 1: CRITICAL ERRORS (Forbid)
+# ==============================================================================
+perf = "forbid"
+correctness = "forbid"
+suspicious = "forbid"
+unwrap_used = "forbid"
+expect_used = "forbid"
+indexing_slicing = "forbid"
+arithmetic_side_effects = "forbid"
+missing_safety_doc = "forbid"
+same_item_push = "forbid"
+implicit_clone = "forbid"
+all = { level = "forbid", priority = -1 }
+pedantic = { level = "forbid", priority = -1 }
+nursery = { level = "forbid", priority = -1 }
+single_call_fn = "forbid"
+# ------------------------------------------------------------------------
+# LEVEL 2: STYLE WARNINGS (Warn)
+# ------------------------------------------------------------------------
+dbg_macro = { level = "warn", priority = 1 }
+todo = { level = "warn", priority = 1 }
+unnecessary_safety_comment = { level = "warn", priority = 1 }
+# ------------------------------------------------------------------------
+# LEVEL 3: ALLOW/IGNORABLE (Allow)
+# ------------------------------------------------------------------------
+restriction = { level = "allow", priority = -1 }
+inline_always = { level = "allow", priority = 1 }
+cast_possible_truncation = { level = "allow", priority = 1 }
+cast_sign_loss = { level = "allow", priority = 1 }
+cast_possible_wrap = { level = "allow", priority = 1 }
+empty_line_after_doc_comments = { level = "allow", priority = 1 }
