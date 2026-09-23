@@ -103,6 +103,27 @@ pub fn DocumentEditorPage(
         "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))"
     );
 
+    let slide_play_browser_btn = is_slide.then(|| {
+        let play_href = format!(
+            "/projects/{}/presentation/?file={}",
+            project_id,
+            urlencoding::encode(&file_path)
+        );
+        let play_label = if i18n.is_zh() { "浏览器播放" } else { "Play in Browser" };
+        view! {
+            <a
+                href=play_href
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-primary btn-sm"
+                title="Play presentation in browser with full transitions, whiteboard annotations, laser pointer, and audio"
+                style="display:inline-flex; align-items:center; gap:0.35rem; font-weight:600;"
+            >
+                "▶ " {play_label}
+            </a>
+        }
+    });
+
     let slide_present_btn = is_slide.then(|| view! {
         <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('editor-present-trigger')?.click()">"🖥️ " {i18n.present_mode()}</button>
     });
@@ -259,6 +280,7 @@ pub fn DocumentEditorPage(
                     {multi_render_btn}
                     {download_pdf_btn}
                     {download_slide_bin_btn}
+                    {slide_play_browser_btn}
                     {slide_present_btn}
                     {if is_single_file {
                         let cf_file = file_path.clone();

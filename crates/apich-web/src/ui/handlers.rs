@@ -368,6 +368,38 @@ pub fn build_ui_router() -> Router<AppState> {
             "/projects/:id/editor/slide-binary/download",
             get(slide_binary_download_action),
         )
+        .route(
+            "/projects/:id/presentation",
+            get(slide_presentation_redirect_action),
+        )
+        .route(
+            "/projects/:id/presentation/",
+            get(slide_presentation_page_action),
+        )
+        .route(
+            "/projects/:id/presentation/bootstrap.js",
+            get(slide_presentation_bootstrap_js_action),
+        )
+        .route(
+            "/projects/:id/presentation/style.css",
+            get(slide_presentation_style_css_action),
+        )
+        .route(
+            "/projects/:id/presentation/slide_web.js",
+            get(slide_presentation_slide_web_js_action),
+        )
+        .route(
+            "/projects/:id/presentation/slide_web_bg.wasm",
+            get(slide_presentation_slide_web_wasm_action),
+        )
+        .route(
+            "/projects/:id/presentation/deck.json",
+            get(slide_presentation_deck_json_action),
+        )
+        .route(
+            "/projects/:id/presentation/assets/*asset",
+            get(slide_presentation_project_asset_action),
+        )
         .route("/projects/:id/script/run", post(run_script_action))
         .route("/projects/:id/files/share", post(share_file_action))
         .route("/projects/:id/delete", post(delete_project_action))
@@ -3803,6 +3835,236 @@ async fn slide_binary_download_action(
         bytes,
     )
         .into_response()
+}
+
+// Embedded prebuilt Leptos CSR slide presentation web player assets (from vendor/cargo-slide)
+pub const SLIDE_INDEX_HTML: &str =
+    include_str!("../../../../vendor/cargo-slide/crates/cargo-slide/pkg/index.html");
+pub const SLIDE_BOOTSTRAP_JS: &str =
+    include_str!("../../../../vendor/cargo-slide/crates/cargo-slide/pkg/bootstrap.js");
+pub const SLIDE_STYLE_CSS: &str =
+    include_str!("../../../../vendor/cargo-slide/crates/cargo-slide/pkg/style.css");
+pub const SLIDE_WEB_JS: &str =
+    include_str!("../../../../vendor/cargo-slide/crates/cargo-slide/pkg/slide_web.js");
+pub const SLIDE_WEB_WASM: &[u8] =
+    include_bytes!("../../../../vendor/cargo-slide/crates/cargo-slide/pkg/slide_web_bg.wasm");
+
+#[derive(Debug, Deserialize)]
+pub struct SlidePresentationQuery {
+    pub file: Option<String>,
+}
+
+/// Redirects `/projects/:id/presentation` to `/projects/:id/presentation/` (with trailing slash)
+/// so that relative paths in the Leptos CSR bundle (`./bootstrap.js`, `./style.css`, `deck.json`)
+/// resolve correctly within the presentation namespace.
+async fn slide_presentation_redirect_action(
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<SlidePresentationQuery>,
+) -> Response {
+    let mut target = format!("/projects/{id_or_slug}/presentation/");
+    if let Some(f) = query.file {
+        target = format!("{target}?file={}", urlencoding::encode(&f));
+    }
+    axum::response::Redirect::to(&target).into_response()
+}
+
+/// Serves the presentation viewer HTML shell with active slide file cookie.
+async fn slide_presentation_page_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<SlidePresentationQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
+    };
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
+    }
+
+    let file_param = query.file.unwrap_or_else(|| "slides.typ".to_string());
+    let cookie_val = format!(
+        "apich_slide_file={}; Path=/projects/{}/presentation; SameSite=Lax",
+        urlencoding::encode(&file_param),
+        project.id
+    );
+
+    (
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+            (header::SET_COOKIE, cookie_val),
+        ],
+        SLIDE_INDEX_HTML,
+    )
+        .into_response()
+}
+
+async fn slide_presentation_bootstrap_js_action() -> Response {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8".to_string(),
+        )],
+        SLIDE_BOOTSTRAP_JS,
+    )
+        .into_response()
+}
+
+async fn slide_presentation_style_css_action() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8".to_string())],
+        SLIDE_STYLE_CSS,
+    )
+        .into_response()
+}
+
+async fn slide_presentation_slide_web_js_action() -> Response {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8".to_string(),
+        )],
+        SLIDE_WEB_JS,
+    )
+        .into_response()
+}
+
+async fn slide_presentation_slide_web_wasm_action() -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/wasm".to_string())],
+        SLIDE_WEB_WASM,
+    )
+        .into_response()
+}
+
+/// Dynamic compilation of the active slide file into `deck.json` for the browser player.
+async fn slide_presentation_deck_json_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<SlidePresentationQuery>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden"})),
+        )
+            .into_response();
+    }
+
+    let file_to_build = query
+        .file
+        .or_else(|| {
+            headers
+                .get(header::COOKIE)
+                .and_then(|c| c.to_str().ok())
+                .and_then(|cookie_str| {
+                    cookie_str.split(';').find_map(|pair| {
+                        let mut parts = pair.trim().splitn(2, '=');
+                        let k = parts.next()?.trim();
+                        let v = parts.next()?.trim();
+                        if k == "apich_slide_file" {
+                            urlencoding::decode(v).ok().map(std::borrow::Cow::into_owned)
+                        } else {
+                            None
+                        }
+                    })
+                })
+        })
+        .unwrap_or_else(|| "slides.typ".to_string());
+
+    match state
+        .project_manager
+        .get_slide_deck_json(project.id, user.id, &file_to_build)
+        .await
+    {
+        Ok(json_content) => (
+            StatusCode::OK,
+            [(
+                header::CONTENT_TYPE,
+                "application/json; charset=utf-8".to_string(),
+            )],
+            json_content,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+/// Serves referenced project assets (images, audio, video, CSV data) for the presentation.
+async fn slide_presentation_project_asset_action(
+    auth: Option<AuthUser>,
+    Path((id_or_slug, asset_path)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, "Project not found").into_response();
+    };
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+    }
+
+    let clean_asset = asset_path.trim_start_matches('/');
+    let storage_dir = std::path::Path::new(&project.storage_path);
+    let target = storage_dir.join("assets").join(clean_asset);
+    let path_to_read = if target.exists() {
+        target
+    } else {
+        storage_dir.join(clean_asset)
+    };
+
+    if !path_to_read.exists() || !path_to_read.is_file() {
+        return (StatusCode::NOT_FOUND, "Asset not found").into_response();
+    }
+
+    let Ok(bytes) = tokio::fs::read(&path_to_read).await else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read asset").into_response();
+    };
+
+    let content_type = mime_type_for_path(path_to_read.to_str().unwrap_or(""));
+    let mut headers = HeaderMap::new();
+    if let Ok(ct) = content_type.parse() {
+        headers.insert(header::CONTENT_TYPE, ct);
+    }
+
+    (headers, bytes).into_response()
 }
 
 /// apich-vcs's own remote protocol -- "clone"/"pull": download a full history bundle. Accepts

@@ -1,14 +1,14 @@
 # ==============================================================================
 # APICH Next-Gen Technical & Academic Workspace Sandbox Image
-# Includes: Rust toolchain, Python3 scientific stack, Git, R, LaTeX (XeTeX/latexmk), Typst,
-# and CLI coding-agent tools (opencode, aider, goose, claude-code, codex) so a user can point
-# an agent directly at their real project files inside the container, per plan.md -- this is
-# not a chat-only assistant, the agent gets a real shell in the real workspace.
-#
-# NOTE on "google antigravity": plan.md also names this alongside the other agent CLIs, but
-# as of this image's authorship there is no publicly documented, installable CLI package under
-# that name that could be verified here -- so it is deliberately left out rather than guessed
-# at with a fabricated install command. Add it once a real package/binary exists to point to.
+# Layer ordering optimized for build cache retention:
+#   Layer 1 (Heaviest & Most Stable): Base OS, build essentials, multiarch cross-compilers
+#   Layer 2 (Heavy & Stable): Rust toolchain & cross-compilation targets
+#   Layer 3 (Heavy & Stable): Cross-compilation libraries & toolchains (ALSA source builds, musl.cc, llvm-mingw)
+#   Layer 4 (Heavy & Stable): LaTeX / TeX Live distribution
+#   Layer 5 (Binary tools): Typst CLI & cargo-slide
+#   Layer 6 (Python / Scientific stack): pandas, numpy, matplotlib
+#   Layer 7 (AI / Coding Agent CLIs): claude-code, codex, opencode, uv/aider, goose, agy
+#   Layer 8 (User customization / extra packages): Fast layer for adding new packages without invalidating 1-7
 # ==============================================================================
 
 FROM debian:trixie-slim
@@ -24,142 +24,31 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:/home/apich/.cargo/bin:$PATH
 
-# 1. Install base utilities, C/C++ build tools, Git, Python, R, and LaTeX
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    wget \
-    gnupg \
-    git \
-    build-essential \
-    pkg-config \
-    libssl-dev \
-    libasound2-dev \
-    libx11-dev \
-    libxkbcommon-dev \
-    libxkbcommon-x11-dev \
-    libwayland-dev \
-    python3 \
-    python3-pip \
-    python3-venv \
-    python3-dev \
-    r-base \
-    r-base-dev \
-    r-cran-dbi \
-    r-cran-rsqlite \
-    r-cran-ggplot2 \
-    texlive-latex-base \
-    texlive-latex-recommended \
-    texlive-latex-extra \
-    texlive-xetex \
-    texlive-luatex \
-    texlive-fonts-recommended \
-    latexmk \
-    lmodern \
-    xz-utils \
-    jq \
-    sqlite3 \
-    procps \
-    sudo \
-    nodejs \
-    npm \
-    pipx \
-    && rm -rf /var/lib/apt/lists/*
-
-# 1b. Python's real "scientific stack" -- the label in this file's own header comment was
-# previously aspirational: bare `python3`/`pip` alone has none of pandas/numpy/matplotlib
-# installed, so the table notebook feature (Python/R cells reading a project's SQLite tables via
-# `sqlite3`/`pandas.read_sql_query`, see `crates/apich-web/src/services/sqlite_table.rs`'s
-# `NotebookCell`) would fail on the very first `import pandas` otherwise. `--break-system-packages`
-# matches this file's own existing convention for pip on Debian's PEP-668-managed system Python
-# (see the `aider-chat` install below). `MPLBACKEND=Agg` (set globally via ENV, not per-invocation)
-# is required for matplotlib to save a plot to a file at all in a container with no display server
-# -- its default backend otherwise errors immediately trying to open a GUI window.
-RUN pip3 install --break-system-packages --no-cache-dir pandas numpy matplotlib
-ENV MPLBACKEND=Agg
-
-# 2. Install Rust toolchain (system-wide accessible)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal \
-    && chmod -R a+w /usr/local/cargo /usr/local/rustup \
-    && rustc --version && cargo --version
-
-# 3. Install Typst CLI (latest binary release)
-ARG TYPST_VERSION=v0.13.0
-RUN set -eux; \
-    ARCH="$(uname -m)"; \
-    if [ "$ARCH" = "x86_64" ]; then \
-        TYPST_ARCH="x86_64-unknown-linux-musl"; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        TYPST_ARCH="aarch64-unknown-linux-musl"; \
-    else \
-        TYPST_ARCH="x86_64-unknown-linux-musl"; \
-    fi; \
-    TAR_URL="https://github.com/typst/typst/releases/download/${TYPST_VERSION}/typst-${TYPST_ARCH}.tar.xz"; \
-    curl -fsSL "$TAR_URL" -o /tmp/typst.tar.xz \
-    || curl -fsSL "https://github.com/typst/typst/releases/latest/download/typst-${TYPST_ARCH}.tar.xz" -o /tmp/typst.tar.xz; \
-    tar -xf /tmp/typst.tar.xz -C /tmp; \
-    cp /tmp/typst-*/typst /usr/local/bin/typst; \
-    chmod +x /usr/local/bin/typst; \
-    rm -rf /tmp/typst* \
-    && typst --version
-
-# 4. Install cargo-slide (presentation build tool -- `cargo slide build` packages a Typst-authored
-# deck into a standalone native binary) directly from crates.io
-RUN cargo install cargo-slide --locked \
-    && cargo slide --version
-
-# 4b. Cross-compilation for `cargo slide build --target <triple>` -- four targets, matching what
-# a presentation might realistically be handed out for: Windows and Linux, each on x86_64 and
-# aarch64, with the two Linux targets built against musl (fully static, no glibc-version-matching
-# concerns for whoever the binary is handed to). Every one of these four was validated end-to-end
-# against slide-player's real dependency graph (rodio/cpal/alsa on Linux, minifb, resvg, rusqlite
-# with the `bundled` C amalgamation) before being added here, not assumed to "probably work":
-#
-# - x86_64-unknown-linux-musl: Debian's own `musl-tools` package (musl-gcc) is enough for the
-#   Rust/C side, but ALSA (`alsa-sys`, pulled in by `cpal`) needs a *musl*-linked libasound --
-#   Debian's `libasound2-dev` is glibc-only and can't be dynamically linked into a musl binary --
-#   so a static libasound is built from source below and pointed to via a target-scoped
-#   PKG_CONFIG_PATH (see the `pkg-config` crate's own `PKG_CONFIG_PATH_<target>` convention,
-#   which lets this be set globally here without affecting the host's own native builds at all).
-# - aarch64-unknown-linux-musl: same shape, using a prebuilt musl.cc cross toolchain (Debian has
-#   no aarch64-musl cross-gcc package) as the C compiler for both musl-libc itself and the static
-#   libasound build.
-# - x86_64-pc-windows-gnu and aarch64-pc-windows-gnullvm: both via a single llvm-mingw toolchain
-#   (clang+lld-based, unlike classic mingw-w64/binutils) -- picked specifically because it's the
-#   only realistic way to target Windows-on-Arm64 from Linux without Microsoft's own MSVC SDK;
-#   using the same toolchain family for the x86_64 Windows target too avoids maintaining two
-#   different Windows cross-compilation setups side by side. Windows needs none of the ALSA
-#   complexity above: `cpal`'s Windows backend talks to WASAPI directly through the `windows`/
-#   `winapi` crates, with no external C library to link.
-# - aarch64-unknown-linux-gnu: the ARM Linux counterpart to the host's own native x86_64 build,
-#   and the ONLY way to give ARM Linux users a presentation that actually opens a window. The
-#   musl ARM target above cannot: Rust's musl targets are fully static (`crt-static` on by
-#   default), and `minifb` loads its X11/Wayland backend through `dlopen()` at runtime, which a
-#   static binary has no dynamic linker to service -- musl's own stub returns "Dynamic loading
-#   not supported" unconditionally, on every machine. So ARM Linux needs a *glibc* target, which
-#   means a real arm64 sysroot: Debian multiarch (`dpkg --add-architecture arm64`) for the
-#   libasound `alsa-sys` links against, plus `gcc-aarch64-linux-gnu` as the linker. X11 dev
-#   packages are deliberately NOT needed here -- minifb dlopens those at runtime rather than
-#   linking them, so only ALSA has to exist at build time.
-RUN rustup target add \
-    x86_64-unknown-linux-musl \
-    aarch64-unknown-linux-musl \
-    aarch64-unknown-linux-gnu \
-    x86_64-pc-windows-gnu \
-    aarch64-pc-windows-gnullvm
-
-# arm64 glibc cross toolchain + the arm64 ALSA headers/libs `alsa-sys` needs at build time.
+# ------------------------------------------------------------------------------
+# 1. Base system utilities, C/C++ compilation tools, and arm64 cross-compile setup
+# (Keep this strictly minimal so this heavy layer NEVER gets invalidated)
+# ------------------------------------------------------------------------------
 RUN dpkg --add-architecture arm64 \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        wget \
+        gnupg \
+        git \
+        build-essential \
+        pkg-config \
+        libssl-dev \
+        libasound2-dev \
+        libx11-dev \
+        libxkbcommon-dev \
+        libxkbcommon-x11-dev \
+        libwayland-dev \
         gcc-aarch64-linux-gnu \
         libasound2-dev:arm64 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Kernel UAPI headers (<linux/*.h>, <asm/*.h>) that musl-gcc's own sysroot doesn't ship, but
-# alsa-lib's build needs -- copied in from glibc's `linux-libc-dev` package, safe to share since
-# they're pure kernel-ABI struct definitions with no glibc-specific content.
-RUN apt-get update && apt-get install -y --no-install-recommends musl-tools musl-dev linux-libc-dev \
+        musl-tools \
+        musl-dev \
+        linux-libc-dev \
+        xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && MUSL_INC=/usr/include/x86_64-linux-musl \
     && for d in linux asm-generic mtd rdma scsi sound drm video xen misc; do \
@@ -167,6 +56,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends musl-tools musl
     done \
     && cp -r /usr/include/x86_64-linux-gnu/asm "$MUSL_INC/asm"
 
+# ------------------------------------------------------------------------------
+# 2. Rust toolchain and cross-compilation targets
+# ------------------------------------------------------------------------------
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal \
+    && chmod -R a+w /usr/local/cargo /usr/local/rustup \
+    && rustup target add \
+        x86_64-unknown-linux-musl \
+        aarch64-unknown-linux-musl \
+        aarch64-unknown-linux-gnu \
+        x86_64-pc-windows-gnu \
+        aarch64-pc-windows-gnullvm
+
+# ------------------------------------------------------------------------------
+# 3. Cross-compilation toolchains: Static ALSA builds, aarch64 musl.cc, llvm-mingw
+# ------------------------------------------------------------------------------
 ARG ALSA_VERSION=1.2.12
 RUN set -eux; \
     cd /tmp; \
@@ -178,13 +82,12 @@ RUN set -eux; \
     make install; \
     cd /tmp && rm -rf "alsa-lib-${ALSA_VERSION}" alsa-lib.tar.bz2
 
-# aarch64-linux-musl cross toolchain (musl.cc's prebuilt gcc), used both to compile Rust's own C
-# dependencies for that target and, immediately below, to build the aarch64 static libasound.
 ARG AARCH64_MUSL_CROSS_URL=https://musl.cc/aarch64-linux-musl-cross.tgz
 RUN curl -fsSL -o /tmp/aarch64-cross.tgz "${AARCH64_MUSL_CROSS_URL}" \
     && tar xzf /tmp/aarch64-cross.tgz -C /opt \
     && rm /tmp/aarch64-cross.tgz
 ENV PATH=/opt/aarch64-linux-musl-cross/bin:$PATH
+
 RUN set -eux; \
     MUSL_INC=/opt/aarch64-linux-musl-cross/aarch64-linux-musl/include; \
     for d in linux asm-generic mtd rdma scsi sound drm video xen misc; do \
@@ -192,6 +95,7 @@ RUN set -eux; \
     done; \
     if [ ! -e "$MUSL_INC/asm" ] && [ -d /usr/include/aarch64-linux-gnu/asm ]; then cp -r /usr/include/aarch64-linux-gnu/asm "$MUSL_INC/asm"; fi; \
     if [ ! -e "$MUSL_INC/asm" ]; then cp -r /usr/include/x86_64-linux-gnu/asm "$MUSL_INC/asm"; fi
+
 RUN set -eux; \
     cd /tmp; \
     curl -fsSL -o alsa-lib.tar.bz2 "https://www.alsa-project.org/files/pub/lib/alsa-lib-${ALSA_VERSION}.tar.bz2"; \
@@ -202,8 +106,6 @@ RUN set -eux; \
     make install; \
     cd /tmp && rm -rf "alsa-lib-${ALSA_VERSION}" alsa-lib.tar.bz2
 
-# llvm-mingw: one clang+lld-based toolchain covering both Windows cross targets (see the note
-# above on why aarch64-pc-windows-gnullvm specifically needs this rather than classic mingw-w64).
 ARG LLVM_MINGW_VERSION=20250910
 RUN set -eux; \
     ARCH="$(uname -m)"; \
@@ -232,37 +134,78 @@ RUN mkdir -p /usr/local/cargo && { \
     echo 'ar = "llvm-ar"'; \
     } > /usr/local/cargo/config.toml
 
-# `pkg-config`-rs (used by `alsa-sys`) checks a target-scoped env var before the plain
-# PKG_CONFIG_PATH -- setting only the scoped names here means this has zero effect on native
-# host builds (e.g. this same image's own `cargo install` steps), only on an explicit
-# `--target x86_64/aarch64-unknown-linux-musl` build.
 ENV PKG_CONFIG_ALLOW_CROSS=1 \
     PKG_CONFIG_PATH_x86_64_unknown_linux_musl=/opt/alsa-musl-x86_64/lib/pkgconfig \
     PKG_CONFIG_PATH_aarch64_unknown_linux_musl=/opt/alsa-musl-aarch64/lib/pkgconfig \
     PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
 
-# 5. Install CLI coding agents. Each is wrapped so one broken install doesn't fail the whole
-#    image build; `/usr/local/bin/apich-agent-status` (written below) reports what actually made
-#    it in, so apich-sandbox's Rust side can check real availability instead of assuming.
+# ------------------------------------------------------------------------------
+# 4. TeX Live distribution (LaTeX, XeTeX, LuaTeX, latexmk)
+# ------------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        texlive-latex-base \
+        texlive-latex-recommended \
+        texlive-latex-extra \
+        texlive-xetex \
+        texlive-luatex \
+        texlive-fonts-recommended \
+        latexmk \
+        lmodern \
+    && rm -rf /var/lib/apt/lists/*
+
+# ------------------------------------------------------------------------------
+# 5. Typst CLI and cargo-slide
+# ------------------------------------------------------------------------------
+ARG TYPST_VERSION=v0.13.0
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    if [ "$ARCH" = "x86_64" ]; then \
+        TYPST_ARCH="x86_64-unknown-linux-musl"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        TYPST_ARCH="aarch64-unknown-linux-musl"; \
+    else \
+        TYPST_ARCH="x86_64-unknown-linux-musl"; \
+    fi; \
+    TAR_URL="https://github.com/typst/typst/releases/download/${TYPST_VERSION}/typst-${TYPST_ARCH}.tar.xz"; \
+    curl -fsSL "$TAR_URL" -o /tmp/typst.tar.xz \
+    || curl -fsSL "https://github.com/typst/typst/releases/latest/download/typst-${TYPST_ARCH}.tar.xz" -o /tmp/typst.tar.xz; \
+    tar -xf /tmp/typst.tar.xz -C /tmp; \
+    cp /tmp/typst-*/typst /usr/local/bin/typst; \
+    chmod +x /usr/local/bin/typst; \
+    rm -rf /tmp/typst* \
+    && typst --version
+
+RUN cargo install cargo-slide --locked \
+    && cargo slide --version
+
+# ------------------------------------------------------------------------------
+# 6. R and Python Scientific Runtime (Python3, R-base, packages, Node.js)
+# ------------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-dev \
+        pipx \
+        nodejs \
+        npm \
+        r-base \
+        r-base-dev \
+        r-cran-dbi \
+        r-cran-rsqlite \
+        r-cran-ggplot2 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --break-system-packages --no-cache-dir pandas numpy matplotlib
+ENV MPLBACKEND=Agg
+
+# ------------------------------------------------------------------------------
+# 7. AI & CLI Coding Agents (claude-code, codex, opencode, uv/aider, goose, agy)
+# ------------------------------------------------------------------------------
 RUN npm install -g @anthropic-ai/claude-code || echo "apich-agent-install-failed: claude-code"
 RUN npm install -g @openai/codex || echo "apich-agent-install-failed: codex"
 RUN npm install -g opencode-ai || echo "apich-agent-install-failed: opencode"
-# aider-chat on this Debian 13 (trixie) base: every published aider-chat release through 0.86.2
-# declares `Requires-Python <3.13`, and trixie ships Python 3.13 as its *only* system Python (no
-# 3.11/3.12 package in its repos) -- confirmed live via `pipx install aider-chat` itself (pip
-# resolves down to the ancient, yanked-adjacent aider-chat 0.16.0, whose hard `numpy==1.24.3` pin
-# then fails to build under 3.13 because numpy's legacy build backend needs distutils, removed in
-# 3.12+). `pipx install --python 3.11/3.12 --fetch-missing-python` (which downloads a standalone
-# interpreter for exactly this situation) was also confirmed live to fail here: pipx 1.7.1 404s
-# fetching the checksum for the python-build-standalone release it just downloaded.
-#
-# Fix: `uv` (astral.sh) manages its own python-build-standalone downloads independently of pipx
-# and was confirmed live to fetch Python 3.12.14 cleanly with the exact same underlying release
-# files pipx failed on -- aider-chat then resolves against a modern, unpinned dependency set (real
-# numpy/scipy wheels for 3.12, not the ancient 1.24.3 sdist) and installs and runs correctly.
-# `UV_PYTHON_INSTALL_DIR`/`UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` redirect uv's normally-per-user (~/.local)
-# install locations to shared `/opt` dirs + `/usr/local/bin`, matching how `goose` below is made
-# available to every user rather than just whichever account ran the installer.
+
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_TOOL_DIR=/opt/uv-tools \
     UV_TOOL_BIN_DIR=/usr/local/bin
@@ -273,23 +216,15 @@ RUN curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh \
     && uv tool install --python 3.12 aider-chat \
     && chmod -R a+rX /opt/uv-python /opt/uv-tools \
     || echo "apich-agent-install-failed: aider"
+
 RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash \
     && mv /root/.local/bin/goose /usr/local/bin/goose \
     || echo "apich-agent-install-failed: goose"
-# Google Antigravity CLI (agy), the successor to Gemini CLI -- real installer, confirmed live on
-# the dev qube (`agy --version` -> 1.1.27) before adding it here; previously left out of this
-# image entirely because no verifiable install method could be found for it.
+
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
     && (command -v agy || mv "$HOME/.local/bin/agy" /usr/local/bin/agy) \
     || echo "apich-agent-install-failed: agy"
 
-# agy's OAuth login step tries to auto-launch a browser via `xdg-open` (real Debian package,
-# pulled in as a dependency of something else) -- live-verified via `ps aux` inside a running
-# container: with no display/browser to actually open, `xdg-open` zombies and agy then stalls
-# for well over 90 seconds instead of promptly printing the manual-paste-the-URL fallback it
-# already supports. This container never has a real browser to launch regardless of who calls
-# xdg-open, so replace it with an instant no-op -- standard practice for headless server images,
-# not specific to agy.
 RUN printf '#!/bin/sh\nexit 0\n' > /usr/bin/xdg-open && chmod +x /usr/bin/xdg-open
 
 RUN { \
@@ -299,15 +234,25 @@ RUN { \
     echo 'done'; \
     } > /usr/local/bin/apich-agent-status && chmod +x /usr/local/bin/apich-agent-status
 
-# 6. Create non-root developer user (apich, UID 1000)
+# ------------------------------------------------------------------------------
+# 8. User Extra Packages (Add packages here to avoid rebuilding preceding layers)
+# ------------------------------------------------------------------------------
+# Standard utilities (zip, jq, sqlite3, etc.) and any new packages belong here.
+# Whenever you add a new package, add it to this list. All layers 1-7 above will
+# stay 100% cached, turning rebuilds from 15+ minutes into ~5 seconds!
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        zip \
+        jq \
+        sqlite3 \
+        procps \
+        sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# ------------------------------------------------------------------------------
+# 9. Create non-root developer user (apich, UID 1000)
+# ------------------------------------------------------------------------------
 RUN useradd -m -u 1000 -s /bin/bash apich \
     && echo "apich ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
-    # `cargo install cargo-slide` (step 4) ran as root and populated
-    # /usr/local/cargo/registry with new root-owned cache/index files *after* the one-time
-    # `chmod -R a+w` in step 2 -- so without this, `cargo slide build`'s own dependency downloads
-    # fail at runtime with a real "Permission denied" once the container drops to the apich user
-    # below. Re-applying world-write here (not just to apich) matches step 2's own approach and
-    # covers any other user a container might run as.
     && chmod -R a+w /usr/local/cargo /usr/local/rustup \
     && mkdir -p /workspace \
     && chown -R apich:apich /workspace

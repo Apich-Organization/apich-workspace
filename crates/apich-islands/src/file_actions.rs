@@ -179,6 +179,17 @@ pub fn FileActionDropdownIsland(
                     <span>{t(zh, "Open", "打开")}</span>
                 </a>
 
+                // Play in Browser (for presentations)
+                {(!is_dir_val && (file_name.ends_with(".typ") || file_name.ends_with(".slide"))).then(|| {
+                    let play_url = format!("/projects/{}/presentation/?file={}", project_id, urlencoding::encode(&file_path));
+                    view! {
+                        <a href=play_url target="_blank" rel="noopener noreferrer" class="file-action-item">
+                            <span class="action-icon">"▶"</span>
+                            <span>{t(zh, "Play in Browser", "浏览器播放演示")}</span>
+                        </a>
+                    }
+                })}
+
                 // 2. Move file to folder
                 {(!is_dir_val).then(|| view! {
                     <button type="button" class="file-action-item" on:click=on_move>

@@ -104,33 +104,71 @@ pub fn SlideBuildIsland(
         })
     };
 
+    let build_btn_label = move || {
+        if is_running.get() {
+            "⏳ Processing...".to_string()
+        } else {
+            match target.get().as_str() {
+                | "slide_package" => "📦 Package (.slide)".to_string(),
+                | "wasm_bundle" => "🌐 Export Web (.zip)".to_string(),
+                | _ => "⬇️ Build binary".to_string(),
+            }
+        }
+    };
+
+    let download_btn_label = move || match target.get().as_str() {
+        | "slide_package" => "✅ Ready — download .slide",
+        | "wasm_bundle" => "✅ Ready — download .zip",
+        | _ => "✅ Ready — download binary",
+    };
+
+    let build_btn_title = move || match target.get().as_str() {
+        | "slide_package" => {
+            "Packages the presentation into an ultra-compressed .slide archive that can be opened locally with slide-viewer."
+        },
+        | "wasm_bundle" => {
+            "Exports the full presentation into a standalone WebAssembly static bundle (.zip) ready to host on any web server."
+        },
+        | _ => {
+            "Builds a standalone executable presentation you can run directly on the chosen platform. Keeps running in the background if you leave the page."
+        },
+    };
+
     view! {
         <div style="display:flex; flex-direction:column; gap:0.5rem;">
             <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
                 <select
                     class="form-control"
-                    style="width:auto; max-width:190px; font-size:0.8rem; padding:0.3rem 0.5rem;"
-                    title="Which platform the presentation binary should run on"
+                    style="width:auto; max-width:210px; font-size:0.8rem; padding:0.3rem 0.5rem;"
+                    title="Choose target platform binary or packaging format"
                     disabled=move || is_running.get()
                     prop:value=move || target.get()
                     on:change=move |ev| target.set(event_target_value(&ev))
                 >
-                    <option value="host">"Linux (Intel/AMD)"</option>
-                    <option value="aarch64-unknown-linux-gnu">"Linux (ARM)"</option>
-                    <option value="x86_64-pc-windows-gnu">"Windows (Intel/AMD)"</option>
-                    <option value="aarch64-pc-windows-gnullvm">"Windows (ARM)"</option>
+                    <optgroup label="Binary Executable">
+                        <option value="host">"Linux x86_64"</option>
+                        <option value="aarch64-unknown-linux-gnu">"Linux ARM64"</option>
+                        <option value="x86_64-pc-windows-gnu">"Windows x86_64 (.exe)"</option>
+                        <option value="aarch64-pc-windows-gnullvm">"Windows ARM64 (.exe)"</option>
+                        <option value="x86_64-unknown-linux-musl">"Linux x86_64 (musl static)"</option>
+                        <option value="aarch64-unknown-linux-musl">"Linux ARM64 (musl static)"</option>
+                    </optgroup>
+                    <optgroup label="Package & Web">
+                        <option value="slide_package">"📦 Package (.slide for viewer)"</option>
+                        <option value="wasm_bundle">"🌐 WebAssembly Web Bundle (.zip)"</option>
+                    </optgroup>
                 </select>
                 <button
                     type="button"
                     class="btn btn-secondary btn-sm"
                     disabled=move || is_running.get()
                     on:click=start_build
-                    title="Builds a standalone presentation you can run on the chosen platform. This keeps running if you leave the page -- come back any time to check on it. The first build for a platform can take a few minutes."
+                    title=build_btn_title
                 >
-                    {move || if is_running.get() { "⏳ Building...".to_string() } else { "⬇️ Build presentation".to_string() }}
+                    {build_btn_label}
                 </button>
                 {move || download_href().map(|href| view! {
-                    <a href=href class="btn btn-primary btn-sm">"✅ Ready — download"</a>
+                    <a href=href class="btn btn-primary btn-sm">{download_btn_label()}</a>
                 })}
             </div>
             {move || is_running.get().then(|| view! {

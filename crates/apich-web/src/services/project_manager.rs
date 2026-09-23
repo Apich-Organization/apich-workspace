@@ -50,6 +50,8 @@ impl ProjectManager {
         ("aarch64-pc-windows-gnullvm", "Windows ARM64"),
         ("x86_64-unknown-linux-musl", "Linux x86_64 (musl, static -- cannot open a window)"),
         ("aarch64-unknown-linux-musl", "Linux ARM64 (musl, static -- cannot open a window)"),
+        ("slide_package", "Universal .slide Package (for slide-viewer)"),
+        ("wasm_bundle", "WebAssembly Web Bundle (.zip)"),
     ];
 
     pub fn new(
@@ -956,33 +958,59 @@ impl ProjectManager {
         let container = self.ensure_agent_container(project_id, user_id).await?;
 
         let run_id = uuid::Uuid::new_v4().simple().to_string();
-        let out_rel_path = format!(".apich_slide_build_{run_id}");
         let download_stem = std::path::Path::new(rel_path)
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("presentation")
             .to_string();
-        let is_windows_target = target.contains("windows");
-        let download_name = if is_windows_target {
-            format!("{download_stem}-presentation.exe")
-        } else {
-            format!("{download_stem}-presentation")
-        };
 
-        let mut cmd = vec![
-            "cargo".to_string(),
-            "slide".to_string(),
-            "--log-format".to_string(),
-            "json".to_string(),
-            "build".to_string(),
-            rel_path.to_string(),
-            "-o".to_string(),
-            out_rel_path.clone(),
-        ];
-        if target != "host" {
-            cmd.push("--target".to_string());
-            cmd.push(target.to_string());
-        }
+        let (out_rel_path, download_name, cmd) = if target == "slide_package" {
+            let out = format!(".apich_slide_build_{run_id}.slide");
+            let name = format!("{download_stem}.slide");
+            let command = vec![
+                "cargo".to_string(),
+                "slide".to_string(),
+                "--log-format".to_string(),
+                "json".to_string(),
+                "pack".to_string(),
+                rel_path.to_string(),
+                "-o".to_string(),
+                out.clone(),
+            ];
+            (out, name, command)
+        } else if target == "wasm_bundle" {
+            let out = format!(".apich_slide_build_{run_id}.zip");
+            let name = format!("{download_stem}-web.zip");
+            let tmp_dir = format!(".apich_wasm_tmp_{run_id}");
+            let script = format!(
+                "cargo slide --log-format json build '{rel_path}' --format wasm -o '{tmp_dir}' && python3 -c \"import shutil; shutil.make_archive('.apich_slide_build_{run_id}', 'zip', '{tmp_dir}')\" && rm -rf '{tmp_dir}'"
+            );
+            let command = vec!["sh".to_string(), "-c".to_string(), script];
+            (out, name, command)
+        } else {
+            let is_windows_target = target.contains("windows");
+            let name = if is_windows_target {
+                format!("{download_stem}-presentation.exe")
+            } else {
+                format!("{download_stem}-presentation")
+            };
+            let out = format!(".apich_slide_build_{run_id}");
+            let mut command = vec![
+                "cargo".to_string(),
+                "slide".to_string(),
+                "--log-format".to_string(),
+                "json".to_string(),
+                "build".to_string(),
+                rel_path.to_string(),
+                "-o".to_string(),
+                out.clone(),
+            ];
+            if target != "host" {
+                command.push("--target".to_string());
+                command.push(target.to_string());
+            }
+            (out, name, command)
+        };
 
         let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_mins(30));
         let stream = container.exec_stream(opts).await?;
@@ -998,6 +1026,48 @@ impl ProjectManager {
             .start(user_id, container, stream, out_rel_path, download_name)
             .await;
         Ok(job_id)
+    }
+
+    /// Exports the slide presentation into `deck.json` inside the sandbox container for live
+    /// browser presentation playback via `slide-web`.
+    pub async fn get_slide_deck_json(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        rel_path: &str,
+    ) -> WebResult<String> {
+        let container = self.ensure_agent_container(project_id, user_id).await?;
+        let run_id = uuid::Uuid::new_v4().simple().to_string();
+        let tmp_dir = format!(".apich_deck_preview_{run_id}");
+        let cmd = vec![
+            "cargo".to_string(),
+            "slide".to_string(),
+            "export".to_string(),
+            rel_path.to_string(),
+            "--format".to_string(),
+            "wasm".to_string(),
+            "-o".to_string(),
+            tmp_dir.clone(),
+        ];
+        let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(60));
+        let res = container.exec_with_options(opts).await?;
+        if res.exit_code != 0 {
+            let err_bytes = if res.stderr.is_empty() {
+                res.stdout
+            } else {
+                res.stderr
+            };
+            let err = String::from_utf8_lossy(&err_bytes);
+            return Err(crate::error::WebError::BadRequest(format!(
+                "Failed to compile slide presentation for browser: {err}"
+            )));
+        }
+        let deck_path = format!("{tmp_dir}/deck.json");
+        let bytes = container.read_file(&deck_path).await.map_err(|e| {
+            crate::error::WebError::Internal(format!("Failed to read compiled deck.json: {e}"))
+        })?;
+        let _ = container.exec(["rm", "-rf", &tmp_dir]).await;
+        String::from_utf8(bytes).map_err(|e| crate::error::WebError::Internal(e.to_string()))
     }
 
     /// Which agent CLIs are actually installed in the image this project's sandbox would use --

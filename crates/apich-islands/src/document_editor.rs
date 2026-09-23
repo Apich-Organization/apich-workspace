@@ -371,6 +371,13 @@ pub fn DocumentEditorIsland(
     let is_fullscreen = RwSignal::new(false);
     wire_fullscreen_listener(is_fullscreen);
 
+    let proj_id_pres = project_id.clone();
+    let file_path_pres = file_path.clone();
+    let play_browser_href = format!(
+        "/projects/{}/presentation/?file={}",
+        proj_id_pres,
+        urlencoding::encode(&file_path_pres)
+    );
     let presentation_last_wheel_time = StoredValue::new(0f64);
     let presentation_modal = is_slide.then(|| {
         view! {
@@ -394,6 +401,16 @@ pub fn DocumentEditorIsland(
                     <span class="svg-page-nav-arrow">"‹"</span>
                 </button>
                 <div style="position:absolute; top:1.5rem; right:2rem; display:flex; align-items:center; gap:0.5rem; z-index:30;">
+                    <a
+                        href=play_browser_href
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="btn btn-primary btn-sm"
+                        title="Open interactive Web player with transitions, whiteboard ink, laser pointer, HUD charts and audio"
+                        style="text-decoration:none; display:inline-flex; align-items:center; gap:0.3rem;"
+                    >
+                        "▶ Play in Browser"
+                    </a>
                     <button
                         type="button"
                         class="btn btn-secondary btn-sm"
