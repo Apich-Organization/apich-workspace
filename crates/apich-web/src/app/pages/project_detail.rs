@@ -728,8 +728,8 @@ fn render_files_tab(
                 let mod_time = f.modified_rfc3339.as_deref().unwrap_or("-").to_string();
                 let mod_raw = f.modified_rfc3339.clone().unwrap_or_default();
                 let share_badge = match f.share_info.as_ref() {
-                    Some(info) if info.mode == "public" => view! { <span class="share-badge share-badge-public">"🌐 " {i18n.share_public()} " (" {info.role.clone()} ")"</span> }.into_any(),
-                    Some(info) if info.mode == "specific" => view! { <span class="share-badge share-badge-specific">"👥 " {i18n.share_specific()} " (" {info.role.clone()} ")"</span> }.into_any(),
+                    Some(info) if info.mode == "public" => view! { <span class="share-badge share-badge-public">"🌐 " {i18n.share_public(&info.role)}</span> }.into_any(),
+                    Some(info) if info.mode == "specific" => view! { <span class="share-badge share-badge-specific">"👥 " {i18n.share_specific(&info.role)}</span> }.into_any(),
                     _ => view! { <span class="share-badge share-badge-private">"🔒 " {i18n.share_private()}</span> }.into_any(),
                 };
 

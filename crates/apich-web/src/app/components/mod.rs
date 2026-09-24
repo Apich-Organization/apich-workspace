@@ -444,5 +444,5 @@ pub fn AiDrawer(
     #[prop(optional)] file_path: Option<String>,
     #[prop(optional)] is_zh: Option<bool>,
 ) -> impl IntoView {
-    view! { <apich_islands::AiDrawerIsland project_id=project_id.to_string() file_path=file_path is_zh=is_zh /> }
+    view! { <apich_islands::AiDrawerIsland project_id=project_id.to_string() file_path=file_path is_zh=is_zh.unwrap_or(false) /> }
 }

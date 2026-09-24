@@ -2551,22 +2551,22 @@ impl I18n {
 
     pub fn share_public(&self, role: &str) -> String {
         match self.lang {
-            | Lang::En => format!("🌐 Public ({role})"),
-            | Lang::Zh => format!("🌐 公开 ({role})"),
+            | Lang::En => format!("Public ({role})"),
+            | Lang::Zh => format!("公开 ({role})"),
         }
     }
 
     pub fn share_specific(&self, role: &str) -> String {
         match self.lang {
-            | Lang::En => format!("👥 Specific ({role})"),
-            | Lang::Zh => format!("👥 指定成员 ({role})"),
+            | Lang::En => format!("Specific ({role})"),
+            | Lang::Zh => format!("指定成员 ({role})"),
         }
     }
 
     pub const fn share_private(&self) -> &'static str {
         match self.lang {
-            | Lang::En => "🔒 Private",
-            | Lang::Zh => "🔒 私有",
+            | Lang::En => "Private",
+            | Lang::Zh => "私有",
         }
     }
 
@@ -2609,13 +2609,6 @@ impl I18n {
         match self.lang {
             | Lang::En => "Affiliations",
             | Lang::Zh => "组织与团队",
-        }
-    }
-
-    pub const fn actions(&self) -> &'static str {
-        match self.lang {
-            | Lang::En => "Actions",
-            | Lang::Zh => "操作",
         }
     }
 
