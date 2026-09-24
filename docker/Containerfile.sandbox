@@ -156,7 +156,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ------------------------------------------------------------------------------
 # 5. Typst CLI and cargo-slide
 # ------------------------------------------------------------------------------
-ARG TYPST_VERSION=v0.13.0
+ARG TYPST_VERSION=v0.15.1
 RUN set -eux; \
     ARCH="$(uname -m)"; \
     if [ "$ARCH" = "x86_64" ]; then \
@@ -167,8 +167,8 @@ RUN set -eux; \
         TYPST_ARCH="x86_64-unknown-linux-musl"; \
     fi; \
     TAR_URL="https://github.com/typst/typst/releases/download/${TYPST_VERSION}/typst-${TYPST_ARCH}.tar.xz"; \
-    curl -fsSL "$TAR_URL" -o /tmp/typst.tar.xz \
-    || curl -fsSL "https://github.com/typst/typst/releases/latest/download/typst-${TYPST_ARCH}.tar.xz" -o /tmp/typst.tar.xz; \
+    curl -fsSL --retry 5 --retry-delay 2 "$TAR_URL" -o /tmp/typst.tar.xz \
+    || curl -fsSL --retry 5 --retry-delay 2 "https://github.com/typst/typst/releases/latest/download/typst-${TYPST_ARCH}.tar.xz" -o /tmp/typst.tar.xz; \
     tar -xf /tmp/typst.tar.xz -C /tmp; \
     cp /tmp/typst-*/typst /usr/local/bin/typst; \
     chmod +x /usr/local/bin/typst; \

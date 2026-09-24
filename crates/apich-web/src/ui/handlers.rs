@@ -3890,20 +3890,28 @@ async fn slide_presentation_page_action(
     }
 
     let file_param = query.file.unwrap_or_else(|| "slides.typ".to_string());
-    let cookie_val = format!(
+    let cookie_slug = format!(
         "apich_slide_file={}; Path=/projects/{}/presentation; SameSite=Lax",
         urlencoding::encode(&file_param),
-        project.id
+        id_or_slug
     );
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+    if let Ok(val) = cookie_slug.parse() {
+        response_headers.append(header::SET_COOKIE, val);
+    }
+    if id_or_slug != project.id.to_string() {
+        let cookie_id = format!(
+            "apich_slide_file={}; Path=/projects/{}/presentation; SameSite=Lax",
+            urlencoding::encode(&file_param),
+            project.id
+        );
+        if let Ok(val) = cookie_id.parse() {
+            response_headers.append(header::SET_COOKIE, val);
+        }
+    }
 
-    (
-        [
-            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
-            (header::SET_COOKIE, cookie_val),
-        ],
-        SLIDE_INDEX_HTML,
-    )
-        .into_response()
+    (response_headers, SLIDE_INDEX_HTML).into_response()
 }
 
 async fn slide_presentation_bootstrap_js_action() -> Response {
@@ -3978,25 +3986,41 @@ async fn slide_presentation_deck_json_action(
             .into_response();
     }
 
+    let referer_file = headers
+        .get(header::REFERER)
+        .and_then(|r| r.to_str().ok())
+        .and_then(|ref_url| {
+            let query_str = ref_url.split_once('?')?.1;
+            for part in query_str.split('&') {
+                if let Some((k, v)) = part.split_once('=') {
+                    if k == "file" {
+                        return urlencoding::decode(v).ok().map(|s| s.into_owned());
+                    }
+                }
+            }
+            None
+        });
+
+    let cookie_file = headers
+        .get(header::COOKIE)
+        .and_then(|c| c.to_str().ok())
+        .and_then(|cookie_str| {
+            cookie_str.split(';').find_map(|pair| {
+                let mut parts = pair.trim().splitn(2, '=');
+                let k = parts.next()?.trim();
+                let v = parts.next()?.trim();
+                if k == "apich_slide_file" {
+                    urlencoding::decode(v).ok().map(std::borrow::Cow::into_owned)
+                } else {
+                    None
+                }
+            })
+        });
+
     let file_to_build = query
         .file
-        .or_else(|| {
-            headers
-                .get(header::COOKIE)
-                .and_then(|c| c.to_str().ok())
-                .and_then(|cookie_str| {
-                    cookie_str.split(';').find_map(|pair| {
-                        let mut parts = pair.trim().splitn(2, '=');
-                        let k = parts.next()?.trim();
-                        let v = parts.next()?.trim();
-                        if k == "apich_slide_file" {
-                            urlencoding::decode(v).ok().map(std::borrow::Cow::into_owned)
-                        } else {
-                            None
-                        }
-                    })
-                })
-        })
+        .or(referer_file)
+        .or(cookie_file)
         .unwrap_or_else(|| "slides.typ".to_string());
 
     match state
@@ -4013,11 +4037,44 @@ async fn slide_presentation_deck_json_action(
             json_content,
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::warn!(
+                project_id = %project.id,
+                file = %file_to_build,
+                error = %e,
+                "Failed to build slide presentation deck.json, rendering error presentation"
+            );
+            let err_msg = html_escape(&e.to_string());
+            let file_esc = html_escape(&file_to_build);
+            let error_svg = format!(
+                r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%"><rect width="1920" height="1080" fill="#0f172a"/><rect x="120" y="100" width="1680" height="880" rx="16" fill="#1e293b" stroke="#ef4444" stroke-width="3"/><text x="180" y="200" font-family="system-ui, -apple-system, sans-serif" font-size="44" font-weight="bold" fill="#ef4444">⚠️ Presentation Compilation Error</text><text x="180" y="270" font-family="system-ui, -apple-system, sans-serif" font-size="26" fill="#94a3b8">File: {file_esc}</text><rect x="180" y="320" width="1560" height="580" rx="10" fill="#090d16" stroke="#334155" stroke-width="1.5"/><foreignObject x="210" y="350" width="1500" height="520"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:20px; line-height:1.6; color:#f87171; white-space:pre-wrap; word-break:break-all; overflow-y:auto; height:500px;">{err_msg}</div></foreignObject></svg>"##
+            );
+
+            let error_deck = serde_json::json!({
+                "title": format!("Error: {file_to_build}"),
+                "default_animation": "fade",
+                "slides": [
+                    {
+                        "page_number": 1,
+                        "svg_data": error_svg,
+                        "view_box": { "x": 0.0, "y": 0.0, "width": 1920.0, "height": 1080.0 },
+                        "hotspots": [],
+                        "animation": null,
+                        "steps": []
+                    }
+                ]
+            });
+
+            (
+                StatusCode::OK,
+                [(
+                    header::CONTENT_TYPE,
+                    "application/json; charset=utf-8".to_string(),
+                )],
+                error_deck.to_string(),
+            )
+                .into_response()
+        },
     }
 }
 

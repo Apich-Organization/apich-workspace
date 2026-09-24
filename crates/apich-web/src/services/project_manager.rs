@@ -1039,11 +1039,12 @@ impl ProjectManager {
         let container = self.ensure_agent_container(project_id, user_id).await?;
         let run_id = uuid::Uuid::new_v4().simple().to_string();
         let tmp_dir = format!(".apich_deck_preview_{run_id}");
+        let clean_path = rel_path.trim_start_matches('/');
         let cmd = vec![
             "cargo".to_string(),
             "slide".to_string(),
             "export".to_string(),
-            rel_path.to_string(),
+            clean_path.to_string(),
             "--format".to_string(),
             "wasm".to_string(),
             "-o".to_string(),
@@ -1052,6 +1053,7 @@ impl ProjectManager {
         let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(60));
         let res = container.exec_with_options(opts).await?;
         if res.exit_code != 0 {
+            let _ = container.exec(["rm", "-rf", &tmp_dir]).await;
             let err_bytes = if res.stderr.is_empty() {
                 res.stdout
             } else {
@@ -1063,10 +1065,11 @@ impl ProjectManager {
             )));
         }
         let deck_path = format!("{tmp_dir}/deck.json");
-        let bytes = container.read_file(&deck_path).await.map_err(|e| {
+        let read_result = container.read_file(&deck_path).await;
+        let _ = container.exec(["rm", "-rf", &tmp_dir]).await;
+        let bytes = read_result.map_err(|e| {
             crate::error::WebError::Internal(format!("Failed to read compiled deck.json: {e}"))
         })?;
-        let _ = container.exec(["rm", "-rf", &tmp_dir]).await;
         String::from_utf8(bytes).map_err(|e| crate::error::WebError::Internal(e.to_string()))
     }
 
