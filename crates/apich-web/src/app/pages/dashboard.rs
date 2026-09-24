@@ -32,7 +32,7 @@ pub fn DashboardPage(
                     <form method="post" action="/projects/demo/create" class="inline-form">
                         <button type="submit" class="btn btn-primary btn-lg">"✨ " {i18n.load_demo_project()}</button>
                     </form>
-                    <p style="font-size:0.8rem; color:var(--text-sub); align-self:center;">"or use \"+ New Project\" above"</p>
+                    <p style="font-size:0.8rem; color:var(--text-sub); align-self:center;">{if i18n.is_zh() { "或使用上方的“+ 新建项目”" } else { "or use \"+ New Project\" above" }}</p>
                 </div>
             </div>
         }.into_any()
@@ -41,7 +41,11 @@ pub fn DashboardPage(
             .into_iter()
             .map(|proj| {
                 let desc = proj.description.clone().unwrap_or_else(|| {
-                    "Unified research repository with version control".to_string()
+                    if i18n.is_zh() {
+                        "包含版本控制的统一研究项目库".to_string()
+                    } else {
+                        "Unified research repository with version control".to_string()
+                    }
                 });
                 let created_str = proj.created_at.format("%Y-%m-%d %H:%M").to_string();
                 let href = format!("/projects/{}", proj.id);
@@ -59,8 +63,8 @@ pub fn DashboardPage(
                                 <span>"📅 " {created_str}</span>
                             </div>
                             <div class="project-actions">
-                                <a href=href class="btn btn-primary btn-sm">"📂 Open"</a>
-                                <a href=href_vcs class="btn btn-secondary btn-sm">"🌿 VCS"</a>
+                                <a href=href class="btn btn-primary btn-sm">"📂 " {i18n.open_file()}</a>
+                                <a href=href_vcs class="btn btn-secondary btn-sm">"🌿 " {i18n.history()}</a>
                             </div>
                         </div>
                     </div>
@@ -75,9 +79,13 @@ pub fn DashboardPage(
         view! {
             <div class="empty-state" style="padding:2.25rem 1.5rem; border:1px dashed var(--border-subtle); border-radius:10px; text-align:center; background:var(--bg-surface);">
                 <div style="font-size:2rem; margin-bottom:0.5rem;">"📜"</div>
-                <h4 style="font-size:1rem; font-weight:600; color:var(--text-main); margin:0 0 0.35rem 0;">"No Standalone Files Yet"</h4>
+                <h4 style="font-size:1rem; font-weight:600; color:var(--text-main); margin:0 0 0.35rem 0;">{if i18n.is_zh() { "暂无独立单文件" } else { "No Standalone Files Yet" }}</h4>
                 <p class="text-muted" style="font-size:0.85rem; max-width:480px; margin:0 auto; line-height:1.5;">
-                    "Create standalone scripts or documents without managing a full project. Use Quick Start and select 'Single file' to start writing Python, R, Rust, Typst, or LaTeX."
+                    {if i18n.is_zh() {
+                        "无需管理完整项目即可快速创建单文件脚本或文档。点击“快速开始”并选择“独立文件”即可开始编写 Python、R、Rust、Typst 或 LaTeX。"
+                    } else {
+                        "Create standalone scripts or documents without managing a full project. Use Quick Start and select 'Single file' to start writing Python, R, Rust, Typst, or LaTeX."
+                    }}
                 </p>
             </div>
         }.into_any()
@@ -95,21 +103,21 @@ pub fn DashboardPage(
                     .unwrap_or("")
                     .to_lowercase();
                 let (icon, type_label, badge_cls) = match ext.as_str() {
-                    "py" => ("🐍", "Python Script", "badge-active"),
-                    "r" => ("📊", "R Script", "badge-active"),
-                    "rs" => ("🦀", "Rust Script", "badge-active"),
+                    "py" => ("🐍", if i18n.is_zh() { "Python 脚本" } else { "Python Script" }, "badge-active"),
+                    "r" => ("📊", if i18n.is_zh() { "R 脚本" } else { "R Script" }, "badge-active"),
+                    "rs" => ("🦀", if i18n.is_zh() { "Rust 脚本" } else { "Rust Script" }, "badge-active"),
                     "typ" => {
                         if file_name.contains("slide") {
-                            ("📊", "Slide Deck", "badge-idle")
+                            ("📊", if i18n.is_zh() { "演示文稿" } else { "Slide Deck" }, "badge-idle")
                         } else {
-                            ("📄", "Typst Document", "badge-idle")
+                            ("📄", if i18n.is_zh() { "Typst 文档" } else { "Typst Document" }, "badge-idle")
                         }
                     },
-                    "tex" | "latex" => ("📝", "LaTeX Document", "badge-idle"),
-                    "table" | "db" | "sqlite" => ("🗄️", "Table", "badge-viewer"),
-                    "anote" | "note" => ("📔", "Note", "badge-viewer"),
+                    "tex" | "latex" => ("📝", if i18n.is_zh() { "LaTeX 文档" } else { "LaTeX Document" }, "badge-idle"),
+                    "table" | "db" | "sqlite" => ("🗄️", if i18n.is_zh() { "数据表" } else { "Table" }, "badge-viewer"),
+                    "anote" | "note" => ("📔", if i18n.is_zh() { "笔记" } else { "Note" }, "badge-viewer"),
                     "md" => ("📑", "Markdown", "badge-idle"),
-                    _ => ("📄", "File", "badge-idle"),
+                    _ => ("📄", if i18n.is_zh() { "文件" } else { "File" }, "badge-idle"),
                 };
                 let href = match ext.as_str() {
                     "table" | "db" | "sqlite" => format!("/projects/{}/table?file={}", proj.id, urlencoding::encode(&file_name)),
@@ -143,7 +151,11 @@ pub fn DashboardPage(
                                 </span>
                             </div>
                             <p class="text-muted" style="font-size:0.8rem; margin:0 0 0.85rem 0;">
-                                "Standalone workspace with dedicated VCS timeline and sharing."
+                                {if i18n.is_zh() {
+                                    "拥有独立版本历史与共享权限的单文件工作区。"
+                                } else {
+                                    "Standalone workspace with dedicated VCS timeline and sharing."
+                                }}
                             </p>
                         </div>
                         <div class="project-footer" style="padding-top:0.75rem; border-top:1px solid var(--border-subtle); margin-top:0.5rem;">
@@ -151,19 +163,19 @@ pub fn DashboardPage(
                                 <span>"📅 " {updated_str}</span>
                             </div>
                             <div class="project-actions" style="display:flex; align-items:center; gap:0.4rem;">
-                                <a href=href class="btn btn-primary btn-sm">"📂 Open"</a>
-                                <a href=href_vcs class="btn btn-secondary btn-sm">"🌿 VCS"</a>
+                                <a href=href class="btn btn-primary btn-sm">"📂 " {i18n.open_file()}</a>
+                                <a href=href_vcs class="btn btn-secondary btn-sm">"🌿 " {i18n.history()}</a>
                                 <form
                                     method="post"
                                     action=format!("/projects/{}/delete", proj.id)
                                     class="inline-form"
-                                    onsubmit="return confirm('Are you sure you want to delete this file? The file and its version history will be permanently deleted.');"
+                                    onsubmit=if i18n.is_zh() { "return confirm('确定要删除此文件吗？该文件及其版本历史将被永久删除。');" } else { "return confirm('Are you sure you want to delete this file? The file and its version history will be permanently deleted.');" }
                                 >
                                     <button
                                         type="submit"
                                         class="btn btn-danger btn-sm"
                                         style="padding:0.25rem 0.55rem; font-size:0.78rem;"
-                                        title="Delete this file"
+                                        title=if i18n.is_zh() { "删除此文件" } else { "Delete this file" }
                                     >
                                         "🗑️"
                                     </button>
@@ -198,7 +210,7 @@ pub fn DashboardPage(
                     // One-click starters. The island asks where the new document should go
                     // (a new project, an existing one, or single file) rather than creating a project the
                     // instant a button is pressed.
-                    <apich_islands::QuickStartMenuIsland variant=apich_islands::QuickStartVariant::Dashboard />
+                    <apich_islands::QuickStartMenuIsland variant=apich_islands::QuickStartVariant::Dashboard is_zh=i18n.is_zh() />
                     <apich_islands::ModalIsland trigger_label=format!("+ {}", i18n.new_project()) trigger_class="btn btn-primary".to_string() title=i18n.new_project().to_string()>
                         <form method="post" action="/projects/new">
                             <apich_islands::NameSlugFieldsIsland
@@ -211,7 +223,7 @@ pub fn DashboardPage(
                             />
                             <div class="form-group">
                                 <label>{i18n.description_label()}</label>
-                                <textarea name="description" rows="3" class="form-control" placeholder="Project objectives and dataset documentation"></textarea>
+                                <textarea name="description" rows="3" class="form-control" placeholder=if i18n.is_zh() { "项目目标与数据集文档说明" } else { "Project objectives and dataset documentation" }></textarea>
                             </div>
                             <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
                                 <button type="submit" class="btn btn-primary">{i18n.save()}</button>
@@ -233,12 +245,16 @@ pub fn DashboardPage(
             <div style="margin-top:2.75rem; margin-bottom:1rem; border-top:1px solid var(--border-subtle); padding-top:1.75rem;">
                 <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.25rem;">
                     <div style="display:flex; align-items:center; gap:0.6rem;">
-                        <h2 class="section-title" style="margin:0; font-size:1.15rem;">"📄 Standalone Files"</h2>
+                        <h2 class="section-title" style="margin:0; font-size:1.15rem;">{if i18n.is_zh() { "📄 独立单文件" } else { "📄 Standalone Files" }}</h2>
                         <span class="badge badge-idle" style="font-size:0.72rem;">{format!("{single_files_count}")}</span>
                     </div>
                 </div>
                 <p class="text-muted" style="font-size:0.85rem; margin:0 0 1.25rem 0;">
-                    "Individual scripts and documents managed without a multi-file project workspace. Each file has its own version history, execution sandbox, and sharing."
+                    {if i18n.is_zh() {
+                        "独立脚本与文档，无需创建多文件项目即可单独编辑与管理。每个文件享有独立的版本历史、运行沙箱与共享权限。"
+                    } else {
+                        "Individual scripts and documents managed without a multi-file project workspace. Each file has its own version history, execution sandbox, and sharing."
+                    }}
                 </p>
                 {single_files_body}
             </div>

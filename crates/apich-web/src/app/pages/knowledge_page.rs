@@ -267,21 +267,22 @@ fn render_kanban_template_panel(
 pub fn render_wiki(
     project_id: uuid::Uuid,
     graph: &KnowledgeGraph,
+    i18n: I18n,
 ) -> impl IntoView {
     let nodes: Vec<_> = graph
         .nodes
         .iter()
         .map(|n| {
             let status_tag = if n.exists {
-                view! { <span style="font-size:0.7rem; color:var(--text-sub);">{n.backlink_count} " backlinks • " {n.task_count} " tasks"</span> }.into_any()
+                view! { <span style="font-size:0.7rem; color:var(--text-sub);">{n.backlink_count} " " {if i18n.is_zh() { "个反向链接 • " } else { "backlinks • " }} {n.task_count} " " {if i18n.is_zh() { "个任务" } else { "tasks" }}</span> }.into_any()
             } else {
                 let create_action = format!("/projects/{project_id}/note/create-page");
                 view! {
                     <div style="display:flex; align-items:center; gap:0.5rem;">
-                        <span style="font-size:0.7rem; color:#d97706; background:#fffbeb; padding:1px 5px; border-radius:3px;">"Placeholder / Uncreated"</span>
+                        <span style="font-size:0.7rem; color:#d97706; background:#fffbeb; padding:1px 5px; border-radius:3px;">{if i18n.is_zh() { "未创建占位页面" } else { "Placeholder / Uncreated" }}</span>
                         <form method="post" action=create_action class="inline-form">
                             <input type="hidden" name="title" value=n.label.clone() />
-                            <button type="submit" class="btn btn-primary btn-sm" style="padding:0.15rem 0.5rem; font-size:0.72rem;">"+ Create this page"</button>
+                            <button type="submit" class="btn btn-primary btn-sm" style="padding:0.15rem 0.5rem; font-size:0.72rem;">{if i18n.is_zh() { "+ 创建此页面" } else { "+ Create this page" }}</button>
                         </form>
                     </div>
                 }.into_any()
@@ -307,7 +308,7 @@ pub fn render_wiki(
         .collect();
 
     let edges: Vec<_> = if graph.edges.is_empty() {
-        vec![view! { <li style="list-style:none;">"No [[Wiki Links]] found yet. Link notes using [[Note Name]] in your markdown documents."</li> }.into_any()]
+        vec![view! { <li style="list-style:none;">{if i18n.is_zh() { "暂无 [[双向维基链接]]。可以在 Markdown 笔记中使用 [[笔记名称]] 建立关联。" } else { "No [[Wiki Links]] found yet. Link notes using [[Note Name]] in your markdown documents." }}</li> }.into_any()]
     } else {
         graph
             .edges
@@ -330,11 +331,11 @@ pub fn render_wiki(
         view! {
             <form method="post" action=action class="form-row" style="align-items:flex-end; margin-bottom:1rem;">
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
-                    <label style="font-size:0.75rem;">"New page title"</label>
-                    <input type="text" name="title" placeholder="e.g. Project Roadmap" required=true class="form-control" />
+                    <label style="font-size:0.75rem;">{if i18n.is_zh() { "新页面标题" } else { "New page title" }}</label>
+                    <input type="text" name="title" placeholder=if i18n.is_zh() { "例如：项目路线图" } else { "e.g. Project Roadmap" } required=true class="form-control" />
                 </div>
                 <input type="hidden" name="view" value="wiki" />
-                <button type="submit" class="btn btn-primary btn-sm">"+ New Page"</button>
+                <button type="submit" class="btn btn-primary btn-sm">{if i18n.is_zh() { "+ 新建页面" } else { "+ New Page" }}</button>
             </form>
         }
     };
@@ -342,22 +343,22 @@ pub fn render_wiki(
     view! {
         <div class="wiki-container">
             <div class="wiki-card">
-                <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.85rem; color:var(--text-main);">"Notes & Concepts (" {graph.nodes.len()} " nodes)"</h3>
+                <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.85rem; color:var(--text-main);">{if i18n.is_zh() { "笔记与概念 (" } else { "Notes & Concepts (" }}{graph.nodes.len()}{if i18n.is_zh() { " 个节点)" } else { " nodes)" }}</h3>
                 {new_page_form}
                 <div class="wiki-node-list">{nodes}</div>
             </div>
             <div class="wiki-card">
-                <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.85rem; color:var(--text-main);">"Bidirectional Wiki Graph Links (" {graph.edges.len()} " connections)"</h3>
+                <h3 style="font-size:1rem; font-weight:700; margin-bottom:0.85rem; color:var(--text-main);">{if i18n.is_zh() { "双向维基图谱链接 (" } else { "Bidirectional Wiki Graph Links (" }}{graph.edges.len()}{if i18n.is_zh() { " 条关联)" } else { " connections)" }}</h3>
                 <ul style="padding-left:0;">{edges}</ul>
             </div>
         </div>
     }
 }
 
-pub fn render_calendar(events: &[CalendarEvent]) -> impl IntoView {
+pub fn render_calendar(events: &[CalendarEvent], i18n: I18n) -> impl IntoView {
     if events.is_empty() {
         return view! {
-            <div class="empty-state"><p>"No scheduled tasks or dated files found. Add @YYYY-MM-DD to any task in your Markdown notes to see it on the calendar."</p></div>
+            <div class="empty-state"><p>{if i18n.is_zh() { "暂无排程任务或带日期的文件。在 Markdown 笔记的任务中添加 @YYYY-MM-DD 即可在日历中查看。" } else { "No scheduled tasks or dated files found. Add @YYYY-MM-DD to any task in your Markdown notes to see it on the calendar." }}</p></div>
         }.into_any();
     }
 
@@ -378,12 +379,12 @@ pub fn render_calendar(events: &[CalendarEvent]) -> impl IntoView {
                     let icon = if ev.is_task { if ev.completed { "✅" } else { "⬜" } } else { "📄" };
                     let badge = if ev.is_task {
                         if ev.completed {
-                            view! { <span class="status-badge badge-active" style="font-size:0.7rem;">"Completed"</span> }.into_any()
+                            view! { <span class="status-badge badge-active" style="font-size:0.7rem;">{if i18n.is_zh() { "已完成" } else { "Completed" }}</span> }.into_any()
                         } else {
-                            view! { <span class="status-badge badge-idle" style="font-size:0.7rem;">"To Do"</span> }.into_any()
+                            view! { <span class="status-badge badge-idle" style="font-size:0.7rem;">{if i18n.is_zh() { "待办" } else { "To Do" }}</span> }.into_any()
                         }
                     } else {
-                        view! { <span class="status-badge" style="font-size:0.7rem; background:var(--bg-muted); color:var(--text-sub);">"Note"</span> }.into_any()
+                        view! { <span class="status-badge" style="font-size:0.7rem; background:var(--bg-muted); color:var(--text-sub);">{if i18n.is_zh() { "笔记" } else { "Note" }}</span> }.into_any()
                     };
                     view! {
                         <div class="calendar-event-item">

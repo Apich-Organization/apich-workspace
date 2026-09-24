@@ -8,16 +8,20 @@
 use leptos::prelude::*;
 
 #[island]
-pub fn DeleteRowButtonIsland(#[prop(into)] label: String) -> impl IntoView {
+pub fn DeleteRowButtonIsland(
+    #[prop(into)] label: String,
+    #[prop(optional)] is_zh: Option<bool>,
+) -> impl IntoView {
+    let zh = is_zh.unwrap_or(false);
     view! {
-        <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| confirm_and_delete()>
+        <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| confirm_and_delete(zh)>
             {label}
         </button>
     }
 }
 
 #[cfg(feature = "hydrate")]
-fn confirm_and_delete() {
+fn confirm_and_delete(zh: bool) {
     use wasm_bindgen::JsCast;
     let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
         return;
@@ -31,12 +35,22 @@ fn confirm_and_delete() {
     let val = val_input.value();
     if val.is_empty() {
         if let Some(win) = web_sys::window() {
-            let _ = win.alert_with_message("Please click any cell in the row you wish to delete.");
+            let msg = if zh {
+                "请先点击要删除行中的任意单元格。"
+            } else {
+                "Please click any cell in the row you wish to delete."
+            };
+            let _ = win.alert_with_message(msg);
         }
         return;
     }
+    let confirm_msg = if zh {
+        "确定要删除所选行吗？"
+    } else {
+        "Delete selected row?"
+    };
     let confirmed = web_sys::window()
-        .and_then(|w| w.confirm_with_message("Delete selected row?").ok())
+        .and_then(|w| w.confirm_with_message(confirm_msg).ok())
         .unwrap_or(false);
     if !confirmed {
         return;
@@ -50,4 +64,5 @@ fn confirm_and_delete() {
 }
 
 #[cfg(not(feature = "hydrate"))]
-const fn confirm_and_delete() {}
+const fn confirm_and_delete(_zh: bool) {}
+

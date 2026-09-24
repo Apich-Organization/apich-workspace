@@ -29,7 +29,11 @@ pub enum QuickStartVariant {
 }
 
 #[island]
-pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
+pub fn QuickStartMenuIsland(
+    variant: QuickStartVariant,
+    #[prop(optional)] is_zh: Option<bool>,
+) -> impl IntoView {
+    let zh = is_zh.unwrap_or(false);
     let open = RwSignal::new(false);
     let kind = RwSignal::new(String::new());
     let kind_label = RwSignal::new(String::new());
@@ -83,8 +87,27 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
         });
     };
 
+    let doc_items = if zh {
+        vec![
+            ("slide", "📊", "演示幻灯片"),
+            ("typst", "📄", "Typst 文档"),
+            ("latex", "📝", "LaTeX 文档"),
+            ("table", "🗄️", "数据表格"),
+            ("note", "📔", "笔记"),
+        ]
+    } else {
+        vec![
+            ("slide", "📊", "Slide Deck"),
+            ("typst", "📄", "Typst Document"),
+            ("latex", "📝", "LaTeX Document"),
+            ("table", "🗄️", "Table"),
+            ("note", "📔", "Note"),
+        ]
+    };
+
     let menu = if variant == QuickStartVariant::Sidebar {
-        let doc_triggers = QUICK_START_DOC_ITEMS
+        let script_label = if zh { "脚本" } else { "Script" };
+        let doc_triggers = doc_items
             .iter()
             .map(|(k, icon, label)| {
                 let (k, icon, label) = (*k, *icon, *label);
@@ -99,17 +122,17 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
 
         view! {
             <div class="sidebar-section">
-                <span class="sidebar-heading">"New"</span>
+                <span class="sidebar-heading">{if zh { "新建" } else { "New" }}</span>
                 {doc_triggers}
                 <button
                     type="button"
                     class="sidebar-link sidebar-quick-btn"
                     style="display:flex; align-items:center; justify-content:space-between;"
-                    on:click=move |_| choose("script", "Script", Some("python"))
+                    on:click=move |_| choose("script", script_label, Some("python"))
                 >
                     <div style="display:flex; align-items:center; gap:0.5rem;">
                         <span class="sidebar-icon">"💻"</span>
-                        <span>"Script"</span>
+                        <span>{script_label}</span>
                     </div>
                     <span style="font-size:0.65rem; font-weight:600; color:var(--text-sub); background:var(--bg-muted); padding:1px 6px; border-radius:4px; border:1px solid var(--border-subtle); letter-spacing:0.3px;">
                         "R · Py · Rs"
@@ -119,7 +142,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
         }
         .into_any()
     } else {
-        let doc_triggers = QUICK_START_DOC_ITEMS
+        let doc_triggers = doc_items
             .iter()
             .map(|(k, icon, label)| {
                 let (k, icon, label) = (*k, *icon, *label);
@@ -132,27 +155,32 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
             })
             .collect::<Vec<_>>();
 
+        let qs_btn_label = if zh { "⚡ 快速开始 ▾" } else { "⚡ Quick Start ▾" };
+        let py_label = if zh { "Python 脚本" } else { "Python Script" };
+        let r_label = if zh { "R 脚本" } else { "R Script" };
+        let rust_label = if zh { "Rust 脚本" } else { "Rust Script" };
+
         view! {
             <div class="quick-start-menu">
-                <button type="button" class="btn btn-secondary">"⚡ Quick Start ▾"</button>
+                <button type="button" class="btn btn-secondary">{qs_btn_label}</button>
                 <div class="quick-start-dropdown">
                     <div class="quick-start-panel">
                         {doc_triggers}
                         <div style="height:1px; background:var(--border-subtle); margin:4px 0;"></div>
                         <div style="padding:4px 10px 2px 10px; font-size:0.7rem; font-weight:700; color:var(--text-sub); text-transform:uppercase; letter-spacing:0.5px;">
-                            "Scripts"
+                            {if zh { "脚本" } else { "Scripts" }}
                         </div>
-                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", "Python Script", Some("python"))>
+                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", py_label, Some("python"))>
                             <span>"🐍"</span>
-                            <span>"Python Script (.py)"</span>
+                            <span>{if zh { "Python 脚本 (.py)" } else { "Python Script (.py)" }}</span>
                         </button>
-                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", "R Script", Some("r"))>
+                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", r_label, Some("r"))>
                             <span>"📊"</span>
-                            <span>"R Script (.R)"</span>
+                            <span>{if zh { "R 脚本 (.R)" } else { "R Script (.R)" }}</span>
                         </button>
-                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", "Rust Script", Some("rust"))>
+                        <button type="button" class="quick-start-item" on:click=move |_| choose("script", rust_label, Some("rust"))>
                             <span>"🦀"</span>
-                            <span>"Rust Script (.rs)"</span>
+                            <span>{if zh { "Rust 脚本 (.rs)" } else { "Rust Script (.rs)" }}</span>
                         </button>
                     </div>
                 </div>
@@ -170,12 +198,16 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                         {move || {
                             if kind.get() == "script" {
                                 match language.get().as_str() {
-                                    "r" => "New R Script".to_string(),
-                                    "rust" => "New Rust Script".to_string(),
-                                    _ => "New Python Script".to_string(),
+                                    "r" => if zh { "新建 R 脚本".to_string() } else { "New R Script".to_string() },
+                                    "rust" => if zh { "新建 Rust 脚本".to_string() } else { "New Rust Script".to_string() },
+                                    _ => if zh { "新建 Python 脚本".to_string() } else { "New Python Script".to_string() },
                                 }
                             } else {
-                                format!("New {}", kind_label.get())
+                                if zh {
+                                    format!("新建 {}", kind_label.get())
+                                } else {
+                                    format!("New {}", kind_label.get())
+                                }
                             }
                         }}
                     </h3>
@@ -186,8 +218,9 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                 {move || (kind.get() == "script").then(|| view! {
                     <div class="form-group" style="margin-bottom:1.25rem;">
                         <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">
-                            "Choose Script Language"
+                            {if zh { "选择脚本语言" } else { "Choose Script Language" }}
                         </label>
+
                         <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.65rem;">
                             // Python
                             <button
@@ -245,16 +278,16 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                         </div>
                         <div style="margin-top:0.45rem; font-size:0.78rem; color:var(--text-muted);">
                             {move || match language.get().as_str() {
-                                "r" => "📊 Statistical analysis script with ggplot2 support (executed with Rscript).",
-                                "rust" => "🦀 High-performance standalone Rust script (compiled with rustc).",
-                                _ => "🐍 General-purpose analysis script with NumPy (executed with python3).",
+                                "r" => if zh { "📊 支持 ggplot2 等统计分析脚本（使用 Rscript 执行）。" } else { "📊 Statistical analysis script with ggplot2 support (executed with Rscript)." },
+                                "rust" => if zh { "🦀 高性能独立 Rust 脚本（使用 rustc 编译）。" } else { "🦀 High-performance standalone Rust script (compiled with rustc)." },
+                                _ => if zh { "🐍 基于 NumPy 的通用数据分析脚本（使用 python3 执行）。" } else { "🐍 General-purpose analysis script with NumPy (executed with python3)." },
                             }}
                         </div>
                     </div>
                 })}
 
                 <p style="font-size:0.85rem; color:var(--text-sub); margin:0 0 1.1rem;">
-                    "Where should this go?"
+                    {if zh { "保存位置" } else { "Where should this go?" }}
                 </p>
                 <div class="form-group">
                     <label style="display:flex; align-items:center; gap:0.5rem; font-weight:500; cursor:pointer;">
@@ -265,7 +298,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                             prop:checked=move || mode.get() == "single_file"
                             on:change=move |_| mode.set("single_file".to_string())
                         />
-                        "Single file (standalone -- no project needed)"
+                        {if zh { "单文件（独立文件，无需完整项目）" } else { "Single file (standalone -- no project needed)" }}
                     </label>
                     {move || (mode.get() == "single_file").then(|| {
                         let default_name = if kind.get() == "script" {
@@ -283,17 +316,27 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                                 _ => "document.typ",
                             }
                         };
+                        let placeholder = if zh {
+                            format!("文件名（可选，默认 {default_name}）")
+                        } else {
+                            format!("File name (optional -- defaults to {default_name})")
+                        };
+                        let desc = if zh {
+                            "创建具备完整版本快照与分享权限的单文件，不会显示在主项目列表中。"
+                        } else {
+                            "Creates a standalone file with full version history and sharing. The backing project is hidden from your projects list."
+                        };
                         view! {
                             <div style="margin-top:0.4rem; padding-left:1.5rem;">
                                 <input
                                     type="text"
                                     class="form-control"
-                                    placeholder=format!("File name (optional -- defaults to {default_name})")
+                                    placeholder=placeholder
                                     prop:value=move || project_name.get()
                                     on:input=move |ev| project_name.set(event_target_value(&ev))
                                 />
                                 <div style="margin-top:0.35rem; font-size:0.78rem; color:var(--text-muted);">
-                                    "Creates a standalone file with full version history and sharing. The backing project is hidden from your projects list."
+                                    {desc}
                                 </div>
                             </div>
                         }
@@ -308,10 +351,12 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                             prop:checked=move || mode.get() == "new"
                             on:change=move |_| mode.set("new".to_string())
                         />
-                        "Create a new project"
+                        {if zh { "创建新项目" } else { "Create a new project" }}
                     </label>
                     {move || (mode.get() == "new").then(|| {
-                        let ph = if kind.get() == "script" {
+                        let ph = if zh {
+                            "项目名称（可选）".to_string()
+                        } else if kind.get() == "script" {
                             let l = match language.get().as_str() {
                                 "r" => "R Script",
                                 "rust" => "Rust Script",
@@ -342,14 +387,14 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                             prop:checked=move || mode.get() == "existing"
                             on:change=move |_| mode.set("existing".to_string())
                         />
-                        "Add to an existing project"
+                        {if zh { "添加到已有项目" } else { "Add to an existing project" }}
                     </label>
                     {move || (mode.get() == "existing").then(|| {
                         let starter_note = if kind.get() == "script" {
                             match language.get().as_str() {
-                                "r" => "Will create and open script.R in the selected project workspace.",
-                                "rust" => "Will create and open main.rs in the selected project workspace.",
-                                _ => "Will create and open script.py in the selected project workspace.",
+                                "r" => if zh { "将在所选项目中创建并打开 script.R。" } else { "Will create and open script.R in the selected project workspace." },
+                                "rust" => if zh { "将在所选项目中创建并打开 main.rs。" } else { "Will create and open main.rs in the selected project workspace." },
+                                _ => if zh { "将在所选项目中创建并打开 script.py。" } else { "Will create and open script.py in the selected project workspace." },
                             }
                         } else {
                             ""
@@ -365,7 +410,7 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                                     {move || {
                                         let list = projects.get();
                                         if list.is_empty() {
-                                            vec![view! { <option value="">"No projects yet"</option> }.into_any()]
+                                            vec![view! { <option value="">{if zh { "暂无项目" } else { "No projects yet" }}</option> }.into_any()]
                                         } else {
                                             list.into_iter()
                                                 .map(|(id, name)| view! { <option value=id>{name}</option> }.into_any())
@@ -386,15 +431,16 @@ pub fn QuickStartMenuIsland(variant: QuickStartVariant) -> impl IntoView {
                     <div class="alert alert-danger" style="font-size:0.8rem; padding:0.5rem 0.75rem;">{e}</div>
                 })}
                 <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                    <button type="button" class="btn btn-secondary" on:click=move |_| open.set(false)>"Cancel"</button>
+                    <button type="button" class="btn btn-secondary" on:click=move |_| open.set(false)>{if zh { "取消" } else { "Cancel" }}</button>
                     <button type="button" class="btn btn-primary" disabled=move || busy.get() on:click=submit>
-                        {move || if busy.get() { "Creating..." } else { "Create" }}
+                        {move || if busy.get() { if zh { "正在创建..." } else { "Creating..." } } else { if zh { "创建" } else { "Create" } }}
                     </button>
                 </div>
             </div>
         </div>
     }
 }
+
 
 struct QuickStartRequest {
     kind: String,

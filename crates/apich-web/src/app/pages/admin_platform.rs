@@ -50,8 +50,9 @@ pub fn AdminPlatformPage(
     };
 
     let now = chrono::Utc::now();
+    let is_zh = i18n.is_zh();
     let invite_rows = if invitations.is_empty() {
-        view! { <p class="text-muted" style="font-size:0.85rem; padding:1rem 0;">"No invitation codes created yet."</p> }.into_any()
+        view! { <p class="text-muted" style="font-size:0.85rem; padding:1rem 0;">{if is_zh { "暂无已创建的邀请码。" } else { "No invitation codes created yet." }}</p> }.into_any()
     } else {
         let rows = invitations
             .into_iter()
@@ -59,17 +60,17 @@ pub fn AdminPlatformPage(
                 let is_expired = now > inv.expires_at;
                 let is_exhausted = inv.used_count >= inv.max_uses;
                 let (badge_cls, status_text) = if is_expired {
-                    ("badge badge-viewer", "Expired")
+                    ("badge badge-viewer", if is_zh { "已过期" } else { "Expired" })
                 } else if is_exhausted {
-                    ("badge badge-viewer", "Exhausted")
+                    ("badge badge-viewer", if is_zh { "已用尽" } else { "Exhausted" })
                 } else {
-                    ("badge badge-active", "Active")
+                    ("badge badge-active", if is_zh { "有效" } else { "Active" })
                 };
 
                 let recipient_text = inv
                     .email
                     .filter(|e| !e.trim().is_empty())
-                    .unwrap_or_else(|| "Open (Anyone)".to_string());
+                    .unwrap_or_else(|| if is_zh { "公开（任何人）".to_string() } else { "Open (Anyone)".to_string() });
                 let expires_str = inv.expires_at.format("%Y-%m-%d %H:%M").to_string();
                 let invite_id = inv.id.to_string();
 
@@ -113,13 +114,13 @@ pub fn AdminPlatformPage(
                 <table class="table" style="width:100%; border-collapse:collapse;">
                     <thead>
                         <tr style="border-bottom:1px solid var(--border-subtle); text-align:left; font-size:0.8rem; color:var(--text-muted);">
-                            <th style="padding:8px;">"Code"</th>
-                            <th style="padding:8px;">"Status"</th>
-                            <th style="padding:8px;">"Uses"</th>
-                            <th style="padding:8px;">"Recipient"</th>
-                            <th style="padding:8px;">"Role"</th>
-                            <th style="padding:8px;">"Expires At"</th>
-                            <th style="padding:8px; text-align:right;">"Action"</th>
+                            <th style="padding:8px;">{if is_zh { "邀请码" } else { "Code" }}</th>
+                            <th style="padding:8px;">{if is_zh { "状态" } else { "Status" }}</th>
+                            <th style="padding:8px;">{if is_zh { "已用/上限" } else { "Uses" }}</th>
+                            <th style="padding:8px;">{if is_zh { "限定接收邮箱" } else { "Recipient" }}</th>
+                            <th style="padding:8px;">{if is_zh { "角色" } else { "Role" }}</th>
+                            <th style="padding:8px;">{if is_zh { "过期时间" } else { "Expires At" }}</th>
+                            <th style="padding:8px; text-align:right;">{if is_zh { "操作" } else { "Action" }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -143,7 +144,7 @@ pub fn AdminPlatformPage(
                             <span class="client-name">{c.name}</span>
                             <span class="client-id">{format!("client_id: {}", c.client_id)}</span>
                         </div>
-                        <span class="badge badge-active">"Registered"</span>
+                        <span class="badge badge-active">{if is_zh { "已注册" } else { "Registered" }}</span>
                     </div>
                 }
             })
@@ -182,9 +183,9 @@ pub fn AdminPlatformPage(
                             </div>
                             <div>
                                 {match settings.registration_mode.as_str() {
-                                    "open" => view! { <span class="badge badge-active">"Open Registration"</span> }.into_any(),
-                                    "admin_only" => view! { <span class="badge badge-viewer">"Admin Only"</span> }.into_any(),
-                                    _ => view! { <span class="badge badge-idle">"Invite Code Required"</span> }.into_any(),
+                                    "open" => view! { <span class="badge badge-active">{if is_zh { "开放注册" } else { "Open Registration" }}</span> }.into_any(),
+                                    "admin_only" => view! { <span class="badge badge-viewer">{if is_zh { "仅限管理员" } else { "Admin Only" }}</span> }.into_any(),
+                                    _ => view! { <span class="badge badge-idle">{if is_zh { "需邀请码" } else { "Invite Code Required" }}</span> }.into_any(),
                                 }}
                             </div>
                         </div>
@@ -210,14 +211,14 @@ pub fn AdminPlatformPage(
                                         {i18n.registration_mode_open()}
                                     </option>
                                     <option value="admin_only" selected=settings.registration_mode == "admin_only">
-                                        "Platform Administrator Only"
+                                        {if is_zh { "仅限平台管理员创建" } else { "Platform Administrator Only" }}
                                     </option>
                                 </select>
                                 <div style="margin-top:0.6rem; padding:0.65rem 0.85rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:6px; font-size:0.8rem; color:var(--text-muted); line-height:1.45;">
                                     {match settings.registration_mode.as_str() {
-                                        "open" => "🌐 Anyone with an email address can create an account directly on the sign-up page.",
-                                        "admin_only" => "🔒 Self-registration is disabled. Only platform administrators can provision accounts.",
-                                        _ => "🎫 New users must present a valid, unexpired invitation code during registration.",
+                                        "open" => if is_zh { "🌐 任何拥有电子邮箱的用户均可在注册页面直接创建账号。" } else { "🌐 Anyone with an email address can create an account directly on the sign-up page." },
+                                        "admin_only" => if is_zh { "🔒 自助注册已关闭。只有平台管理员可以直接分配开通账号。" } else { "🔒 Self-registration is disabled. Only platform administrators can provision accounts." },
+                                        _ => if is_zh { "🎫 新用户在注册时必须填写有效且未过期的邀请码。" } else { "🎫 New users must present a valid, unexpired invitation code during registration." },
                                     }}
                                 </div>
                             </div>
@@ -229,9 +230,9 @@ pub fn AdminPlatformPage(
                                         {i18n.global_2fa_title()}
                                     </label>
                                     {if settings.require_2fa {
-                                        view! { <span class="badge badge-active" style="font-size:0.75rem;">"2FA Enforced"</span> }.into_any()
+                                        view! { <span class="badge badge-active" style="font-size:0.75rem;">{if is_zh { "强制全员开启" } else { "2FA Enforced" }}</span> }.into_any()
                                     } else {
-                                        view! { <span class="badge badge-viewer" style="font-size:0.75rem;">"2FA Optional"</span> }.into_any()
+                                        view! { <span class="badge badge-viewer" style="font-size:0.75rem;">{if is_zh { "自愿开启" } else { "2FA Optional" }}</span> }.into_any()
                                     }}
                                 </div>
 
@@ -255,13 +256,13 @@ pub fn AdminPlatformPage(
 
                                 <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.6rem;">
                                     <span style="font-size:0.75rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:2px 8px; color:var(--text-sub);">
-                                        "📱 Authenticator (SHA-512, 8-digit)"
+                                        {if is_zh { "📱 身份验证器（SHA-512，8位数字）" } else { "📱 Authenticator (SHA-512, 8-digit)" }}
                                     </span>
                                     <span style="font-size:0.75rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:2px 8px; color:var(--text-sub);">
-                                        "✉️ Email Code (Zero-Lockout)"
+                                        {if is_zh { "✉️ 邮箱验证码（防锁死备用）" } else { "✉️ Email Code (Zero-Lockout)" }}
                                     </span>
                                     <span style="font-size:0.75rem; background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:2px 8px; color:var(--text-sub);">
-                                        "🔑 Passkey (FIDO2)"
+                                        {if is_zh { "🔑 通行密钥（FIDO2）" } else { "🔑 Passkey (FIDO2)" }}
                                     </span>
                                 </div>
                             </div>
@@ -287,9 +288,9 @@ pub fn AdminPlatformPage(
                             </div>
                             <div>
                                 {if settings.smtp_enabled {
-                                    view! { <span class="role-badge role-badge-admin">"Active / Real Delivery"</span> }.into_any()
+                                    view! { <span class="role-badge role-badge-admin">{if is_zh { "生效中 / 真实投递" } else { "Active / Real Delivery" }}</span> }.into_any()
                                 } else {
-                                    view! { <span class="role-badge role-badge-viewer">"Simulated Mode"</span> }.into_any()
+                                    view! { <span class="role-badge role-badge-viewer">{if is_zh { "模拟发送模式" } else { "Simulated Mode" }}</span> }.into_any()
                                 }}
                             </div>
                         </div>
@@ -352,7 +353,11 @@ pub fn AdminPlatformPage(
                                     <option value="none" selected={current_sec == "none"}>{i18n.smtp_sec_none()}</option>
                                 </select>
                                 <small class="text-muted" style="display:block; margin-top:0.35rem; font-size:0.78rem; line-height:1.4;">
-                                    "Force TLS (Port 465) connects with TLS immediately. STARTTLS (Port 587) negotiates TLS over plain connection."
+                                    {if is_zh {
+                                        "Force TLS (端口 465) 立即建立 TLS 加密连接。STARTTLS (端口 587) 在明文连接上协商升级为 TLS 加密。"
+                                    } else {
+                                        "Force TLS (Port 465) connects with TLS immediately. STARTTLS (Port 587) negotiates TLS over plain connection."
+                                    }}
                                 </small>
                             </div>
 
@@ -392,7 +397,7 @@ pub fn AdminPlatformPage(
                 </div>
 
                 <form method="post" action="/admin/invitations/new" style="background:var(--bg-muted); padding:1.25rem; border-radius:8px; border:1px solid var(--border-subtle); margin-bottom:1.5rem;">
-                    <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:1rem; color:var(--text-main);">"Create New Invitation Code"</h3>
+                    <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:1rem; color:var(--text-main);">{if is_zh { "创建新邀请码" } else { "Create New Invitation Code" }}</h3>
                     <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 2fr 1fr; gap:0.75rem; align-items:flex-end;">
                         <div class="form-group" style="margin-bottom:0;">
                             <label style="font-size:0.8rem;">{i18n.code_optional_hint()}</label>
@@ -411,11 +416,11 @@ pub fn AdminPlatformPage(
                             <input type="email" name="email" placeholder="researcher@lab.org" class="form-control" />
                         </div>
                         <div class="form-group" style="margin-bottom:0;">
-                            <label style="font-size:0.8rem;">"Role"</label>
+                            <label style="font-size:0.8rem;">{if is_zh { "赋予角色" } else { "Role" }}</label>
                             <select name="role" class="form-control">
-                                <option value="member">"Member"</option>
-                                <option value="guest">"Guest"</option>
-                                <option value="admin">"Admin"</option>
+                                <option value="member">{if is_zh { "标准成员" } else { "Member" }}</option>
+                                <option value="guest">{if is_zh { "访客" } else { "Guest" }}</option>
+                                <option value="admin">{if is_zh { "管理员" } else { "Admin" }}</option>
                             </select>
                         </div>
                     </div>
@@ -424,7 +429,7 @@ pub fn AdminPlatformPage(
                     </button>
                 </form>
 
-                <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">"Active & Past Invitation Codes"</h3>
+                <h3 style="font-size:0.95rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">{if is_zh { "有效与历史邀请码" } else { "Active & Past Invitation Codes" }}</h3>
                 {invite_rows}
             </div>
 

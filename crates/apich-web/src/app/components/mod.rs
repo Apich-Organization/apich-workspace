@@ -165,7 +165,7 @@ pub fn AppShell(
     let admin_section = if user.is_platform_admin {
         Some(view! {
             <div class="sidebar-section">
-                <span class="sidebar-heading">"Platform"</span>
+                <span class="sidebar-heading">{i18n.sidebar_heading_platform()}</span>
                 <a href="/admin/users" class="sidebar-link" class:active=active_nav.is(ActiveNav::UserAdmin)>
                     <span class="sidebar-icon">"👥"</span>
                     <span>{i18n.sidebar_user_admin()}</span>
@@ -183,7 +183,7 @@ pub fn AppShell(
     } else if is_org_or_team_admin {
         Some(view! {
             <div class="sidebar-section">
-                <span class="sidebar-heading">"Administration"</span>
+                <span class="sidebar-heading">{i18n.sidebar_heading_admin()}</span>
                 <a href="/admin/orgs" class="sidebar-link" class:active=active_nav.is(ActiveNav::OrgAdmin)>
                     <span class="sidebar-icon">"🏛️"</span>
                     <span>{i18n.sidebar_my_org_admin()}</span>
@@ -216,7 +216,7 @@ pub fn AppShell(
                             type="button"
                             id="sidebar-toggle"
                             class="sidebar-toggle"
-                            title="Collapse/expand sidebar (Ctrl+B)"
+                            title=if i18n.is_zh() { "折叠/展开侧边栏 (Ctrl+B)" } else { "Collapse/expand sidebar (Ctrl+B)" }
                             aria-label="Toggle sidebar"
                         >"«"</button>
                         <aside class="app-sidebar">
@@ -228,7 +228,7 @@ pub fn AppShell(
                             </div>
                             <div class="sidebar-body">
                                 <div class="sidebar-section">
-                                    <span class="sidebar-heading">"Workspace"</span>
+                                    <span class="sidebar-heading">{i18n.sidebar_heading_workspace()}</span>
                                     <a href="/" class="sidebar-link" class:active=active_nav.is(ActiveNav::Projects)>
                                         <span class="sidebar-icon">"📁"</span>
                                         <span>{i18n.nav_projects()}</span>
@@ -241,10 +241,10 @@ pub fn AppShell(
                                 // One-click "start writing X" shortcuts. The island asks where
                                 // the new document should go (a new project, or an existing one)
                                 // rather than creating a project the instant a button is pressed.
-                                <apich_islands::QuickStartMenuIsland variant=apich_islands::QuickStartVariant::Sidebar />
+                                <apich_islands::QuickStartMenuIsland variant=apich_islands::QuickStartVariant::Sidebar is_zh=i18n.is_zh() />
                                 {admin_section}
                                 <div class="sidebar-section">
-                                    <span class="sidebar-heading">"Account"</span>
+                                    <span class="sidebar-heading">{i18n.sidebar_heading_account()}</span>
                                     <a href="/settings" class="sidebar-link" class:active=active_nav.is(ActiveNav::Settings)>
                                         <span class="sidebar-icon">"⚙️"</span>
                                         <span>{i18n.sidebar_settings()}</span>
@@ -263,7 +263,7 @@ pub fn AppShell(
                                     <a
                                         href=lang_toggle_url
                                         class="lang-toggle"
-                                        title="Switch Language"
+                                        title=if i18n.is_zh() { "切换语言" } else { "Switch Language" }
                                     >
                                         "🌐 " {i18n.lang.toggle_label()}
                                     </a>
@@ -412,7 +412,6 @@ pub fn FileShareModal(
     #[prop(default = Uuid::nil())] owner_id: Uuid,
     i18n: I18n,
 ) -> impl IntoView {
-    let _ = i18n;
     let shareable_users: Vec<apich_islands::ShareableUser> = all_users
         .into_iter()
         .filter(|u| u.id != owner_id)
@@ -429,6 +428,7 @@ pub fn FileShareModal(
             project_id=project_id.to_string()
             redirect_to=redirect_to
             all_users=shareable_users
+            is_zh=i18n.is_zh()
         />
     }
 }
@@ -442,6 +442,7 @@ pub fn FileShareModal(
 pub fn AiDrawer(
     project_id: Uuid,
     #[prop(optional)] file_path: Option<String>,
+    #[prop(optional)] is_zh: Option<bool>,
 ) -> impl IntoView {
-    view! { <apich_islands::AiDrawerIsland project_id=project_id.to_string() file_path=file_path /> }
+    view! { <apich_islands::AiDrawerIsland project_id=project_id.to_string() file_path=file_path is_zh=is_zh /> }
 }

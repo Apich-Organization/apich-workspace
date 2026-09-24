@@ -39,7 +39,8 @@ pub fn SettingsPage(
         i18n.researcher().to_string()
     };
 
-    let no_passkeys_text = if i18n.is_zh() {
+    let is_zh = i18n.is_zh();
+    let no_passkeys_text = if is_zh {
         "尚未注册任何通行密钥"
     } else {
         "No passkeys registered yet"
@@ -54,18 +55,19 @@ pub fn SettingsPage(
             .into_iter()
             .map(|cred| {
                 let last_used = cred
-                    .last_used_at.map_or_else(|| "Never".to_string(), |t| t.format("%Y-%m-%d %H:%M").to_string());
+                    .last_used_at.map_or_else(|| if is_zh { "从未使用".to_string() } else { "Never".to_string() }, |t| t.format("%Y-%m-%d %H:%M").to_string());
                 let created = cred.created_at.format("%Y-%m-%d").to_string();
+                let status_label = if is_zh { "有效" } else { "Active" };
                 view! {
                     <div class="passkey-item">
                         <div class="passkey-icon">"🔑"</div>
                         <div class="passkey-info">
                             <span class="passkey-name">{cred.device_name}</span>
-                            <span class="passkey-meta">{format!("Enrolled {created} • Last used {last_used}")}</span>
+                            <span class="passkey-meta">{format!("{} • {}", if is_zh { format!("已登记 {created}") } else { format!("Enrolled {created}") }, if is_zh { format!("上次使用 {last_used}") } else { format!("Last used {last_used}") })}</span>
                         </div>
-                        <span class="badge badge-active">"Active"</span>
+                        <span class="badge badge-active">{status_label}</span>
                         <form method="post" action=format!("/settings/passkey/{}/delete", cred.id) class="inline-form">
-                            <button type="submit" class="btn btn-danger btn-sm">"Remove"</button>
+                            <button type="submit" class="btn btn-danger btn-sm">{i18n.remove()}</button>
                         </form>
                     </div>
                 }
@@ -213,37 +215,41 @@ pub fn SettingsPage(
         </script>
     };
 
-    let no_pats_text = "No personal access tokens yet.";
+    let no_pats_text = if is_zh { "暂无个人访问令牌。" } else { "No personal access tokens yet." };
     let pat_list = if pats.is_empty() {
         view! { <p class="text-muted" style="font-size:0.85rem;">{no_pats_text}</p> }.into_any()
     } else {
         let items = pats.into_iter().map(|t| {
             let created = t.created_at.format("%Y-%m-%d").to_string();
-            let last_used = t.last_used_at.map_or_else(|| "Never".to_string(), |d| d.format("%Y-%m-%d %H:%M").to_string());
+            let last_used = t.last_used_at.map_or_else(|| if is_zh { "从未使用".to_string() } else { "Never".to_string() }, |d| d.format("%Y-%m-%d %H:%M").to_string());
             let is_active = t.is_active();
             let expires_info = t.expires_at.map_or_else(
-                || "No expiration".to_string(),
+                || if is_zh { "永不过期".to_string() } else { "No expiration".to_string() },
                 |exp| {
                     if exp < chrono::Utc::now() {
-                        format!("Expired {}", exp.format("%Y-%m-%d"))
+                        format!("{} {}", if is_zh { "已过期" } else { "Expired" }, exp.format("%Y-%m-%d"))
                     } else {
-                        format!("Expires {}", exp.format("%Y-%m-%d"))
+                        format!("{} {}", if is_zh { "过期时间" } else { "Expires" }, exp.format("%Y-%m-%d"))
                     }
                 },
             );
-            let status_label = if is_active { "Active" } else { "Revoked/Expired" };
+            let status_label = if is_active {
+                if is_zh { "有效" } else { "Active" }
+            } else {
+                if is_zh { "已撤销/已过期" } else { "Revoked/Expired" }
+            };
             let status_class = if is_active { "badge badge-active" } else { "badge badge-idle" };
             view! {
                 <div class="passkey-item">
                     <div class="passkey-icon">"🔑"</div>
                     <div class="passkey-info">
                         <span class="passkey-name">{t.name} " (" {t.token_prefix} "…)"</span>
-                        <span class="passkey-meta">{format!("Created {created} • {expires_info} • Last used {last_used}")}</span>
+                        <span class="passkey-meta">{format!("{} • {} • {}", if is_zh { format!("创建于 {created}") } else { format!("Created {created}") }, expires_info, if is_zh { format!("上次使用 {last_used}") } else { format!("Last used {last_used}") })}</span>
                     </div>
                     <span class=status_class>{status_label}</span>
                     {is_active.then(|| view! {
                         <form method="post" action=format!("/settings/pat/{}/revoke", t.id) class="inline-form">
-                            <button type="submit" class="btn btn-danger btn-sm">"Revoke"</button>
+                            <button type="submit" class="btn btn-danger btn-sm">{if is_zh { "撤销" } else { "Revoke" }}</button>
                         </form>
                     })}
                 </div>
@@ -252,7 +258,7 @@ pub fn SettingsPage(
         view! { <div class="passkey-list">{items}</div> }.into_any()
     };
 
-    let no_ssh_text = "No SSH keys added yet.";
+    let no_ssh_text = if is_zh { "尚未添加任何 SSH 密钥。" } else { "No SSH keys added yet." };
     let ssh_list = if ssh_keys.is_empty() {
         view! { <p class="text-muted" style="font-size:0.85rem;">{no_ssh_text}</p> }.into_any()
     } else {
@@ -263,10 +269,10 @@ pub fn SettingsPage(
                     <div class="passkey-icon">"🗝️"</div>
                     <div class="passkey-info">
                         <span class="passkey-name">{k.name} " (" {k.key_type} ")"</span>
-                        <span class="passkey-meta">{format!("{} • Added {}", k.fingerprint, created)}</span>
+                        <span class="passkey-meta">{format!("{} • {}", k.fingerprint, if is_zh { format!("添加于 {created}") } else { format!("Added {created}") })}</span>
                     </div>
                     <form method="post" action=format!("/settings/ssh/{}/delete", k.id) class="inline-form">
-                        <button type="submit" class="btn btn-danger btn-sm">"Delete"</button>
+                        <button type="submit" class="btn btn-danger btn-sm">{i18n.delete()}</button>
                     </form>
                 </div>
             }
@@ -274,7 +280,7 @@ pub fn SettingsPage(
         view! { <div class="passkey-list">{items}</div> }.into_any()
     };
 
-    let no_gpg_text = "No GPG keys added yet.";
+    let no_gpg_text = if is_zh { "尚未添加任何 GPG 密钥。" } else { "No GPG keys added yet." };
     let gpg_list = if gpg_keys.is_empty() {
         view! { <p class="text-muted" style="font-size:0.85rem;">{no_gpg_text}</p> }.into_any()
     } else {
@@ -285,10 +291,10 @@ pub fn SettingsPage(
                     <div class="passkey-icon">"🔏"</div>
                     <div class="passkey-info">
                         <span class="passkey-name">{k.name}</span>
-                        <span class="passkey-meta">{format!("{} • Added {}", k.fingerprint, created)}</span>
+                        <span class="passkey-meta">{format!("{} • {}", k.fingerprint, if is_zh { format!("添加于 {created}") } else { format!("Added {created}") })}</span>
                     </div>
                     <form method="post" action=format!("/settings/gpg/{}/delete", k.id) class="inline-form">
-                        <button type="submit" class="btn btn-danger btn-sm">"Delete"</button>
+                        <button type="submit" class="btn btn-danger btn-sm">{i18n.delete()}</button>
                     </form>
                 </div>
             }
@@ -330,7 +336,7 @@ pub fn SettingsPage(
                                 <input type="url" id="avatar_url" name="avatar_url" value=user.avatar_url.clone().unwrap_or_default() placeholder="https://example.com/avatar.png" class="form-control" style="max-width:440px;" />
                             </div>
                             <div class="form-group">
-                                <label>"Role"</label>
+                                <label>{if is_zh { "角色" } else { "Role" }}</label>
                                 <input type="text" value=role_display readonly=true class="form-control readonly" style="max-width:440px;" />
                             </div>
                             <button type="submit" class="btn btn-primary">{i18n.save_profile()}</button>
@@ -390,10 +396,10 @@ pub fn SettingsPage(
                                         "✅ " {i18n.totp_status_active()}
                                     </div>
                                     <p class="text-muted" style="margin:0; font-size:0.85rem;">
-                                        "Your account is protected with two-factor authentication via an authenticator application."
+                                        {if is_zh { "您的账号已启用身份验证器双因素安全认证保护。" } else { "Your account is protected with two-factor authentication via an authenticator application." }}
                                     </p>
                                 </div>
-                                <form method="post" action="/settings/totp/disable" onsubmit="return confirm('Are you sure you want to disable Two-Factor Authentication for your account?');">
+                                <form method="post" action="/settings/totp/disable" onsubmit=format!("return confirm('{}');", if is_zh { "确定要为您的账号禁用双因素身份验证 (2FA) 吗？" } else { "Are you sure you want to disable Two-Factor Authentication for your account?" })>
                                     <button type="submit" class="btn btn-danger btn-sm">{i18n.totp_disable_btn()}</button>
                                 </form>
                             </div>
@@ -476,16 +482,16 @@ pub fn SettingsPage(
                 </div>
 
                 <div class="section-card" id="pat">
-                    <h2 class="section-title">"Personal Access Tokens"</h2>
-                    <p class="text-muted">"Used to authenticate the apich CLI and any external git client against your projects."</p>
+                    <h2 class="section-title">{i18n.pat_heading()}</h2>
+                    <p class="text-muted">{i18n.pat_subtitle()}</p>
                     {new_pat_banner}
                     <form method="post" action="/settings/pat/create" class="pat-create-form" style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:flex-end; margin-bottom:1.25rem;">
                         <div class="form-group" style="margin-bottom:0;">
-                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">"Token name"</label>
+                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">{i18n.token_name_label()}</label>
                             <input type="text" name="name" placeholder="e.g. \"cli-laptop\"" required=true class="form-control" style="width:220px;" />
                         </div>
                         <div class="form-group" style="margin-bottom:0;">
-                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">"Expiration"</label>
+                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">{i18n.expiration_label()}</label>
                             <select
                                 name="expiration"
                                 id="pat-expiration-select"
@@ -493,28 +499,28 @@ pub fn SettingsPage(
                                 style="width:170px;"
                                 onchange="const c = document.getElementById('pat-custom-date'); if (c) c.style.display = this.value === 'custom' ? 'block' : 'none';"
                             >
-                                <option value="30" selected=true>"30 days"</option>
-                                <option value="60">"60 days"</option>
-                                <option value="90">"90 days"</option>
-                                <option value="7">"7 days"</option>
-                                <option value="365">"1 year"</option>
-                                <option value="never">"No expiration"</option>
-                                <option value="custom">"Custom date..."</option>
+                                <option value="30" selected=true>{if is_zh { "30 天" } else { "30 days" }}</option>
+                                <option value="60">{if is_zh { "60 天" } else { "60 days" }}</option>
+                                <option value="90">{if is_zh { "90 天" } else { "90 days" }}</option>
+                                <option value="7">{if is_zh { "7 天" } else { "7 days" }}</option>
+                                <option value="365">{if is_zh { "1 年" } else { "1 year" }}</option>
+                                <option value="never">{if is_zh { "永不过期" } else { "No expiration" }}</option>
+                                <option value="custom">{if is_zh { "自定义日期..." } else { "Custom date..." }}</option>
                             </select>
                         </div>
                         <div class="form-group" id="pat-custom-date" style="display:none; margin-bottom:0;">
-                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">"Expire on"</label>
+                            <label style="font-size:0.8rem; font-weight:600; margin-bottom:0.25rem; display:block;">{if is_zh { "过期于" } else { "Expire on" }}</label>
                             <input type="date" name="custom_date" class="form-control" style="width:160px;" />
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm" style="height:36px; padding:0 1rem;">"Generate Token"</button>
+                        <button type="submit" class="btn btn-primary btn-sm" style="height:36px; padding:0 1rem;">{i18n.generate_token_btn()}</button>
                     </form>
                     {pat_list}
                 </div>
 
                 <div class="section-card" id="github">
-                    <h2 class="section-title">"GitHub Integration"</h2>
+                    <h2 class="section-title">{i18n.github_integration_title()}</h2>
                     <p class="text-muted" style="font-size:0.875rem; margin-bottom:1.25rem;">
-                        "Connect your GitHub account to enable automated authentication and one-click remote syncing across all your projects without having to paste tokens into individual repository URLs."
+                        {i18n.github_integration_subtitle()}
                     </p>
                     {if let Some(cred) = github_cred {
                         let ends_with = cred.access_token.chars().rev().take(4).collect::<String>().chars().rev().collect::<String>();
@@ -524,77 +530,77 @@ pub fn SettingsPage(
                                     <div>
                                         <div style="font-weight:600; font-size:0.95rem; margin-bottom:0.25rem;">
                                             <span style="color:var(--success); margin-right:0.4rem;">"●"</span>
-                                            "Connected as @" {cred.account_username.clone()}
+                                            {if is_zh { "已关联 @" } else { "Connected as @" }} {cred.account_username.clone()}
                                         </div>
                                         <div class="text-muted" style="font-size:0.8rem;">
-                                            "Token active (ends with ..." {ends_with} ")"
+                                            {if is_zh { "令牌有效（尾号 ..." } else { "Token active (ends with ..." }} {ends_with} ")"
                                         </div>
                                     </div>
-                                    <form method="post" action="/settings/github/disconnect" onsubmit="return confirm('Are you sure you want to disconnect your GitHub account?');">
-                                        <button type="submit" class="btn btn-secondary btn-sm" style="color:var(--danger); border-color:var(--danger);">"Disconnect"</button>
+                                    <form method="post" action="/settings/github/disconnect" onsubmit=format!("return confirm('{}');", if is_zh { "确定要解绑您的 GitHub 账号吗？" } else { "Are you sure you want to disconnect your GitHub account?" })>
+                                        <button type="submit" class="btn btn-secondary btn-sm" style="color:var(--danger); border-color:var(--danger);">{if is_zh { "解除关联" } else { "Disconnect" }}</button>
                                     </form>
                                 </div>
                             </div>
-                            <h3 class="card-subtitle" style="font-size:0.9rem; margin-bottom:0.5rem;">"Update GitHub Token"</h3>
+                            <h3 class="card-subtitle" style="font-size:0.9rem; margin-bottom:0.5rem;">{if is_zh { "更新 GitHub 访问令牌" } else { "Update GitHub Token" }}</h3>
                             <form method="post" action="/settings/github/save" class="form-row" style="align-items:flex-end; max-width:600px;">
                                 <input type="hidden" name="username" value=cred.account_username.clone() />
                                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
-                                    <label>"New Personal Access Token (PAT)"</label>
+                                    <label>{if is_zh { "新个人访问令牌 (PAT)" } else { "New Personal Access Token (PAT)" }}</label>
                                     <input type="password" name="token" required=true placeholder="ghp_..." class="form-control" />
                                 </div>
-                                <button type="submit" class="btn btn-primary btn-sm" style="height:36px;">"Update Token"</button>
+                                <button type="submit" class="btn btn-primary btn-sm" style="height:36px;">{if is_zh { "更新令牌" } else { "Update Token" }}</button>
                             </form>
                         }.into_any()
                     } else {
                         view! {
                             <form method="post" action="/settings/github/save" style="max-width:540px;">
                                 <div class="form-group">
-                                    <label>"GitHub Username"</label>
+                                    <label>{if is_zh { "GitHub 用户名" } else { "GitHub Username" }}</label>
                                     <input type="text" name="username" placeholder="e.g. octocat" required=true class="form-control" />
                                 </div>
                                 <div class="form-group">
-                                    <label>"Personal Access Token (PAT)"</label>
+                                    <label>{if is_zh { "个人访问令牌 (PAT)" } else { "Personal Access Token (PAT)" }}</label>
                                     <input type="password" name="token" placeholder="ghp_..." required=true class="form-control" />
                                     <p class="text-muted" style="font-size:0.75rem; margin-top:0.35rem;">
-                                        "Need a token? " <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" rel="noopener noreferrer">"Generate a token with 'repo' scope on GitHub →"</a>
+                                        {if is_zh { "需要令牌？" } else { "Need a token? " }} <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" rel="noopener noreferrer">{if is_zh { "前往 GitHub 生成带有 'repo' 权限的令牌 →" } else { "Generate a token with 'repo' scope on GitHub →" }}</a>
                                     </p>
                                 </div>
-                                <button type="submit" class="btn btn-primary">"Connect GitHub Account"</button>
+                                <button type="submit" class="btn btn-primary">{if is_zh { "关联 GitHub 账号" } else { "Connect GitHub Account" }}</button>
                             </form>
                         }.into_any()
                     }}
                 </div>
 
                 <div class="section-card" id="ssh">
-                    <h2 class="section-title">"SSH Keys"</h2>
-                    <p class="text-muted">"Stored for identity/compatibility. SSH-based clone/push transport is not available yet — use a Personal Access Token over HTTPS instead."</p>
+                    <h2 class="section-title">{i18n.ssh_keys_title()}</h2>
+                    <p class="text-muted">{i18n.ssh_keys_subtitle()}</p>
                     <form method="post" action="/settings/ssh/add" style="margin-bottom:1rem;">
                         <div class="form-group">
-                            <label>"Key name"</label>
+                            <label>{i18n.key_name_label()}</label>
                             <input type="text" name="name" placeholder="e.g. \"laptop\"" required=true class="form-control" style="max-width:260px;" />
                         </div>
                         <div class="form-group">
-                            <label>"Public key"</label>
+                            <label>{i18n.public_key_label()}</label>
                             <textarea name="public_key" placeholder="ssh-ed25519 AAAA..." required=true class="form-control" rows="2" style="font-family:var(--font-mono); font-size:0.8rem; max-width:640px;"></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm">"Add Key"</button>
+                        <button type="submit" class="btn btn-primary btn-sm">{i18n.add_key_btn()}</button>
                     </form>
                     {ssh_list}
                 </div>
 
                 <div class="section-card" id="gpg">
-                    <h2 class="section-title">"GPG Keys"</h2>
-                    <p class="text-muted">"Used to verify signed VCS snapshots. Signing itself always happens locally with your own keyring — only your public key is stored here."</p>
+                    <h2 class="section-title">{i18n.gpg_keys_title()}</h2>
+                    <p class="text-muted">{i18n.gpg_keys_subtitle()}</p>
                     <form method="post" action="/settings/gpg/add" style="margin-bottom:1rem;">
                         <div class="form-group">
-                            <label>"Key name"</label>
+                            <label>{i18n.key_name_label()}</label>
                             <input type="text" name="name" placeholder="e.g. \"work key\"" required=true class="form-control" style="max-width:260px;" />
                         </div>
                         <div class="form-group">
-                            <label>"Public key (ASCII-armored)"</label>
+                            <label>{if is_zh { "公钥内容 (ASCII-armored)" } else { "Public key (ASCII-armored)" }}</label>
                             <textarea name="public_key" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----..." required=true class="form-control" rows="4" style="font-family:var(--font-mono); font-size:0.75rem; max-width:640px;"></textarea>
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm">"Add Key"</button>
+                        <button type="submit" class="btn btn-primary btn-sm">{i18n.add_key_btn()}</button>
                     </form>
                     {gpg_list}
                 </div>

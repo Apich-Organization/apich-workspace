@@ -113,7 +113,7 @@ pub fn TemplateGalleryPage(
                         <h3 class="template-card-title">{t.name}</h3>
                         {match t.description {
                             Some(d) if !d.is_empty() => view! { <p class="template-card-desc">{d}</p> }.into_any(),
-                            _ => view! { <p class="template-card-desc" style="font-style:italic; opacity:0.6;">"No description provided"</p> }.into_any(),
+                            _ => view! { <p class="template-card-desc" style="font-style:italic; opacity:0.6;">{if i18n.is_zh() { "未提供描述" } else { "No description provided" }}</p> }.into_any(),
                         }}
                     </div>
                     <div class="template-card-footer">
@@ -240,7 +240,7 @@ pub fn TemplateDetailPage(
                 <form method="post" action=format!("/templates/{}/delete", template_id) style="margin-top:0.75rem;">
                     <apich_islands::ConfirmSubmitButton
                         label=i18n.template_delete().to_string()
-                        message="Delete this template and all its versions? This can't be undone.".to_string()
+                        message=if i18n.is_zh() { "确定要删除此模板及其所有版本吗？此操作无法撤销。".to_string() } else { "Delete this template and all its versions? This can't be undone.".to_string() }
                         button_class="btn btn-danger btn-sm".to_string()
                         button_style=String::new()
                     />
@@ -366,7 +366,7 @@ fn render_version_content_preview(
                         view! {
                             <div style="background:var(--bg-muted); border-radius:8px; padding:0.5rem 0.75rem; min-width:120px;">
                                 <div style="font-weight:600; font-size:0.85rem;">{c.title.clone()}</div>
-                                {c.is_done.then(|| view! { <span style="font-size:0.7rem; color:var(--success);">"✓ done"</span> })}
+                                {c.is_done.then(|| view! { <span style="font-size:0.7rem; color:var(--success);">{if i18n.is_zh() { "✓ 已完成" } else { "✓ done" }}</span> })}
                             </div>
                         }
                     })
@@ -408,11 +408,11 @@ fn render_version_content_preview(
                     let msg = c
                         .error
                         .clone()
-                        .unwrap_or_else(|| "Compilation produced no pages".to_string());
+                        .unwrap_or_else(|| if i18n.is_zh() { "编译未生成任何页面".to_string() } else { "Compilation produced no pages".to_string() });
                     view! { <div class="alert alert-danger" style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.8rem;">{msg}</div> }.into_any()
                 },
                 | None => {
-                    view! { <div class="alert alert-danger">"Preview not compiled"</div> }
+                    view! { <div class="alert alert-danger">{if i18n.is_zh() { "预览未编译" } else { "Preview not compiled" }}</div> }
                         .into_any()
                 },
             }

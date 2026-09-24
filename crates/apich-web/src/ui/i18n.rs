@@ -2295,4 +2295,546 @@ impl I18n {
             | Lang::Zh => "验证并登录",
         }
     }
+
+    // --- Toolbar, Navigation, and Action Buttons ---
+    pub const fn back_to_files(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Back to Files",
+            | Lang::Zh => "返回文件列表",
+        }
+    }
+
+    pub const fn back_to_dashboard(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Back to Dashboard",
+            | Lang::Zh => "返回主控台",
+        }
+    }
+
+    pub const fn history(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "History",
+            | Lang::Zh => "历史版本",
+        }
+    }
+
+    pub const fn ai_copilot(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "AI Copilot",
+            | Lang::Zh => "AI 助手",
+        }
+    }
+
+    pub const fn download_pdf(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Download PDF",
+            | Lang::Zh => "下载 PDF",
+        }
+    }
+
+    pub const fn new_file(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "+ New File",
+            | Lang::Zh => "+ 新建文件",
+        }
+    }
+
+    pub const fn new_folder(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "+ New Folder",
+            | Lang::Zh => "+ 新建文件夹",
+        }
+    }
+
+    pub const fn create_file(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Create File",
+            | Lang::Zh => "创建文件",
+        }
+    }
+
+    pub const fn create_folder(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Create Folder",
+            | Lang::Zh => "创建文件夹",
+        }
+    }
+
+    pub const fn open_file(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Open File",
+            | Lang::Zh => "打开文件",
+        }
+    }
+
+    pub const fn rename(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Rename",
+            | Lang::Zh => "重命名",
+        }
+    }
+
+    pub const fn quick_start(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Quick Start",
+            | Lang::Zh => "快速开始",
+        }
+    }
+
+    pub const fn sidebar_heading_workspace(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Workspace",
+            | Lang::Zh => "工作区",
+        }
+    }
+
+    pub const fn sidebar_heading_platform(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Platform",
+            | Lang::Zh => "平台管理",
+        }
+    }
+
+    pub const fn sidebar_heading_admin(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Administration",
+            | Lang::Zh => "组织管理",
+        }
+    }
+
+    pub const fn sidebar_heading_account(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Account",
+            | Lang::Zh => "账户设置",
+        }
+    }
+
+    pub const fn columns(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Columns",
+            | Lang::Zh => "列管理",
+        }
+    }
+
+    pub const fn export(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Export",
+            | Lang::Zh => "导出",
+        }
+    }
+
+    pub const fn share(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Share",
+            | Lang::Zh => "分享",
+        }
+    }
+
+    pub const fn search(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Search",
+            | Lang::Zh => "搜索",
+        }
+    }
+
+    pub const fn switch_branch(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Switch",
+            | Lang::Zh => "切换分支",
+        }
+    }
+
+    pub const fn create_branch(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Create Branch",
+            | Lang::Zh => "创建分支",
+        }
+    }
+
+    pub const fn undo(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "↶ Undo",
+            | Lang::Zh => "↶ 撤销",
+        }
+    }
+
+    pub const fn redo(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "↷ Redo",
+            | Lang::Zh => "↷ 重做",
+        }
+    }
+
+    pub const fn save_remote(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Save Remote",
+            | Lang::Zh => "保存远程仓库",
+        }
+    }
+
+    pub const fn git_fetch(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "⬇ Fetch",
+            | Lang::Zh => "⬇ 拉取分支",
+        }
+    }
+
+    pub const fn git_pull(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "⬇ Pull",
+            | Lang::Zh => "⬇ 拉取代码 (Pull)",
+        }
+    }
+
+    pub const fn git_push(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "⬆ Push",
+            | Lang::Zh => "⬆ 推送代码 (Push)",
+        }
+    }
+
+    pub const fn git_rebase(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Rebase",
+            | Lang::Zh => "变基 (Rebase)",
+        }
+    }
+
+    pub const fn add_rule(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Add Rule",
+            | Lang::Zh => "添加规则",
+        }
+    }
+
+    pub const fn save_gitignore(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Save .gitignore",
+            | Lang::Zh => "保存 .gitignore",
+        }
+    }
+
+    pub const fn save_apichignore(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Save .apichignore",
+            | Lang::Zh => "保存 .apichignore",
+        }
+    }
+
+    pub const fn notes_and_wiki(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Notes & Wiki",
+            | Lang::Zh => "笔记与知识网",
+        }
+    }
+
+    pub const fn terminal_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Terminal",
+            | Lang::Zh => "交互终端",
+        }
+    }
+
+    pub const fn folders_view(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "📂 Folders",
+            | Lang::Zh => "📂 文件夹模式",
+        }
+    }
+
+    pub const fn all_files_view(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "☰ All files",
+            | Lang::Zh => "☰ 所有文件",
+        }
+    }
+
+    pub fn share_public(&self, role: &str) -> String {
+        match self.lang {
+            | Lang::En => format!("🌐 Public ({role})"),
+            | Lang::Zh => format!("🌐 公开 ({role})"),
+        }
+    }
+
+    pub fn share_specific(&self, role: &str) -> String {
+        match self.lang {
+            | Lang::En => format!("👥 Specific ({role})"),
+            | Lang::Zh => format!("👥 指定成员 ({role})"),
+        }
+    }
+
+    pub const fn share_private(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "🔒 Private",
+            | Lang::Zh => "🔒 私有",
+        }
+    }
+
+    pub const fn delete_file(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Delete File",
+            | Lang::Zh => "删除文件",
+        }
+    }
+
+    pub const fn delete_folder_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Delete this folder and everything in it?",
+            | Lang::Zh => "确定要删除此文件夹及其中的全部内容吗？",
+        }
+    }
+
+    pub fn delete_file_confirm(&self, filename: &str) -> String {
+        match self.lang {
+            | Lang::En => format!("Are you sure you want to permanently delete \"{filename}\"? This cannot be undone."),
+            | Lang::Zh => format!("确定要永久删除 \"{filename}\" 吗？此操作无法撤销。"),
+        }
+    }
+
+    pub const fn user_account(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "User Account",
+            | Lang::Zh => "用户账号",
+        }
+    }
+
+    pub const fn storage_space(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Storage Space (Used / Quota)",
+            | Lang::Zh => "存储空间（已用 / 配额）",
+        }
+    }
+
+    pub const fn affiliations(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Affiliations",
+            | Lang::Zh => "组织与团队",
+        }
+    }
+
+    pub const fn actions(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Actions",
+            | Lang::Zh => "操作",
+        }
+    }
+
+    pub const fn quota_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "⚙️ Quota",
+            | Lang::Zh => "⚙️ 配额与角色",
+        }
+    }
+
+    pub const fn affiliations_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "🏛️ Affiliations",
+            | Lang::Zh => "🏛️ 隶属机构",
+        }
+    }
+
+    pub const fn reset_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "🔑 Reset",
+            | Lang::Zh => "🔑 重置密码",
+        }
+    }
+
+    pub const fn lock_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "🔒 Lock",
+            | Lang::Zh => "🔒 锁定",
+        }
+    }
+
+    pub const fn unlock_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "🔓 Unlock",
+            | Lang::Zh => "🔓 解锁",
+        }
+    }
+
+    pub const fn add_team(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "+ Team",
+            | Lang::Zh => "+ 新建团队",
+        }
+    }
+
+    pub const fn create_team_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Create New Team",
+            | Lang::Zh => "创建新团队",
+        }
+    }
+
+    pub const fn parent_org(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Parent Organization",
+            | Lang::Zh => "所属组织",
+        }
+    }
+
+    pub const fn team_name_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Team Name",
+            | Lang::Zh => "团队名称",
+        }
+    }
+
+    pub const fn team_slug_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Team Slug",
+            | Lang::Zh => "团队标识",
+        }
+    }
+
+    pub const fn remove_member_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Remove member?",
+            | Lang::Zh => "确定要移除该成员吗？",
+        }
+    }
+
+    pub const fn delete_org_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Delete this organization and everything under it?",
+            | Lang::Zh => "确定要删除此组织及其包含的全部内容吗？",
+        }
+    }
+
+    pub const fn delete_team_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Delete this team and its subteams?",
+            | Lang::Zh => "确定要删除此团队及其子团队吗？",
+        }
+    }
+
+    pub const fn reset_password_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Generate and dispatch a temporary password to this user? Existing sessions will be terminated.",
+            | Lang::Zh => "是否为此用户生成临时密码并通过邮件发送？现有会话将被终止。",
+        }
+    }
+
+    pub const fn lock_user_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Lock this user account? The user will be immediately logged out.",
+            | Lang::Zh => "确定要锁定此用户账号吗？该用户将被立即强制登出。",
+        }
+    }
+
+    pub const fn unlock_user_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Unlock this user account?",
+            | Lang::Zh => "确定要解锁此用户账号吗？",
+        }
+    }
+
+    pub const fn delete_user_confirm(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "PERMANENTLY delete this user account? All owned workspaces, personal access tokens, and sessions will be destroyed. This cannot be undone.",
+            | Lang::Zh => "确定要永久删除此用户账号吗？其拥有的全部工作区、个人访问令牌和会话将被销毁，此操作无法撤销。",
+        }
+    }
+
+    pub const fn pat_heading(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Personal Access Tokens",
+            | Lang::Zh => "个人访问令牌",
+        }
+    }
+
+    pub const fn pat_subtitle(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Used to authenticate the apich CLI and any external git client against your projects.",
+            | Lang::Zh => "用于通过 apich CLI 或外部 Git 客户端对您的项目进行身份验证。",
+        }
+    }
+
+    pub const fn token_name_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Token name",
+            | Lang::Zh => "令牌名称",
+        }
+    }
+
+    pub const fn expiration_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Expiration",
+            | Lang::Zh => "有效期",
+        }
+    }
+
+    pub const fn generate_token_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Generate Token",
+            | Lang::Zh => "生成令牌",
+        }
+    }
+
+    pub const fn github_integration_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "GitHub Integration",
+            | Lang::Zh => "GitHub 关联整合",
+        }
+    }
+
+    pub const fn github_integration_subtitle(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Connect your GitHub account to enable automated authentication and one-click remote syncing across all your projects without having to paste tokens into individual repository URLs.",
+            | Lang::Zh => "关联您的 GitHub 账号，即可在所有项目中启用自动化身份验证与一键远程同步，无需再为每个仓库手动粘贴令牌。",
+        }
+    }
+
+    pub const fn ssh_keys_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "SSH Keys",
+            | Lang::Zh => "SSH 公钥",
+        }
+    }
+
+    pub const fn ssh_keys_subtitle(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Stored for identity/compatibility. SSH-based clone/push transport is not available yet — use a Personal Access Token over HTTPS instead.",
+            | Lang::Zh => "用于身份标识与兼容性。目前建议通过 HTTPS 配合个人访问令牌进行克隆与推送。",
+        }
+    }
+
+    pub const fn gpg_keys_title(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "GPG Keys",
+            | Lang::Zh => "GPG 公钥",
+        }
+    }
+
+    pub const fn gpg_keys_subtitle(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Used to verify signed VCS snapshots. Signing itself always happens locally with your own keyring — only your public key is stored here.",
+            | Lang::Zh => "用于验证带签名的版本快照。签名操作在本地通过密钥环完成，此处仅存储公钥。",
+        }
+    }
+
+    pub const fn key_name_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Key name",
+            | Lang::Zh => "密钥名称",
+        }
+    }
+
+    pub const fn public_key_label(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Public key",
+            | Lang::Zh => "公钥内容",
+        }
+    }
+
+    pub const fn add_key_btn(&self) -> &'static str {
+        match self.lang {
+            | Lang::En => "Add Key",
+            | Lang::Zh => "添加公钥",
+        }
+    }
 }
+
+

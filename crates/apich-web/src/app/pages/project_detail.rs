@@ -108,7 +108,7 @@ pub fn ProjectDetailPage(
         |n| view! { <div class="alert alert-success" style="margin-bottom:1.5rem;">{n}</div> },
     );
 
-    let hub_bar = hub_links.map(|h| render_hub_links_bar(&h));
+    let hub_bar = hub_links.map(|h| render_hub_links_bar(&h, i18n.is_zh()));
 
     let files_len = files.len();
     let conflicts_len = conflicts.len();
@@ -204,9 +204,9 @@ pub fn ProjectDetailPage(
                     {if is_single_file {
                         view! {
                             <div style="display:flex; gap:0.5rem; align-items:center;">
-                                <a href="/" class="btn btn-secondary">"← Dashboard"</a>
-                                <a href=single_file_editor_href.clone() class="btn btn-primary">"📂 Open File"</a>
-                                <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 AI Copilot"</label>
+                                <a href="/" class="btn btn-secondary">"← " {i18n.back_to_dashboard()}</a>
+                                <a href=single_file_editor_href.clone() class="btn btn-primary">"📂 " {i18n.open_file()}</a>
+                                <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 " {i18n.ai_copilot()}</label>
                                 <apich_islands::ModalIsland trigger_label=i18n.create_snapshot().to_string() trigger_class="btn btn-secondary".to_string() title=i18n.modal_snapshot_title().to_string()>
                                     <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">{i18n.modal_snapshot_desc()}</p>
                                     <form method="post" action=format!("/projects/{}/snapshot", project_id)>
@@ -221,19 +221,20 @@ pub fn ProjectDetailPage(
                                 </apich_islands::ModalIsland>
                                 {if is_owner {
                                     let cf_file = single_file_name.clone();
+                                    let confirm_msg = i18n.delete_file_confirm(&cf_file);
                                     view! {
                                         <form
                                             method="post"
                                             action=format!("/projects/{}/delete", project_id)
                                             class="inline-form"
-                                            onsubmit=format!("return confirm('Are you sure you want to permanently delete \"{}\"? This cannot be undone.');", cf_file)
+                                            onsubmit=format!("return confirm('{}');", confirm_msg.replace('\'', "\\'"))
                                         >
                                             <button
                                                 type="submit"
                                                 class="btn btn-danger"
-                                                title="Permanently delete this file"
+                                                title=i18n.delete_file()
                                             >
-                                                "🗑️ Delete File"
+                                                "🗑️ " {i18n.delete_file()}
                                             </button>
                                         </form>
                                     }.into_any()
@@ -243,29 +244,31 @@ pub fn ProjectDetailPage(
                             </div>
                         }.into_any()
                     } else {
+                        let rename_modal_title = if i18n.is_zh() { "重命名项目".to_string() } else { "Rename Project".to_string() };
+                        let rename_trigger = format!("✏️ {}", i18n.rename());
                         view! {
                             <div style="display:flex; gap:0.5rem; align-items:center;">
-                                <apich_islands::ModalIsland trigger_label="✏️ Rename".to_string() trigger_class="btn btn-secondary".to_string() title="Rename Project".to_string()>
+                                <apich_islands::ModalIsland trigger_label=rename_trigger trigger_class="btn btn-secondary".to_string() title=rename_modal_title>
                                     <form method="post" action=format!("/projects/{}/rename", project_id)>
                                         <div class="form-group">
-                                            <label>"Project Name"</label>
+                                            <label>{if i18n.is_zh() { "项目名称" } else { "Project Name" }}</label>
                                             <input type="text" name="name" required=true value=project_name_for_rename class="form-control" />
                                         </div>
                                         <div class="form-group">
-                                            <label>"Description (optional)"</label>
+                                            <label>{if i18n.is_zh() { "项目描述（可选）" } else { "Description (optional)" }}</label>
                                             <textarea name="description" rows="3" class="form-control">{project_desc_for_rename}</textarea>
                                         </div>
                                         <p style="font-size:0.78rem; color:var(--text-sub); margin:0.25rem 0 0;">
-                                            "The project's URL and workspace folder stay the same, so existing links keep working."
+                                            {if i18n.is_zh() { "项目网址和工作区目录路径保持不变，现有链接依然有效。" } else { "The project's URL and workspace folder stay the same, so existing links keep working." }}
                                         </p>
                                         <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                                            <button type="submit" class="btn btn-primary">"Save"</button>
+                                            <button type="submit" class="btn btn-primary">{i18n.save()}</button>
                                         </div>
                                     </form>
                                 </apich_islands::ModalIsland>
-                                <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 AI Copilot"</label>
-                                <a href=format!("/projects/{}/note", project.id) class="btn btn-secondary">"📔 Notes & Wiki"</a>
-                                <a href=format!("/projects/{}/terminal", project.id) class="btn btn-secondary">"💻 Terminal"</a>
+                                <label for="ai-drawer-toggle-cb" class="btn btn-secondary">"🤖 " {i18n.ai_copilot()}</label>
+                                <a href=format!("/projects/{}/note", project.id) class="btn btn-secondary">"📔 " {i18n.notes_and_wiki()}</a>
+                                <a href=format!("/projects/{}/terminal", project.id) class="btn btn-secondary">"💻 " {i18n.terminal_btn()}</a>
                                 <apich_islands::ModalIsland trigger_label=i18n.create_snapshot().to_string() trigger_class="btn btn-secondary".to_string() title=i18n.modal_snapshot_title().to_string()>
                                     <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">{i18n.modal_snapshot_desc()}</p>
                                     <form method="post" action=format!("/projects/{}/snapshot", project_id)>
@@ -288,19 +291,19 @@ pub fn ProjectDetailPage(
             {hub_bar}
             {tab_bar}
             {tab_content}
-            <AiDrawer project_id=project_id />
+            <AiDrawer project_id=project_id is_zh=i18n.is_zh() />
         </AppShell>
     }
 }
 
-fn render_hub_links_bar(links: &EffectiveHubLinks) -> impl IntoView {
+fn render_hub_links_bar(links: &EffectiveHubLinks, is_zh: bool) -> impl IntoView {
     // Each service gets its own accent (see the `.hub-*` rules in `styles.rs`) so the four are
     // distinguishable at a glance rather than reading as one undifferentiated row of links.
     let items: Vec<_> = [
-        ("💬", "Chat", "hub-chat", &links.chat_url),
-        ("📹", "Meeting", "hub-meeting", &links.meeting_url),
-        ("💾", "Drive", "hub-drive", &links.drive_url),
-        ("🤖", "AI Agent", "hub-ai", &links.ai_agent_url),
+        ("💬", if is_zh { "团队聊天" } else { "Chat" }, "hub-chat", &links.chat_url),
+        ("📹", if is_zh { "视频会议" } else { "Meeting" }, "hub-meeting", &links.meeting_url),
+        ("💾", if is_zh { "云盘" } else { "Drive" }, "hub-drive", &links.drive_url),
+        ("🤖", if is_zh { "AI 智能体" } else { "AI Agent" }, "hub-ai", &links.ai_agent_url),
     ]
     .into_iter()
     .filter_map(|(icon, label, tone, url)| {
@@ -322,7 +325,7 @@ fn render_hub_links_bar(links: &EffectiveHubLinks) -> impl IntoView {
 
     let override_badge = links
         .is_team_override
-        .then(|| view! { <span class="badge-override">"Team Override"</span> });
+        .then(|| view! { <span class="badge-override">{if is_zh { "团队覆盖" } else { "Team Override" }}</span> });
 
     view! {
         <div class="hub-links-bar">
@@ -347,12 +350,12 @@ fn render_tab_bar(
         view! {
             <div class="tab-bar">
                 <a href=format!("/projects/{}?tab=vcs", project_id) class="tab-item" class:active=active == ProjectTab::Vcs>
-                    "🌿 " {i18n.tab_vcs()} " & History"
+                    "🌿 " {i18n.tab_vcs()}
                     {(conflicts_count > 0).then(|| view! { <span class="status-badge badge-warning" style="margin-left:4px;">{conflicts_count}</span> })}
                     {(snapshots_count > 0).then(|| format!(" ({snapshots_count})"))}
                 </a>
                 <a href=format!("/projects/{}?tab=sharing", project_id) class="tab-item" class:active=active == ProjectTab::Sharing>
-                    "👥 " {i18n.tab_sharing()} " & Access"
+                    "👥 " {i18n.tab_sharing()}
                     {(members_count > 0).then(|| format!(" ({members_count})"))}
                 </a>
             </div>
@@ -388,12 +391,13 @@ fn render_tab_bar(
 fn folder_select_options(
     folders: &[String],
     cur_dir: &str,
+    is_zh: bool,
 ) -> Vec<AnyView> {
     std::iter::once(&String::new())
         .chain(folders.iter())
         .map(|folder| {
             let label = if folder.is_empty() {
-                "/ (project root)".to_string()
+                if is_zh { "/ (项目根目录)".to_string() } else { "/ (project root)".to_string() }
             } else {
                 folder.clone()
             };
@@ -508,7 +512,7 @@ fn render_files_tab(
         // Folders first, then files, each alphabetical -- the conventional file-browser ordering.
         here.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.path.cmp(&b.path)));
 
-        let mut crumbs = vec![(String::new(), "Project root".to_string())];
+        let mut crumbs = vec![(String::new(), if i18n.is_zh() { "项目根目录".to_string() } else { "Project root".to_string() })];
         let mut walked = String::new();
         for seg in cur_dir.split('/').filter(|s| !s.is_empty()) {
             if walked.is_empty() {
@@ -545,9 +549,9 @@ fn render_files_tab(
             .collect();
         view! {
             <div class="form-group">
-                <label>"Or start from a "<a href="/templates" target="_blank">"Template Library"</a>" template (overrides the starter above, keeps your file name):"</label>
+                <label>{if i18n.is_zh() { "或从 " } else { "Or start from a " }}<a href="/templates" target="_blank">{if i18n.is_zh() { "模板库" } else { "Template Library" }}</a>{if i18n.is_zh() { " 模板开始（覆盖上方预设，保留文件名）：" } else { " template (overrides the starter above, keeps your file name):" }}</label>
                 <select name="template_version_id" class="form-control">
-                    <option value="">"-- none, use the starter template above --"</option>
+                    <option value="">{if i18n.is_zh() { "-- 无，使用上方入门模板 --" } else { "-- none, use the starter template above --" }}</option>
                     {options}
                 </select>
             </div>
@@ -556,8 +560,8 @@ fn render_files_tab(
 
     // Each modal below is an island whose children must be `'static`, so every one that
     // pre-fills the browsed directory needs its own owned copy.
-    let folder_options_for_new_file = folder_select_options(&all_folders, &cur_dir);
-    let folder_options_for_new_folder = folder_select_options(&all_folders, &cur_dir);
+    let folder_options_for_new_file = folder_select_options(&all_folders, &cur_dir, i18n.is_zh());
+    let folder_options_for_new_folder = folder_select_options(&all_folders, &cur_dir, i18n.is_zh());
 
     // "Browsing: root / assets / videos" -- each ancestor clickable to jump back up. Only
     // meaningful in tree view (flat view isn't scoped to a directory at all).
@@ -598,22 +602,30 @@ fn render_files_tab(
                 href=tree_url
                 class=if is_tree { "btn btn-primary btn-sm" } else { "btn btn-secondary btn-sm" }
                 style="padding:0.2rem 0.6rem; font-size:0.75rem;"
-                title="Browse one folder at a time"
-            >"📂 Folders"</a>
+                title=if i18n.is_zh() { "逐个文件夹浏览" } else { "Browse one folder at a time" }
+            >"📂 " {i18n.folders_view()}</a>
             <a
                 href=flat_url
                 class=if is_tree { "btn btn-secondary btn-sm" } else { "btn btn-primary btn-sm" }
                 style="padding:0.2rem 0.6rem; font-size:0.75rem;"
-                title="List every file in the project at once"
-            >"☰ All files"</a>
+                title=if i18n.is_zh() { "一次性平铺列出项目所有文件" } else { "List every file in the project at once" }
+            >"☰ " {i18n.all_files_view()}</a>
         </div>
     };
 
     let rows = if files.is_empty() {
         let empty_msg = if is_tree && !cur_dir.is_empty() {
-            "This folder is empty. Use 'Upload File' or '+ New File' to add something to it."
+            if i18n.is_zh() {
+                "此文件夹为空。请使用“上传文件”或“+ 新建文件”添加内容。"
+            } else {
+                "This folder is empty. Use 'Upload File' or '+ New File' to add something to it."
+            }
         } else {
-            "No files yet. Click '+ New File' below to get started."
+            if i18n.is_zh() {
+                "暂无文件。点击下方“+ 新建文件”开始。"
+            } else {
+                "No files yet. Click '+ New File' below to get started."
+            }
         };
         view! {
             <tr><td colspan="6" style="text-align:center; padding:2.5rem; color:var(--text-sub);">
@@ -678,20 +690,20 @@ fn render_files_tab(
                                     })}
                                 </div>
                             </td>
-                            <td><span class="file-type-pill pill-asset">"folder"</span></td>
+                            <td><span class="file-type-pill pill-asset">{if i18n.is_zh() { "文件夹" } else { "folder" }}</span></td>
                             <td></td>
                             <td style="color:var(--text-sub); font-size:0.8rem;">"-"</td>
                             <td style="color:var(--text-sub); font-size:0.8rem;">"-"</td>
                             <td style="text-align:right;">
                                 <div style="display:flex; justify-content:flex-end; gap:0.35rem; align-items:center;">
                                     {is_tree.then(|| view! {
-                                        <a href=browse_url class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;">"Open"</a>
+                                        <a href=browse_url class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;">{if i18n.is_zh() { "打开" } else { "Open" }}</a>
                                     })}
                                     <form method="post" action=format!("/projects/{}/files/delete", project_id) class="inline-form">
                                         <input type="hidden" name="file" value=path />
                                         <apich_islands::ConfirmSubmitButton
-                                            label="Del".to_string()
-                                            message="Delete this folder and everything in it?".to_string()
+                                            label=if i18n.is_zh() { "删除".to_string() } else { "Del".to_string() }
+                                            message=i18n.delete_folder_confirm().to_string()
                                             button_class="btn btn-ghost btn-sm text-danger".to_string()
                                             button_style="padding:0.2rem 0.45rem; font-size:0.75rem;".to_string()
                                         />
@@ -716,9 +728,9 @@ fn render_files_tab(
                 let mod_time = f.modified_rfc3339.as_deref().unwrap_or("-").to_string();
                 let mod_raw = f.modified_rfc3339.clone().unwrap_or_default();
                 let share_badge = match f.share_info.as_ref() {
-                    Some(info) if info.mode == "public" => view! { <span class="share-badge share-badge-public">"🌐 Public (" {info.role.clone()} ")"</span> }.into_any(),
-                    Some(info) if info.mode == "specific" => view! { <span class="share-badge share-badge-specific">"👥 Specific (" {info.role.clone()} ")"</span> }.into_any(),
-                    _ => view! { <span class="share-badge share-badge-private">"🔒 Private"</span> }.into_any(),
+                    Some(info) if info.mode == "public" => view! { <span class="share-badge share-badge-public">"🌐 " {i18n.share_public()} " (" {info.role.clone()} ")"</span> }.into_any(),
+                    Some(info) if info.mode == "specific" => view! { <span class="share-badge share-badge-specific">"👥 " {i18n.share_specific()} " (" {info.role.clone()} ")"</span> }.into_any(),
+                    _ => view! { <span class="share-badge share-badge-private">"🔒 " {i18n.share_private()}</span> }.into_any(),
                 };
 
                 let mode = f.share_info.as_ref().map_or_else(|| "private".to_string(), |s| s.mode.clone());
@@ -746,6 +758,7 @@ fn render_files_tab(
                 let share_detail = serde_json::json!({ "path": path, "mode": mode, "role": role, "users": users_csv }).to_string();
                 let onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))");
 
+                let delete_confirm_msg = i18n.delete_file_confirm(&path);
                 view! {
                     <tr
                         data-name=sort_name
@@ -780,13 +793,13 @@ fn render_files_tab(
                         <td style="color:var(--text-sub); font-size:0.8rem;">{mod_time}</td>
                         <td style="text-align:right;">
                             <div style="display:flex; justify-content:flex-end; gap:0.35rem; align-items:center;">
-                                <a href=open_url target=open_target class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;">"Open"</a>
-                                <button type="button" class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;" onclick=onclick>"Share"</button>
+                                <a href=open_url target=open_target class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;">{if i18n.is_zh() { "打开" } else { "Open" }}</a>
+                                <button type="button" class="btn btn-secondary btn-sm" style="padding:0.2rem 0.55rem; font-size:0.75rem;" onclick=onclick>{if i18n.is_zh() { "分享" } else { "Share" }}</button>
                                 <form method="post" action=format!("/projects/{}/files/delete", project_id) class="inline-form">
                                     <input type="hidden" name="file" value=path />
                                     <apich_islands::ConfirmSubmitButton
-                                        label="Del".to_string()
-                                        message="Delete this file?".to_string()
+                                        label=if i18n.is_zh() { "删除".to_string() } else { "Del".to_string() }
+                                        message=delete_confirm_msg
                                         button_class="btn btn-ghost btn-sm text-danger".to_string()
                                         button_style="padding:0.2rem 0.45rem; font-size:0.75rem;".to_string()
                                     />
@@ -804,35 +817,39 @@ fn render_files_tab(
         <div class="section-card" style="margin-bottom:2rem;">
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
                 <div>
-                    <h3 class="card-subtitle">"Project Files"</h3>
+                    <h3 class="card-subtitle">{if i18n.is_zh() { "项目文件" } else { "Project Files" }}</h3>
                     <p style="font-size:0.85rem; color:var(--text-sub); margin:0;">
-                        "Multi-file document studio with inline editors for Typst, LaTeX, slides, notes, tables, and scripts."
+                        {if i18n.is_zh() {
+                            "多文件文档工作区，内置 Typst、LaTeX、幻灯片、笔记、表格和脚本代码编辑器。"
+                        } else {
+                            "Multi-file document studio with inline editors for Typst, LaTeX, slides, notes, tables, and scripts."
+                        }}
                     </p>
                 </div>
                 <div class="header-actions">
                     {view_toggle}
-                    <apich_islands::ModalIsland trigger_label="+ New File".to_string() trigger_class="btn btn-primary".to_string() title="Create New File".to_string()>
+                    <apich_islands::ModalIsland trigger_label=i18n.new_file().to_string() trigger_class="btn btn-primary".to_string() title=i18n.create_file().to_string()>
                         <form method="post" action=format!("/projects/{}/files/new", project_id)>
                             <div class="form-group">
-                                <label>"File Name (extension optional -- added from the type below if omitted)"</label>
+                                <label>{if i18n.is_zh() { "文件名（扩展名可选，若省略则根据所选类型自动补全）" } else { "File Name (extension optional -- added from the type below if omitted)" }}</label>
                                 <input type="text" name="filename" required=true placeholder="e.g. paper, slides.typ, analysis.py, script.R, main.rs" class="form-control" />
                             </div>
                             <div class="form-group">
-                                <label>"Destination Folder"</label>
+                                <label>{if i18n.is_zh() { "目标文件夹" } else { "Destination Folder" }}</label>
                                 <select name="folder" class="form-control">{folder_options_for_new_file}</select>
                             </div>
                             <div class="form-group">
-                                <label>"Initial Content / Starter Template"</label>
+                                <label>{if i18n.is_zh() { "初始内容 / 模板" } else { "Initial Content / Starter Template" }}</label>
                                 // Values here must match one of `ProjectManager::create_file`'s
                                 // recognized `template` strings ("table"/"slide"/"typst"/"latex"/
                                 // "note"/"script_python"/"script_r"/"script_rust", anything else falls back to a blank starter).
                                 <select name="template" class="form-control">
-                                    <option value="empty">"Empty file"</option>
-                                    <option value="typst">"Typst Paper (template)"</option>
-                                    <option value="slide">"Typst Presentation Slides"</option>
-                                    <option value="latex">"LaTeX Article"</option>
-                                    <option value="note">"Unified Note"</option>
-                                    <option value="table">"SQLite Table"</option>
+                                    <option value="empty">{if i18n.is_zh() { "空白文件" } else { "Empty file" }}</option>
+                                    <option value="typst">{if i18n.is_zh() { "Typst 论文（模板）" } else { "Typst Paper (template)" }}</option>
+                                    <option value="slide">{if i18n.is_zh() { "Typst 演示文稿（幻灯片）" } else { "Typst Presentation Slides" }}</option>
+                                    <option value="latex">{if i18n.is_zh() { "LaTeX 文章" } else { "LaTeX Article" }}</option>
+                                    <option value="note">{if i18n.is_zh() { "笔记与知识卡片" } else { "Unified Note" }}</option>
+                                    <option value="table">{if i18n.is_zh() { "SQLite 数据库表" } else { "SQLite Table" }}</option>
                                     <option value="script_python">"🐍 Python Script (.py)"</option>
                                     <option value="script_r">"📊 R Script (.R)"</option>
                                     <option value="script_rust">"🦀 Rust Script (.rs)"</option>
@@ -840,22 +857,22 @@ fn render_files_tab(
                             </div>
                             {new_file_template_picker}
                             <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                                <button type="submit" class="btn btn-primary">"Create File"</button>
+                                <button type="submit" class="btn btn-primary">{i18n.create_file()}</button>
                             </div>
                         </form>
                     </apich_islands::ModalIsland>
-                    <apich_islands::ModalIsland trigger_label="+ New Folder".to_string() trigger_class="btn btn-secondary".to_string() title="Create New Folder".to_string()>
+                    <apich_islands::ModalIsland trigger_label=i18n.new_folder().to_string() trigger_class="btn btn-secondary".to_string() title=i18n.create_folder().to_string()>
                         <form method="post" action=format!("/projects/{}/folders/new", project_id)>
                             <div class="form-group">
-                                <label>"Create Inside"</label>
+                                <label>{if i18n.is_zh() { "所在文件夹" } else { "Create Inside" }}</label>
                                 <select name="parent" class="form-control">{folder_options_for_new_folder}</select>
                             </div>
                             <div class="form-group">
-                                <label>"Folder Name"</label>
+                                <label>{if i18n.is_zh() { "文件夹名称" } else { "Folder Name" }}</label>
                                 <input type="text" name="folder" required=true placeholder="e.g. assets, videos" class="form-control" />
                             </div>
                             <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                                <button type="submit" class="btn btn-primary">"Create Folder"</button>
+                                <button type="submit" class="btn btn-primary">{i18n.create_folder()}</button>
                             </div>
                         </form>
                     </apich_islands::ModalIsland>
@@ -882,22 +899,22 @@ fn render_files_tab(
                 <table class="file-table" id="project-files-table">
                     <thead>
                         <tr>
-                            <th class="sortable-th" data-sort-col="name" title="Click to sort by Name">
-                                "Name" <span class="sort-icon">" ↕"</span>
+                            <th class="sortable-th" data-sort-col="name" title=if i18n.is_zh() { "按名称排序" } else { "Click to sort by Name" }>
+                                {if i18n.is_zh() { "名称" } else { "Name" }} <span class="sort-icon">" ↕"</span>
                             </th>
-                            <th class="sortable-th" data-sort-col="type" title="Click to sort by Type">
-                                "Type" <span class="sort-icon">" ↕"</span>
+                            <th class="sortable-th" data-sort-col="type" title=if i18n.is_zh() { "按类型排序" } else { "Click to sort by Type" }>
+                                {if i18n.is_zh() { "类型" } else { "Type" }} <span class="sort-icon">" ↕"</span>
                             </th>
-                            <th class="sortable-th" data-sort-col="sharing" title="Click to sort by Sharing">
-                                "Sharing" <span class="sort-icon">" ↕"</span>
+                            <th class="sortable-th" data-sort-col="sharing" title=if i18n.is_zh() { "按共享状态排序" } else { "Click to sort by Sharing" }>
+                                {if i18n.is_zh() { "共享状态" } else { "Sharing" }} <span class="sort-icon">" ↕"</span>
                             </th>
-                            <th class="sortable-th" data-sort-col="size" title="Click to sort by Size">
-                                "Size" <span class="sort-icon">" ↕"</span>
+                            <th class="sortable-th" data-sort-col="size" title=if i18n.is_zh() { "按大小排序" } else { "Click to sort by Size" }>
+                                {if i18n.is_zh() { "大小" } else { "Size" }} <span class="sort-icon">" ↕"</span>
                             </th>
-                            <th class="sortable-th" data-sort-col="modified" title="Click to sort by Date Modified">
-                                "Modified" <span class="sort-icon">" ↕"</span>
+                            <th class="sortable-th" data-sort-col="modified" title=if i18n.is_zh() { "按修改时间排序" } else { "Click to sort by Date Modified" }>
+                                {if i18n.is_zh() { "修改时间" } else { "Modified" }} <span class="sort-icon">" ↕"</span>
                             </th>
-                            <th style="text-align:right;">"Actions"</th>
+                            <th style="text-align:right;">{if i18n.is_zh() { "操作" } else { "Actions" }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -983,7 +1000,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                 view! {
                     <div class="passkey-item">
                         <div class="passkey-info"><span class="passkey-name">{b.clone()}</span></div>
-                        <span class="badge badge-active">"Current"</span>
+                        <span class="badge badge-active">{if i18n.is_zh() { "当前分支" } else { "Current" }}</span>
                     </div>
                 }.into_any()
             } else {
@@ -992,7 +1009,7 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                         <div class="passkey-info"><span class="passkey-name">{b.clone()}</span></div>
                         <form method="post" action=format!("/projects/{}/branch-switch", project_id) class="inline-form">
                             <input type="hidden" name="name" value=b.clone() />
-                            <button type="submit" class="btn btn-secondary btn-sm">"Switch"</button>
+                            <button type="submit" class="btn btn-secondary btn-sm">{i18n.switch_branch()}</button>
                         </form>
                     </div>
                 }.into_any()
@@ -1093,8 +1110,8 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
     let timeline = if snapshots.is_empty() {
         view! {
             <div class="empty-state">
-                <h4 class="empty-title">"No snapshots yet"</h4>
-                <p class="empty-desc">"Click 'Create Snapshot' above to record the first version."</p>
+                <h4 class="empty-title">{if i18n.is_zh() { "暂无快照" } else { "No snapshots yet" }}</h4>
+                <p class="empty-desc">{if i18n.is_zh() { "点击“创建快照”记录第一个版本。" } else { "Click 'Create Snapshot' above to record the first version." }}</p>
             </div>
         }.into_any()
     } else {
@@ -1114,34 +1131,29 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
         .unwrap_or_else(|| i18n.git_no_remote().to_string());
 
     view! {
-        // The user's own complaint, verbatim: this page "mix[ed] git vcs and apich vcs
-        // altogether" with no clear separation. There were always two genuinely different
-        // systems here -- this project's own real, built-in version control (Branches, Timeline,
-        // Milestones, all below) versus an *optional* bridge/export feature for people who also
-        // want to sync with an external Git host -- but nothing on the page ever said so; the
-        // last card just quietly sat there labeled "Git Compatibility" with no framing about how
-        // it relates to everything above it. One short explainer up front, plus clearer labels on
-        // the two "clone" links further down (which previously sat side by side with almost no
-        // distinction beyond their button text), rather than restructuring what already is a
-        // reasonable four-card layout.
+        // Explainer alert
         <div class="alert alert-info" style="margin-bottom:1.25rem; font-size:0.85rem;">
-            "Branches, Timeline, and Milestones below are this project's own built-in history -- always on, nothing to set up. The " <strong>"Git"</strong> " section further down is optional: use it only if you also want to sync this project with GitHub, GitLab, or another Git host."
+            {if i18n.is_zh() {
+                "下方的分支、时间线和里程碑是此项目自带的版本控制系统，开箱即用无需配置。下方的“Git 兼容”区域为可选功能，仅在需要与 GitHub、GitLab 或其他 Git 远程仓库同步时使用。"
+            } else {
+                "Branches, Timeline, and Milestones below are this project's own built-in history -- always on, nothing to set up. The Git section further down is optional: use it only if you also want to sync this project with GitHub, GitLab, or another Git host."
+            }}
         </div>
         <div class="section-card">
             <h2 class="section-title">{i18n.merge_title()}</h2>
             <p class="text-muted" style="font-size:0.875rem; margin-bottom:1.25rem;">{i18n.merge_desc()}</p>
 
-            <h3 class="card-subtitle">"Branches"</h3>
+            <h3 class="card-subtitle">{if i18n.is_zh() { "分支管理" } else { "Branches" }}</h3>
             <div class="passkey-list" style="margin-bottom:0.75rem;">{branch_list}</div>
             <form method="post" action=format!("/projects/{}/branch-create", project_id) class="form-row" style="align-items:flex-end; margin-bottom:1.5rem;">
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
-                    <label>"New branch name"</label>
+                    <label>{if i18n.is_zh() { "新建分支名称" } else { "New branch name" }}</label>
                     <input type="text" name="name" placeholder="feature-branch" required=true class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary">"Create Branch"</button>
+                <button type="submit" class="btn btn-secondary">{i18n.create_branch()}</button>
             </form>
 
-            <h3 class="card-subtitle">"Merge into "<code style="color:var(--primary); font-weight:600;">{curr.clone()}</code></h3>
+            <h3 class="card-subtitle">{if i18n.is_zh() { "合并至 " } else { "Merge into " }}<code style="color:var(--primary); font-weight:600;">{curr.clone()}</code></h3>
             <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:12px; padding:1.25rem; margin-bottom:1.5rem;">
                 {merge_form}
             </div>
@@ -1154,22 +1166,22 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                 <h2 class="section-title">{i18n.tab_timeline()}</h2>
                 <div style="display:flex; gap:0.5rem;">
                     <form method="post" action=format!("/projects/{}/vcs-undo", project_id) class="inline-form">
-                        <button type="submit" class="btn btn-secondary btn-sm" title="Undo the last VCS operation">"↶ Undo"</button>
+                        <button type="submit" class="btn btn-secondary btn-sm" title=if i18n.is_zh() { "撤销上一次版本操作" } else { "Undo the last VCS operation" }>"↶ " {i18n.undo()}</button>
                     </form>
                     <form method="post" action=format!("/projects/{}/vcs-redo", project_id) class="inline-form">
-                        <button type="submit" class="btn btn-secondary btn-sm" title="Redo the last undone operation">"↷ Redo"</button>
+                        <button type="submit" class="btn btn-secondary btn-sm" title=if i18n.is_zh() { "重做上一次撤销的操作" } else { "Redo the last undone operation" }>"↷ " {i18n.redo()}</button>
                     </form>
                     {is_owner.then(|| {
                         let action = format!("/projects/{}/vigilant-mode", project.id);
                         let (label, next_value) = if project.vigilant_mode {
-                            ("🛡️ Vigilant mode: on", "false")
+                            (if i18n.is_zh() { "🛡️ 警惕模式：开启" } else { "🛡️ Vigilant mode: on" }, "false")
                         } else {
-                            ("Vigilant mode: off", "true")
+                            (if i18n.is_zh() { "警惕模式：关闭" } else { "Vigilant mode: off" }, "true")
                         };
                         view! {
                             <form method="post" action=action class="inline-form">
                                 <input type="hidden" name="enabled" value=next_value />
-                                <button type="submit" class="btn btn-secondary btn-sm" title="When on, snapshots without a valid GPG signature are flagged as unverified.">{label}</button>
+                                <button type="submit" class="btn btn-secondary btn-sm" title=if i18n.is_zh() { "开启时，没有有效 GPG 签名的快照将被标记为未验证。" } else { "When on, snapshots without a valid GPG signature are flagged as unverified." }>{label}</button>
                             </form>
                         }
                     })}
@@ -1179,10 +1191,10 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
         </div>
 
         <div class="section-card">
-            <h2 class="section-title">"Milestones"</h2>
-            <p class="text-muted" style="font-size:0.8rem; margin-bottom:1rem;">"Named, easy-to-find points in the timeline (e.g. \"v1.0\", \"submitted-draft\")."</p>
+            <h2 class="section-title">{if i18n.is_zh() { "里程碑" } else { "Milestones" }}</h2>
+            <p class="text-muted" style="font-size:0.8rem; margin-bottom:1rem;">{if i18n.is_zh() { "时间线中的重要标记点（例如“v1.0”、“初稿提交”等）。" } else { "Named, easy-to-find points in the timeline (e.g. \"v1.0\", \"submitted-draft\")." }}</p>
             {if milestones.is_empty() {
-                view! { <p class="text-muted" style="font-size:0.85rem;">"No milestones yet."</p> }.into_any()
+                view! { <p class="text-muted" style="font-size:0.85rem;">{if i18n.is_zh() { "暂无里程碑。" } else { "No milestones yet." }}</p> }.into_any()
             } else {
                 let items: Vec<_> = milestones.iter().map(|m| {
                     let date = m.created_at.format("%Y-%m-%d").to_string();
@@ -1200,14 +1212,14 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
             }}
             <form method="post" action=format!("/projects/{}/milestone-create", project_id) class="form-row" style="align-items:flex-end;">
                 <div class="form-group" style="margin-bottom:0;">
-                    <label>"Milestone name"</label>
+                    <label>{if i18n.is_zh() { "里程碑名称" } else { "Milestone name" }}</label>
                     <input type="text" name="name" placeholder="v1.0" required=true class="form-control" style="width:150px;" />
                 </div>
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
-                    <label>"Description"</label>
-                    <input type="text" name="desc" placeholder="Optional description" class="form-control" />
+                    <label>{if i18n.is_zh() { "描述" } else { "Description" }}</label>
+                    <input type="text" name="desc" placeholder=if i18n.is_zh() { "可选描述" } else { "Optional description" } class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary">"Mark HEAD"</button>
+                <button type="submit" class="btn btn-secondary">{if i18n.is_zh() { "标记当前 HEAD" } else { "Mark HEAD" }}</button>
             </form>
         </div>
 
@@ -1224,24 +1236,24 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                 <button type="submit" class="btn btn-primary">{i18n.git_sync_btn()}</button>
             </form>
 
-            <h3 class="card-subtitle" style="margin-top:1.5rem;">"Clone this project"</h3>
-            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.75rem;">"Two different ways to get a copy, for two different purposes:"</p>
+            <h3 class="card-subtitle" style="margin-top:1.5rem;">{if i18n.is_zh() { "克隆此项目" } else { "Clone this project" }}</h3>
+            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.75rem;">{if i18n.is_zh() { "支持两种不同的复制与同步方式：" } else { "Two different ways to get a copy, for two different purposes:" }}</p>
             <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem; margin-bottom:0.75rem;">
-                <div style="font-size:0.8rem; font-weight:600; margin-bottom:0.35rem;">"With a real Git client (git clone, GitHub Desktop, etc.)"</div>
+                <div style="font-size:0.8rem; font-weight:600; margin-bottom:0.35rem;">{if i18n.is_zh() { "使用标准 Git 客户端（git clone、GitHub Desktop 等）" } else { "With a real Git client (git clone, GitHub Desktop, etc.)" }}</div>
                 <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">
-                    "Requires a " <a href="/settings#pat">"personal access token"</a> " as the password (username can be anything). Automatically syncs the latest project files and history on clone and pull."
+                    {if i18n.is_zh() { "需要使用 " } else { "Requires a " }}<a href="/settings#pat">{if i18n.is_zh() { "个人访问令牌 (PAT)" } else { "personal access token" }}</a>{if i18n.is_zh() { " 作为密码（用户名任意）。克隆和拉取时会自动同步最新的项目文件和提交历史。" } else { " as the password (username can be anything). Automatically syncs the latest project files and history on clone and pull." }}
                 </p>
-                <apich_islands::CopyLinkIsland link=format!("/git/{}.git", project.slug) button_label="Copy Git URL".to_string() />
+                <apich_islands::CopyLinkIsland link=format!("/git/{}.git", project.slug) button_label=if i18n.is_zh() { "复制 Git 地址".to_string() } else { "Copy Git URL".to_string() } />
             </div>
             <div style="background:var(--bg-muted); border:1px solid var(--border-subtle); border-radius:8px; padding:0.85rem; margin-bottom:1.5rem;">
-                <div style="font-size:0.8rem; font-weight:600; margin-bottom:0.35rem;">"With the apich command (full native history)"</div>
+                <div style="font-size:0.8rem; font-weight:600; margin-bottom:0.35rem;">{if i18n.is_zh() { "使用 apich 命令行工具（原生完整历史）" } else { "With the apich command (full native history)" }}</div>
                 <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">
-                    "Gets this project's own real history directly -- every branch, snapshot, and milestone above, not just what's been synced to Git: " <code>"apich remote clone <url> --token <PAT>"</code>
+                    {if i18n.is_zh() { "直接获取项目原生历史版本 —— 包含上述所有分支、快照和里程碑，而不仅是同步到 Git 的内容：" } else { "Gets this project's own real history directly -- every branch, snapshot, and milestone above, not just what's been synced to Git: " }}<code>"apich remote clone <url> --token <PAT>"</code>
                 </p>
-                <apich_islands::CopyLinkIsland link=format!("/vcs-remote/{}/bundle", project.id) button_label="Copy apich Command URL".to_string() />
+                <apich_islands::CopyLinkIsland link=format!("/vcs-remote/{}/bundle", project.id) button_label=if i18n.is_zh() { "复制 apich 命令地址".to_string() } else { "Copy apich Command URL".to_string() } />
             </div>
 
-            <h3 class="card-subtitle">"Remotes"</h3>
+            <h3 class="card-subtitle">{if i18n.is_zh() { "远程仓库 (Remotes)" } else { "Remotes" }}</h3>
             {if let Some(ref gh) = github_cred {
                 let quick_url = format!("https://github.com/{}/{}.git", gh.account_username, project.slug);
                 view! {
@@ -1249,13 +1261,13 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
                             <div>
                                 <span style="color:var(--success); margin-right:0.35rem;">"●"</span>
-                                <strong>"GitHub Connected"</strong>
-                                <span class="text-muted" style="margin-left:0.35rem; font-size:0.8rem;">"(@" {gh.account_username.clone()} ") — stored token automatically authenticates push/pull."</span>
+                                <strong>{if i18n.is_zh() { "已连接 GitHub" } else { "GitHub Connected" }}</strong>
+                                <span class="text-muted" style="margin-left:0.35rem; font-size:0.8rem;">"(@" {gh.account_username.clone()} ") — " {if i18n.is_zh() { "存储的令牌已自动用于推送/拉取认证。" } else { "stored token automatically authenticates push/pull." }}</span>
                             </div>
                             <form method="post" action=format!("/projects/{}/git-remote-add", project_id) class="inline-form" style="margin:0;">
                                 <input type="hidden" name="name" value="origin" />
                                 <input type="hidden" name="url" value=quick_url />
-                                <button type="submit" class="btn btn-primary btn-sm">"⚡ Quick Link GitHub (origin)"</button>
+                                <button type="submit" class="btn btn-primary btn-sm">{if i18n.is_zh() { "⚡ 快捷关联 GitHub (origin)" } else { "⚡ Quick Link GitHub (origin)" }}</button>
                             </form>
                         </div>
                     </div>
@@ -1263,12 +1275,12 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
             } else {
                 view! {
                     <p class="text-muted" style="font-size:0.8rem; margin-bottom:1rem;">
-                        "Tip: You can connect your GitHub account once in " <a href="/settings#github">"Settings → GitHub Integration"</a> " to automatically authenticate all projects without entering tokens in repository URLs."
+                        {if i18n.is_zh() { "提示：可以在 " } else { "Tip: You can connect your GitHub account once in " }}<a href="/settings#github">{if i18n.is_zh() { "设置 → GitHub 集成" } else { "Settings → GitHub Integration" }}</a>{if i18n.is_zh() { " 中连接 GitHub 账号，自动为所有项目授权。" } else { " to automatically authenticate all projects without entering tokens in repository URLs." }}
                     </p>
                 }.into_any()
             }}
             {if git.remotes.is_empty() {
-                view! { <p class="text-muted" style="font-size:0.85rem;">"No remotes configured."</p> }.into_any()
+                view! { <p class="text-muted" style="font-size:0.85rem;">{if i18n.is_zh() { "未配置远程仓库。" } else { "No remotes configured." }}</p> }.into_any()
             } else {
                 let rows: Vec<_> = git.remotes.iter().map(|(name, url)| view! {
                     <div class="info-row"><span class="info-label">{name.clone()}": "</span><span class="info-val"><code>{url.clone()}</code></span></div>
@@ -1277,43 +1289,43 @@ fn render_vcs_tab(args: VcsTabArgs<'_>) -> impl IntoView {
             }}
             <form method="post" action=format!("/projects/{}/git-remote-add", project_id) class="form-row" style="align-items:flex-end; margin-bottom:0.75rem;">
                 <div class="form-group" style="margin-bottom:0;">
-                    <label>"Remote name"</label>
+                    <label>{if i18n.is_zh() { "远程名称" } else { "Remote name" }}</label>
                     <input type="text" name="name" value="origin" required=true class="form-control" style="width:120px;" />
                 </div>
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
-                    <label>"Remote URL:"</label>
+                    <label>{if i18n.is_zh() { "远程 URL：" } else { "Remote URL:" }}</label>
                     <input type="text" name="url" placeholder="https://github.com/user/repo.git or git@github.com:user/repo.git" required=true class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary">"Save Remote"</button>
+                <button type="submit" class="btn btn-secondary">{i18n.save_remote()}</button>
             </form>
             <p class="text-muted" style="font-size:0.75rem; margin-bottom:1.5rem;">
-                "HTTPS URLs (e.g. " <code>"https://github.com/owner/repo.git"</code> ") automatically use your connected GitHub token, or you can embed a token directly."
+                {if i18n.is_zh() { "HTTPS 地址（如 " } else { "HTTPS URLs (e.g. " }}<code>"https://github.com/owner/repo.git"</code>{if i18n.is_zh() { "）会自动使用已连接的 GitHub 令牌，也可直接包含令牌。" } else { " ) automatically use your connected GitHub token, or you can embed a token directly." }}
             </p>
 
-            <h3 class="card-subtitle">"Sync with remote"</h3>
+            <h3 class="card-subtitle">{if i18n.is_zh() { "与远程同步" } else { "Sync with remote" }}</h3>
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
                 <form method="post" action=format!("/projects/{}/git-fetch", project_id) class="inline-form">
                     <input type="hidden" name="remote" value="origin" />
-                    <button type="submit" class="btn btn-secondary btn-sm">"⬇ Fetch"</button>
+                    <button type="submit" class="btn btn-secondary btn-sm">"⬇ " {i18n.git_fetch()}</button>
                 </form>
                 <form method="post" action=format!("/projects/{}/git-pull", project_id) class="inline-form">
                     <input type="hidden" name="remote" value="origin" />
                     <input type="hidden" name="branch" value=curr.clone() />
-                    <button type="submit" class="btn btn-secondary btn-sm">"⬇ Pull"</button>
+                    <button type="submit" class="btn btn-secondary btn-sm">"⬇ " {i18n.git_pull()}</button>
                 </form>
                 <form method="post" action=format!("/projects/{}/git-push", project_id) class="inline-form">
                     <input type="hidden" name="remote" value="origin" />
                     <input type="hidden" name="branch" value=curr />
-                    <button type="submit" class="btn btn-secondary btn-sm">"⬆ Push"</button>
+                    <button type="submit" class="btn btn-secondary btn-sm">"⬆ " {i18n.git_push()}</button>
                 </form>
                 <form method="post" action=format!("/projects/{}/git-rebase", project_id) class="inline-form" style="display:flex; gap:0.4rem; align-items:center;">
                     <input type="text" name="upstream" value="origin/main" required=true class="form-control" style="width:150px; height:32px; font-size:0.8rem;" />
-                    <button type="submit" class="btn btn-secondary btn-sm">"Rebase"</button>
+                    <button type="submit" class="btn btn-secondary btn-sm">{i18n.git_rebase()}</button>
                 </form>
             </div>
         </div>
 
-        {render_ignore_section(project_id, &ignore_config, &gitignore_content, &apichignore_content)}
+        {render_ignore_section(project_id, &ignore_config, &gitignore_content, &apichignore_content, i18n)}
     }
 }
 
@@ -1322,6 +1334,7 @@ fn render_ignore_section(
     ignore_config: &apich_vcs::IgnoreConfig,
     gitignore_content: &str,
     apichignore_content: &str,
+    i18n: I18n,
 ) -> impl IntoView {
     let profile_rows: Vec<_> = apich_vcs::IgnoreProfile::all()
         .iter()
@@ -1331,9 +1344,9 @@ fn render_ignore_section(
             let id = profile.id();
             let next_value = if enabled { "false" } else { "true" };
             let (badge_label, badge_class) = if enabled {
-                ("On", "badge badge-active")
+                (if i18n.is_zh() { "已启用" } else { "On" }, "badge badge-active")
             } else {
-                ("Off", "badge badge-idle")
+                (if i18n.is_zh() { "已禁用" } else { "Off" }, "badge badge-idle")
             };
             view! {
                 <div class="passkey-item">
@@ -1345,7 +1358,7 @@ fn render_ignore_section(
                     <form method="post" action=format!("/projects/{}/ignore/profile-toggle", project_id) class="inline-form">
                         <input type="hidden" name="profile" value=id />
                         <input type="hidden" name="enabled" value=next_value />
-                        <button type="submit" class="btn btn-secondary btn-sm">{if enabled { "Disable" } else { "Enable" }}</button>
+                        <button type="submit" class="btn btn-secondary btn-sm">{if enabled { if i18n.is_zh() { "禁用" } else { "Disable" } } else { if i18n.is_zh() { "启用" } else { "Enable" } }}</button>
                     </form>
                 </div>
             }
@@ -1362,7 +1375,7 @@ fn render_ignore_section(
                     <div class="passkey-info"><span class="passkey-name"><code>{rule_val.clone()}</code></span></div>
                     <form method="post" action=format!("/projects/{}/ignore/rule-remove", project_id) class="inline-form">
                         <input type="hidden" name="rule" value=rule_val />
-                        <button type="submit" class="btn btn-secondary btn-sm" title="Remove this rule">"✕"</button>
+                        <button type="submit" class="btn btn-secondary btn-sm" title=if i18n.is_zh() { "删除此规则" } else { "Remove this rule" }>"✕"</button>
                     </form>
                 </div>
             }
@@ -1372,38 +1385,42 @@ fn render_ignore_section(
 
     view! {
         <div class="section-card">
-            <h2 class="section-title">"Ignore Rules"</h2>
+            <h2 class="section-title">{if i18n.is_zh() { "忽略规则" } else { "Ignore Rules" }}</h2>
             <p class="text-muted" style="font-size:0.875rem; margin-bottom:1.25rem;">
-                "Control what apich's \"smart ignore\" leaves out of snapshots and diffs. Toggle whole language/tool profiles, add your own patterns, or edit the raw "<code>".gitignore"</code>" / "<code>".apichignore"</code>" files directly -- all three layers combine."
+                {if i18n.is_zh() {
+                    "控制智能忽略在快照与对比中排除的内容。可以开启/关闭特定语言与工具的预设配置、添加自定义模式，或直接编辑 .gitignore / .apichignore 文件。"
+                } else {
+                    "Control what apich's \"smart ignore\" leaves out of snapshots and diffs. Toggle whole language/tool profiles, add your own patterns, or edit the raw .gitignore / .apichignore files directly -- all three layers combine."
+                }}
             </p>
 
-            <h3 class="card-subtitle">"Smart profiles"</h3>
+            <h3 class="card-subtitle">{if i18n.is_zh() { "智能忽略预设" } else { "Smart profiles" }}</h3>
             <div class="passkey-list" style="margin-bottom:1.5rem;">{profile_rows}</div>
 
-            <h3 class="card-subtitle">"Custom rules"</h3>
-            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">"One glob pattern per rule, e.g. "<code>"*.tmp"</code>". Prefix with "<code>"!"</code>" to whitelist (un-ignore) a path that a profile or file would otherwise exclude."</p>
+            <h3 class="card-subtitle">{if i18n.is_zh() { "自定义规则" } else { "Custom rules" }}</h3>
+            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">{if i18n.is_zh() { "每条规则一个匹配模式，例如 *.tmp。前缀 ! 表示白名单（不忽略）。" } else { "One glob pattern per rule, e.g. *.tmp. Prefix with ! to whitelist (un-ignore) a path that a profile or file would otherwise exclude." }}</p>
             {(!custom_rules_empty).then(|| view! { <div class="passkey-list" style="margin-bottom:0.75rem;">{custom_rule_rows}</div> })}
             <form method="post" action=format!("/projects/{}/ignore/rule-add", project_id) class="form-row" style="align-items:flex-end; margin-bottom:1.5rem;">
                 <div class="form-group" style="margin-bottom:0; flex-grow:1;">
-                    <label>"New rule"</label>
+                    <label>{if i18n.is_zh() { "新建规则" } else { "New rule" }}</label>
                     <input type="text" name="rule" placeholder="*.tmp or !keep-me.csv" required=true class="form-control" />
                 </div>
-                <button type="submit" class="btn btn-secondary">"Add Rule"</button>
+                <button type="submit" class="btn btn-secondary">{i18n.add_rule()}</button>
             </form>
 
             <h3 class="card-subtitle">".gitignore"</h3>
             <form method="post" action=format!("/projects/{}/ignore/file-save", project_id) style="margin-bottom:1.5rem;">
                 <input type="hidden" name="file_name" value=".gitignore" />
                 <textarea name="content" rows="6" class="form-control" style="font-family:monospace; font-size:0.8rem;" placeholder="# one pattern per line, standard gitignore syntax">{gitignore_content.to_string()}</textarea>
-                <button type="submit" class="btn btn-secondary" style="margin-top:0.5rem;">"Save .gitignore"</button>
+                <button type="submit" class="btn btn-secondary" style="margin-top:0.5rem;">{i18n.save_gitignore()}</button>
             </form>
 
             <h3 class="card-subtitle">".apichignore"</h3>
-            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">"Same syntax as .gitignore, but only apich's own version control honors it (a real Git export/sync still follows .gitignore alone)."</p>
+            <p class="text-muted" style="font-size:0.8rem; margin-bottom:0.5rem;">{if i18n.is_zh() { "与 .gitignore 语法相同，但仅在 apich 原生版本控制中生效。" } else { "Same syntax as .gitignore, but only apich's own version control honors it (a real Git export/sync still follows .gitignore alone)." }}</p>
             <form method="post" action=format!("/projects/{}/ignore/file-save", project_id)>
                 <input type="hidden" name="file_name" value=".apichignore" />
                 <textarea name="content" rows="6" class="form-control" style="font-family:monospace; font-size:0.8rem;" placeholder="# one pattern per line">{apichignore_content.to_string()}</textarea>
-                <button type="submit" class="btn btn-secondary" style="margin-top:0.5rem;">"Save .apichignore"</button>
+                <button type="submit" class="btn btn-secondary" style="margin-top:0.5rem;">{i18n.save_apichignore()}</button>
             </form>
         </div>
     }
@@ -1440,7 +1457,7 @@ fn render_sharing_tab(
         .into_iter()
         .map(|m| {
             let role_badge = match m.role.as_str() {
-                "owner" => view! { <span class="role-badge role-badge-admin">"Owner"</span> }.into_any(),
+                "owner" => view! { <span class="role-badge role-badge-admin">{if i18n.is_zh() { "所有者" } else { "Owner" }}</span> }.into_any(),
                 "read_write_and_review" | "editor" => view! { <span class="role-badge role-badge-editor">{i18n.role_read_write_and_review()}</span> }.into_any(),
                 "read_and_review" => view! { <span class="role-badge" style="background:#e0e7ff; color:#3730a3; border:1px solid #c7d2fe;">{i18n.role_read_and_review()}</span> }.into_any(),
                 _ => view! { <span class="role-badge role-badge-viewer">{i18n.role_read_only()}</span> }.into_any(),
@@ -1451,7 +1468,7 @@ fn render_sharing_tab(
                         <input type="hidden" name="user_id" value=m.user_id.to_string() />
                         <apich_islands::ConfirmSubmitButton
                             label=i18n.remove().to_string()
-                            message="Remove collaborator?".to_string()
+                            message=if i18n.is_zh() { "确定要移除该协作者吗？".to_string() } else { "Remove collaborator?".to_string() }
                             button_class="btn btn-danger btn-sm".to_string()
                             button_style=String::new()
                         />
@@ -1478,16 +1495,16 @@ fn render_sharing_tab(
             <div class="section-card" style="margin-bottom:1.5rem;">
                 <h3 class="card-subtitle" style="display:flex; align-items:center; gap:0.5rem;"><span>"🔗"</span> {i18n.public_link_sharing()}</h3>
                 <p style="font-size:0.85rem; color:var(--text-sub); margin:0.25rem 0 0.75rem;">
-                    "Anyone with this link can view the project at the selected permission level, without signing in."
+                    {if i18n.is_zh() {
+                        "任何拥有此链接的人均可按照所选权限查看此项目，无需登录。"
+                    } else {
+                        "Anyone with this link can view the project at the selected permission level, without signing in."
+                    }}
                 </p>
-                // The button's column used to be `1fr`, which stretched it across the whole
-                // remaining width of the card -- a Save button several times wider than the
-                // controls it applies to. Sized to its own content instead, with the `1fr`
-                // moved to a trailing spacer column so the row still fills the card.
                 <form method="post" action=format!("/projects/{}/sharing/update", project_id) style="display:grid; grid-template-columns: auto minmax(240px, auto) auto; gap:0.75rem; align-items:center; justify-content:start; max-width:720px;">
                     <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; font-weight:600;">
                         <input type="checkbox" name="is_public" value="true" checked=is_public />
-                        "Enabled"
+                        {if i18n.is_zh() { "启用公开访问" } else { "Enabled" }}
                     </label>
                     <select name="default_role" class="form-control" style="min-width:240px;">
                         <option value="read_only" selected=share_role == "read_only">{i18n.role_read_only()}</option>
@@ -1500,7 +1517,7 @@ fn render_sharing_tab(
                     <apich_islands::CopyLinkIsland link=share_link.clone() button_label=i18n.copy_link().to_string() />
                 </div>
                 {(!is_public).then(|| view! {
-                    <p style="font-size:0.75rem; color:var(--text-sub); margin-top:0.4rem;">"Currently private — check \"Enabled\" above to activate this link."</p>
+                    <p style="font-size:0.75rem; color:var(--text-sub); margin-top:0.4rem;">{if i18n.is_zh() { "当前为私有 — 请勾选上方的“启用公开访问”以激活此链接。" } else { "Currently private — check \"Enabled\" above to activate this link." }}</p>
                 })}
             </div>
         }
@@ -1554,19 +1571,37 @@ fn render_sharing_tab(
 
     let danger_zone = is_owner.then(|| {
         let (title, desc, btn_label, confirm_msg) = if is_single_file {
-            (
-                "Delete this file",
-                "Permanently removes this standalone file and its version history from your workspace. This cannot be undone.",
-                "Delete File",
-                format!("Delete file \"{}\"? This cannot be undone.", single_file_name),
-            )
+            if i18n.is_zh() {
+                (
+                    "删除此文件",
+                    "从工作区永久删除此单文件及其版本历史。此操作无法撤销。",
+                    "删除文件",
+                    format!("确定删除文件“{}”吗？此操作无法撤销。", single_file_name),
+                )
+            } else {
+                (
+                    "Delete this file",
+                    "Permanently removes this standalone file and its version history from your workspace. This cannot be undone.",
+                    "Delete File",
+                    format!("Delete file \"{}\"? This cannot be undone.", single_file_name),
+                )
+            }
         } else {
-            (
-                "Delete this project",
-                "Removes this project from your workspace. This cannot be undone.",
-                "Delete Project",
-                format!("Delete \"{}\"? This cannot be undone.", project.name),
-            )
+            if i18n.is_zh() {
+                (
+                    "删除此项目",
+                    "从工作区永久删除此项目。此操作无法撤销。",
+                    "删除项目",
+                    format!("确定删除项目“{}”吗？此操作无法撤销。", project.name),
+                )
+            } else {
+                (
+                    "Delete this project",
+                    "Removes this project from your workspace. This cannot be undone.",
+                    "Delete Project",
+                    format!("Delete \"{}\"? This cannot be undone.", project.name),
+                )
+            }
         };
         view! {
             <div class="section-card" style="margin-top:1.5rem; border-color:var(--danger-border); background:var(--danger-bg);">

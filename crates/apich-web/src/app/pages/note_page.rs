@@ -106,16 +106,16 @@ pub fn NotePage(
     let (share_label, share_mode, share_role, share_users) = match file_share {
         | Some(s) => {
             let label = match s.mode.as_str() {
-                | "public" => format!("🌐 Public ({})", s.role),
-                | "specific" => format!("👥 Specific ({})", s.role),
-                | _ => "🔒 Private".to_string(),
+                | "public" => format!("🌐 {}", i18n.share_public(&s.role)),
+                | "specific" => format!("👥 {}", i18n.share_specific(&s.role)),
+                | _ => format!("🔒 {}", i18n.share_private()),
             };
             let users = s.allowed_users.join(",");
             (label, s.mode, s.role, users)
         },
         | None => {
             (
-                "🔒 Private".to_string(),
+                format!("🔒 {}", i18n.share_private()),
                 "private".to_string(),
                 "read".to_string(),
                 String::new(),
@@ -131,25 +131,25 @@ pub fn NotePage(
     let sub_nav = view! {
         <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem;">
             <a href=format!("/projects/{}/note?file={}&view=editor", project_id, file_path_enc) class="btn btn-sm" class=("btn-primary", view == NoteView::Editor) class=("btn-secondary", view != NoteView::Editor)>
-                "📝 Editor & Outline"
+                {if i18n.is_zh() { "📝 编辑与大纲" } else { "📝 Editor & Outline" }}
             </a>
             <a href=format!("/projects/{}/note?file={}&view=whiteboard", project_id, file_path_enc) class="btn btn-sm" class=("btn-primary", view == NoteView::Whiteboard) class=("btn-secondary", view != NoteView::Whiteboard)>
-                "🎨 Whiteboard"
+                {if i18n.is_zh() { "🎨 白板" } else { "🎨 Whiteboard" }}
             </a>
             <a href=format!("/projects/{}/note?file={}&view=wiki", project_id, file_path_enc) class="btn btn-sm" class=("btn-primary", view == NoteView::Wiki) class=("btn-secondary", view != NoteView::Wiki)>
-                "🕸️ Wiki"
+                {if i18n.is_zh() { "🕸️ 知识库 Wiki" } else { "🕸️ Wiki" }}
             </a>
             <a href=format!("/projects/{}/note?file={}&view=calendar", project_id, file_path_enc) class="btn btn-sm" class=("btn-primary", view == NoteView::Calendar) class=("btn-secondary", view != NoteView::Calendar)>
-                "📅 Calendar"
+                {if i18n.is_zh() { "📅 日历" } else { "📅 Calendar" }}
             </a>
             <a href=format!("/projects/{}/note?file={}&view=kanban", project_id, file_path_enc) class="btn btn-sm" class=("btn-primary", view == NoteView::Kanban) class=("btn-secondary", view != NoteView::Kanban)>
-                "📋 Kanban"
+                {if i18n.is_zh() { "📋 看板" } else { "📋 Kanban" }}
             </a>
             <button
                 type="button"
                 class="btn btn-secondary btn-sm"
                 onclick="window.dispatchEvent(new CustomEvent('apich-open-attach-modal', {detail: {mode: 'upload'}}))"
-                title="Upload local file or image to project"
+                title=if i18n.is_zh() { "上传本地文件或图片至项目" } else { "Upload local file or image to project" }
             >
                 "📤 " {i18n.upload()}
             </button>
@@ -157,34 +157,35 @@ pub fn NotePage(
                 type="button"
                 class="btn btn-secondary btn-sm"
                 onclick="window.dispatchEvent(new CustomEvent('apich-open-attach-modal', {detail: {mode: 'attach'}}))"
-                title="Insert reference to project file or image"
+                title=if i18n.is_zh() { "插入项目文件或图片引用" } else { "Insert reference to project file or image" }
             >
                 "📎 " {i18n.attach()}
             </button>
             <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
-            <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
-            <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 VCS History"</a>
+            <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 " {i18n.ai_copilot()}</label>
+            <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 " {i18n.history()}</a>
             {if project.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false) {
                 let cf_file = file_path.clone();
+                let confirm_msg = i18n.delete_file_confirm(&cf_file);
                 view! {
                     <form
-                        method="post"
-                        action=format!("/projects/{}/delete", project_id)
-                        class="inline-form"
-                        onsubmit=format!("return confirm('Are you sure you want to permanently delete \"{}\"? This cannot be undone.');", cf_file)
-                    >
-                        <button
-                            type="submit"
-                            class="btn btn-danger btn-sm"
-                            title="Permanently delete this file"
-                        >
-                            "🗑️ Delete"
-                        </button>
-                    </form>
-                    <a href="/" class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"← Back to Dashboard"</a>
+                                method="post"
+                                action=format!("/projects/{}/delete", project_id)
+                                class="inline-form"
+                                onsubmit=format!("return confirm('{}');", confirm_msg.replace('\'', "\\'"))
+                            >
+                                <button
+                                    type="submit"
+                                    class="btn btn-danger btn-sm"
+                                    title=i18n.delete_file()
+                                >
+                                    "🗑️ " {i18n.delete()}
+                                </button>
+                            </form>
+                    <a href="/" class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"← " {i18n.back_to_dashboard()}</a>
                 }.into_any()
             } else {
-                view! { <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"📁 Back to Files"</a> }.into_any()
+                view! { <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm" style="margin-left:0.5rem;">"📁 " {i18n.back_to_files()}</a> }.into_any()
             }}
         </div>
     };
@@ -209,8 +210,8 @@ pub fn NotePage(
             .into_any()
         },
         | NoteView::Whiteboard => render_whiteboard_view(project_id, &file_path, &meta).into_any(),
-        | NoteView::Wiki => render_wiki(project_id, &graph).into_any(),
-        | NoteView::Calendar => render_calendar(&calendar).into_any(),
+        | NoteView::Wiki => render_wiki(project_id, &graph, i18n).into_any(),
+        | NoteView::Calendar => render_calendar(&calendar, i18n).into_any(),
         | NoteView::Kanban => {
             render_kanban(
                 project_id,
@@ -252,8 +253,9 @@ pub fn NotePage(
             <AttachModalIsland
                 project_id=project_id.to_string()
                 active_file=file_path.clone()
+                is_zh=i18n.is_zh()
             />
-            <AiDrawer project_id=project_id file_path=file_path />
+            <AiDrawer project_id=project_id file_path=file_path is_zh=i18n.is_zh() />
         </AppShell>
     }
 }
@@ -304,15 +306,15 @@ fn render_editor_view(
             <input type="hidden" name="view" value="editor" />
             <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:0.75rem; margin-bottom:0.85rem;">
                 <div class="form-group" style="margin-bottom:0;">
-                    <label style="font-size:0.75rem;">"Title"</label>
+                    <label style="font-size:0.75rem;">{if is_zh { "标题" } else { "Title" }}</label>
                     <input type="text" name="meta_title" value=meta.title.clone() class="form-control" style="font-size:0.85rem; height:32px;" />
                 </div>
                 <div class="form-group" style="margin-bottom:0;">
-                    <label style="font-size:0.75rem;">"Author"</label>
+                    <label style="font-size:0.75rem;">{if is_zh { "作者" } else { "Author" }}</label>
                     <input type="text" name="meta_author" value=meta.author.clone().unwrap_or_default() class="form-control" style="font-size:0.85rem; height:32px;" />
                 </div>
                 <div class="form-group" style="margin-bottom:0;">
-                    <label style="font-size:0.75rem;">"Tags"</label>
+                    <label style="font-size:0.75rem;">{if is_zh { "标签" } else { "Tags" }}</label>
                     <input type="text" name="meta_tags" value=tags_joined class="form-control" style="font-size:0.85rem; height:32px;" />
                 </div>
             </div>
@@ -331,7 +333,7 @@ fn render_editor_view(
             </div>
 
             <div style="margin-top:1rem; display:flex; justify-content:flex-end;">
-                <button type="submit" class="btn btn-primary">"Save Note"</button>
+                <button type="submit" class="btn btn-primary">{if is_zh { "保存笔记" } else { "Save Note" }}</button>
             </div>
         </form>
         {render_note_template_panel(project_id, file_path, own_note_templates, visible_note_templates, i18n)}

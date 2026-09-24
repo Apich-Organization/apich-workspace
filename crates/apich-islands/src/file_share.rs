@@ -24,8 +24,10 @@ pub fn FileShareModalIsland(
     #[prop(into)] project_id: String,
     #[prop(into)] redirect_to: String,
     #[prop(optional)] all_users: Option<Vec<ShareableUser>>,
+    #[prop(optional)] is_zh: Option<bool>,
 ) -> impl IntoView {
     let _ = all_users;
+    let zh = is_zh.unwrap_or(false);
     let visible = RwSignal::new(false);
     let file_path = RwSignal::new(String::new());
     let mode = RwSignal::new("private".to_string());
@@ -60,10 +62,10 @@ pub fn FileShareModalIsland(
                     <div>
                         <h3 class="modal-title" style="display:flex; align-items:center; gap:0.5rem; font-size:1.2rem; margin:0;">
                             <span>"🔗"</span>
-                            <span>"File Sharing & Access"</span>
+                            <span>{if zh { "文件共享与访问权限" } else { "File Sharing & Access" }}</span>
                         </h3>
                         <div style="font-size:0.8rem; color:var(--text-sub); margin-top:0.35rem; display:flex; align-items:center; gap:0.35rem;">
-                            <span>"File:"</span>
+                            <span>{if zh { "文件：" } else { "File:" }}</span>
                             <code style="background:var(--bg-muted, #f1f5f9); color:var(--primary, #635bff); padding:2px 6px; border-radius:4px; font-weight:600; font-size:0.82rem;">
                                 {move || file_path.get()}
                             </code>
@@ -93,7 +95,7 @@ pub fn FileShareModalIsland(
                     // 1. Sharing Mode Cards
                     <div class="form-group" style="margin-bottom:1.25rem;">
                         <label style="font-weight:700; font-size:0.875rem; margin-bottom:0.5rem; display:block; color:var(--text-main);">
-                            "Sharing Mode"
+                            {if zh { "共享模式" } else { "Sharing Mode" }}
                         </label>
                         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:0.6rem;">
                             // Private
@@ -110,10 +112,10 @@ pub fn FileShareModalIsland(
                             >
                                 <div style="display:flex; align-items:center; gap:0.4rem; font-weight:700; font-size:0.875rem; color:var(--text-main);">
                                     <span>"🔒"</span>
-                                    <span>"Private"</span>
+                                    <span>{if zh { "私有" } else { "Private" }}</span>
                                 </div>
                                 <div style="font-size:0.75rem; color:var(--text-sub); line-height:1.3;">
-                                    "Project members only"
+                                    {if zh { "仅项目成员可见" } else { "Project members only" }}
                                 </div>
                             </div>
 
@@ -134,10 +136,10 @@ pub fn FileShareModalIsland(
                             >
                                 <div style="display:flex; align-items:center; gap:0.4rem; font-weight:700; font-size:0.875rem; color:var(--text-main);">
                                     <span>"👥"</span>
-                                    <span>"Specific Accounts"</span>
+                                    <span>{if zh { "指定成员" } else { "Specific Accounts" }}</span>
                                 </div>
                                 <div style="font-size:0.75rem; color:var(--text-sub); line-height:1.3;">
-                                    "Designated users only"
+                                    {if zh { "仅指定用户可访问" } else { "Designated users only" }}
                                 </div>
                             </div>
 
@@ -155,10 +157,10 @@ pub fn FileShareModalIsland(
                             >
                                 <div style="display:flex; align-items:center; gap:0.4rem; font-weight:700; font-size:0.875rem; color:var(--text-main);">
                                     <span>"🌐"</span>
-                                    <span>"Public Link"</span>
+                                    <span>{if zh { "公开链接" } else { "Public Link" }}</span>
                                 </div>
                                 <div style="font-size:0.75rem; color:var(--text-sub); line-height:1.3;">
-                                    "Anyone with link"
+                                    {if zh { "拥有链接的任何人" } else { "Anyone with link" }}
                                 </div>
                             </div>
                         </div>
@@ -167,7 +169,7 @@ pub fn FileShareModalIsland(
                     // 2. Permission Level
                     <div class="form-group" style="margin-bottom:1.25rem;">
                         <label style="font-weight:700; font-size:0.875rem; margin-bottom:0.4rem; display:block; color:var(--text-main);">
-                            "Permission Level"
+                            {if zh { "权限级别" } else { "Permission Level" }}
                         </label>
                         <select
                             name="role"
@@ -176,11 +178,12 @@ pub fn FileShareModalIsland(
                             prop:value=move || role.get()
                             on:change=move |ev| role.set(event_target_value(&ev))
                         >
-                            <option value="read">"📖 Read Only — Viewer cannot edit"</option>
-                            <option value="review">"📝 Read & Review — Can view and add comments"</option>
-                            <option value="write">"✏️ Read, Write & Review — Full collaborative edit access"</option>
+                            <option value="read">{if zh { "📖 只读 — 仅供查看，不可修改" } else { "📖 Read Only — Viewer cannot edit" }}</option>
+                            <option value="review">{if zh { "📝 查看与评审 — 可查看并添加评论" } else { "📝 Read & Review — Can view and add comments" }}</option>
+                            <option value="write">{if zh { "✏️ 协同编辑 — 具备完整编辑保存权限" } else { "✏️ Read, Write & Review — Full collaborative edit access" }}</option>
                         </select>
                     </div>
+
 
                     // 3. Specific Users Panel (Inline list, no backdrop, scrollable!)
                     <div
@@ -190,10 +193,10 @@ pub fn FileShareModalIsland(
                         // Collaborators list header & chips
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
                             <span style="font-weight:700; font-size:0.85rem; color:var(--text-main);">
-                                "Designated Collaborators"
+                                {if zh { "指定协作者" } else { "Designated Collaborators" }}
                             </span>
                             <span style="font-size:0.775rem; color:var(--text-sub); background:var(--bg-surface, #fff); padding:2px 8px; border-radius:10px; border:1px solid var(--border-subtle, #cbd5e1);">
-                                {move || selected_users.get().len()} " selected"
+                                {move || selected_users.get().len()} {if zh { " 人已选" } else { " selected" }}
                             </span>
                         </div>
 
@@ -204,7 +207,7 @@ pub fn FileShareModalIsland(
                                 if users.is_empty() {
                                     view! {
                                         <span style="font-size:0.8rem; color:var(--text-sub); font-style:italic;">
-                                            "No users added yet. Search below to add users."
+                                            {if zh { "尚未添加协作者，请在下方搜索添加。" } else { "No users added yet. Search below to add users." }}
                                         </span>
                                     }.into_any()
                                 } else {
@@ -215,7 +218,7 @@ pub fn FileShareModalIsland(
                                                 <span>"@" {uname}</span>
                                                 <button
                                                     type="button"
-                                                    title="Remove user"
+                                                    title=if zh { "移除用户" } else { "Remove user" }
                                                     style="background:none; border:none; cursor:pointer; color:var(--text-sub); font-size:1.1rem; line-height:1; padding:0 2px; border-radius:3px;"
                                                     on:click=move |_| {
                                                         selected_users.update(|s| {
@@ -238,13 +241,13 @@ pub fn FileShareModalIsland(
                         // Search input
                         <div style="margin-top:0.4rem;">
                             <label style="font-size:0.775rem; font-weight:600; color:var(--text-sub); margin-bottom:0.35rem; display:block;">
-                                "Search & Add Users:"
+                                {if zh { "搜索并添加用户：" } else { "Search & Add Users:" }}
                             </label>
                             <div style="display:flex; gap:0.5rem; align-items:center;">
                                 <input
                                     type="text"
                                     class="form-control"
-                                    placeholder="Type username or name to search..."
+                                    placeholder=if zh { "输入用户名或姓名搜索..." } else { "Type username or name to search..." }
                                     autocomplete="off"
                                     style="flex:1; height:38px; font-size:0.875rem;"
                                     prop:value=move || search_query.get()
@@ -271,7 +274,7 @@ pub fn FileShareModalIsland(
                                                     fetch_share_users(String::new(), search_results, is_search_loading);
                                                 }
                                             >
-                                                "Clear"
+                                                {if zh { "清空" } else { "Clear" }}
                                             </button>
                                         }.into_any()
                                     }
@@ -289,13 +292,13 @@ pub fn FileShareModalIsland(
                                 if loading && items.is_empty() {
                                     view! {
                                         <div style="padding:1rem; font-size:0.85rem; color:var(--text-sub); text-align:center;">
-                                            "Searching users..."
+                                            {if zh { "正在搜索用户..." } else { "Searching users..." }}
                                         </div>
                                     }.into_any()
                                 } else if items.is_empty() {
                                     view! {
                                         <div style="padding:1rem; font-size:0.85rem; color:var(--text-sub); text-align:center;">
-                                            "No users found. Type a name or username above to search."
+                                            {if zh { "未找到用户，请在上方输入姓名或用户名搜索。" } else { "No users found. Type a name or username above to search." }}
                                         </div>
                                     }.into_any()
                                 } else {
@@ -325,7 +328,7 @@ pub fn FileShareModalIsland(
                                                 {if is_already {
                                                     view! {
                                                         <span style="font-size:0.775rem; color:var(--success, #22c55e); font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;">
-                                                            "✓ Added"
+                                                            {if zh { "✓ 已添加" } else { "✓ Added" }}
                                                         </span>
                                                     }.into_any()
                                                 } else {
@@ -342,7 +345,7 @@ pub fn FileShareModalIsland(
                                                                 });
                                                             }
                                                         >
-                                                            "+ Add"
+                                                            {if zh { "+ 添加" } else { "+ Add" }}
                                                         </button>
                                                     }.into_any()
                                                 }}
@@ -362,10 +365,10 @@ pub fn FileShareModalIsland(
                             class="btn btn-secondary"
                             on:click=move |_| visible.set(false)
                         >
-                            "Cancel"
+                            {if zh { "取消" } else { "Cancel" }}
                         </button>
                         <button type="submit" class="btn btn-primary">
-                            "Save Sharing"
+                            {if zh { "保存分享设置" } else { "Save Sharing" }}
                         </button>
                     </div>
                 </form>

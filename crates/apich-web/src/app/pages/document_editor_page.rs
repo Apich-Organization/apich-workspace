@@ -82,16 +82,16 @@ pub fn DocumentEditorPage(
     let (share_label, share_mode, share_role, share_users) = match file_share {
         | Some(s) => {
             let label = match s.mode.as_str() {
-                | "public" => format!("🌐 Public ({})", s.role),
-                | "specific" => format!("👥 Specific ({})", s.role),
-                | _ => "🔒 Private".to_string(),
+                | "public" => format!("🌐 {}", i18n.share_public(&s.role)),
+                | "specific" => format!("👥 {}", i18n.share_specific(&s.role)),
+                | _ => format!("🔒 {}", i18n.share_private()),
             };
             let users = s.allowed_users.join(",");
             (label, s.mode, s.role, users)
         },
         | None => {
             (
-                "🔒 Private".to_string(),
+                format!("🔒 {}", i18n.share_private()),
                 "private".to_string(),
                 "read".to_string(),
                 String::new(),
@@ -116,7 +116,7 @@ pub fn DocumentEditorPage(
                 target="_blank"
                 rel="noopener noreferrer"
                 class="btn btn-primary btn-sm"
-                title="Play presentation in browser with full transitions, whiteboard annotations, laser pointer, and audio"
+                title=if i18n.is_zh() { "在浏览器中以完整过渡、白板标注、激光笔和音频放映演示" } else { "Play presentation in browser with full transitions, whiteboard annotations, laser pointer, and audio" }
                 style="display:inline-flex; align-items:center; gap:0.35rem; font-weight:600;"
             >
                 "▶ " {play_label}
@@ -164,7 +164,7 @@ pub fn DocumentEditorPage(
         .unwrap_or("document")
         .to_string();
     let download_pdf_btn = download_pdf_href.map(|href| view! {
-        <a href=href download=format!("{}.pdf", download_pdf_name) class="btn btn-secondary btn-sm">"⬇️ Download PDF"</a>
+        <a href=href download=format!("{}.pdf", download_pdf_name) class="btn btn-secondary btn-sm">"⬇️ " {i18n.download_pdf()}</a>
     });
     let download_slide_bin_btn = is_slide.then(|| view! {
         <apich_islands::SlideBuildIsland project_id=project_id.to_string() file_path=file_path.clone() />
@@ -232,16 +232,16 @@ pub fn DocumentEditorPage(
                 <div class="editor-top-left">
                     {if is_single_file {
                         view! {
-                            <a href="/" class="btn btn-secondary btn-sm editor-back-btn" title="Back to Dashboard">
+                            <a href="/" class="btn btn-secondary btn-sm editor-back-btn" title=i18n.back_to_dashboard()>
                                 <span aria-hidden="true">"←"</span>
-                                <span>"Dashboard"</span>
+                                <span>{i18n.back_to_dashboard()}</span>
                             </a>
                         }.into_any()
                     } else {
                         view! {
-                            <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-secondary btn-sm editor-back-btn" title="Back to the project's file list">
+                            <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-secondary btn-sm editor-back-btn" title=i18n.back_to_files()>
                                 <span aria-hidden="true">"←"</span>
-                                <span>"Back to Files"</span>
+                                <span>{i18n.back_to_files()}</span>
                             </a>
                         }.into_any()
                     }}
@@ -254,7 +254,7 @@ pub fn DocumentEditorPage(
                         type="button"
                         class="btn btn-secondary btn-sm"
                         onclick="window.dispatchEvent(new CustomEvent('apich-open-attach-modal', {detail: {mode: 'upload'}}))"
-                        title="Upload local file or image to project"
+                        title=if i18n.is_zh() { "上传本地文件或图片至项目" } else { "Upload local file or image to project" }
                     >
                         "📤 " {i18n.upload()}
                     </button>
@@ -262,13 +262,13 @@ pub fn DocumentEditorPage(
                         type="button"
                         class="btn btn-secondary btn-sm"
                         onclick="window.dispatchEvent(new CustomEvent('apich-open-attach-modal', {detail: {mode: 'attach'}}))"
-                        title="Insert reference to project file or image"
+                        title=if i18n.is_zh() { "插入项目文件或图片引用" } else { "Insert reference to project file or image" }
                     >
                         "📎 " {i18n.attach()}
                     </button>
-                    <a href=format!("/projects/{}?tab=vcs&file={}", project_id, urlencoding::encode(&file_path)) class="btn btn-secondary btn-sm" title="View version control timeline and file history">"🌿 History"</a>
+                    <a href=format!("/projects/{}?tab=vcs&file={}", project_id, urlencoding::encode(&file_path)) class="btn btn-secondary btn-sm" title=if i18n.is_zh() { "查看版本控制时间线和文件历史" } else { "View version control timeline and file history" }>"🌿 " {i18n.history()}</a>
                     <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
-                    <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 AI Copilot"</label>
+                    <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 " {i18n.ai_copilot()}</label>
                     <apich_islands::SearchReplaceModalIsland
                         project_id=project_id.to_string()
                         active_file=file_path.clone()
@@ -284,19 +284,20 @@ pub fn DocumentEditorPage(
                     {slide_present_btn}
                     {if is_single_file {
                         let cf_file = file_path.clone();
+                        let confirm_msg = i18n.delete_file_confirm(&cf_file);
                         view! {
                             <form
                                 method="post"
                                 action=format!("/projects/{}/delete", project_id)
                                 class="inline-form"
-                                onsubmit=format!("return confirm('Are you sure you want to permanently delete \"{}\"? This cannot be undone.');", cf_file)
+                                onsubmit=format!("return confirm('{}');", confirm_msg.replace('\'', "\\'"))
                             >
                                 <button
                                     type="submit"
                                     class="btn btn-danger btn-sm"
-                                    title="Permanently delete this file"
+                                    title=i18n.delete_file()
                                 >
-                                    "🗑️ Delete"
+                                    "🗑️ " {i18n.delete()}
                                 </button>
                             </form>
                         }.into_any()
@@ -319,6 +320,7 @@ pub fn DocumentEditorPage(
                 typst_pages=typst_pages
                 compile_error=compile_error
                 rendered_markdown_html=rendered_markdown_html
+                is_zh=i18n.is_zh()
             />
 
             {template_panel}
@@ -333,8 +335,9 @@ pub fn DocumentEditorPage(
             <AttachModalIsland
                 project_id=project_id.to_string()
                 active_file=file_path.clone()
+                is_zh=i18n.is_zh()
             />
-            <AiDrawer project_id=project_id file_path=file_path />
+            <AiDrawer project_id=project_id file_path=file_path is_zh=i18n.is_zh() />
         </AppShell>
     }
 }

@@ -151,14 +151,15 @@ fn render_org_card(
     let org = card.org;
     let org_id = org.id;
 
+    let is_zh = i18n.is_zh();
     let member_rows = card
         .members
         .iter()
         .map(|m| {
             let role_badge = if m.role == "admin" || m.role == "owner" {
-                view! { <span class="role-badge role-badge-admin">"Admin"</span> }.into_any()
+                view! { <span class="role-badge role-badge-admin">{if is_zh { "管理员" } else { "Admin" }}</span> }.into_any()
             } else {
-                view! { <span class="role-badge role-badge-viewer">"Member"</span> }.into_any()
+                view! { <span class="role-badge role-badge-viewer">{if is_zh { "成员" } else { "Member" }}</span> }.into_any()
             };
             let remove = card.can_manage.then(|| {
                 view! {
@@ -167,7 +168,7 @@ fn render_org_card(
                         <input type="hidden" name="user_id" value=m.user_id.to_string() />
                         <apich_islands::ConfirmSubmitButton
                             label=i18n.remove().to_string()
-                            message="Remove member?".to_string()
+                            message=i18n.remove_member_confirm().to_string()
                             button_class="btn btn-danger btn-sm".to_string()
                             button_style=String::new()
                         />
@@ -209,7 +210,7 @@ fn render_org_card(
                 <input type="hidden" name="org_id" value=org_id.to_string() />
                 <apich_islands::ConfirmSubmitButton
                     label=i18n.delete().to_string()
-                    message="Delete this organization and everything under it?".to_string()
+                    message=i18n.delete_org_confirm().to_string()
                     button_class="btn btn-danger btn-sm".to_string()
                     button_style=String::new()
                 />
@@ -259,14 +260,14 @@ fn render_org_card(
                     <form method="post" action="/admin/orgs/members/add">
                         <input type="hidden" name="org_id" value=org_id.to_string() />
                         <div class="form-group">
-                            <label>"User"</label>
+                            <label>{if is_zh { "选择用户" } else { "User" }}</label>
                             <select name="user_id_or_username" required=true class="form-control">{user_options.to_vec()}</select>
                         </div>
                         <div class="form-group">
-                            <label>"Role"</label>
+                            <label>{if is_zh { "赋予角色" } else { "Role" }}</label>
                             <select name="role" class="form-control">
-                                <option value="member">"Member"</option>
-                                <option value="admin">"Admin"</option>
+                                <option value="member">{if is_zh { "标准成员" } else { "Member" }}</option>
+                                <option value="admin">{if is_zh { "管理员" } else { "Admin" }}</option>
                             </select>
                         </div>
                         <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
@@ -283,7 +284,7 @@ fn render_org_card(
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:1rem; margin-bottom:1.25rem;">
                 <div>
                     <h3 style="font-size:1.3rem; font-weight:700; color:var(--text-main);">{org.name.clone()}</h3>
-                    <span style="font-size:0.8rem; color:var(--text-sub);">"Slug: "<code>{org.slug}</code></span>
+                    <span style="font-size:0.8rem; color:var(--text-sub);">{if is_zh { "标识： " } else { "Slug: " }}<code>{org.slug}</code></span>
                 </div>
                 <div style="display:flex; gap:0.5rem; align-items:center;">{manage_controls}</div>
             </div>
@@ -332,7 +333,7 @@ fn render_team_row(
                         <input type="hidden" name="user_id" value=m.user_id.to_string() />
                         <apich_islands::ConfirmSubmitButton
                             label="×".to_string()
-                            message="Remove member?".to_string()
+                            message=i18n.remove_member_confirm().to_string()
                             button_class="btn btn-ghost btn-sm".to_string()
                             button_style="padding:0.1rem 0.4rem;".to_string()
                         />
@@ -359,7 +360,7 @@ fn render_team_row(
                 <input type="hidden" name="team_id" value=team_id.to_string() />
                 <apich_islands::ConfirmSubmitButton
                     label=i18n.delete().to_string()
-                    message="Delete this team and its subteams?".to_string()
+                    message=i18n.delete_team_confirm().to_string()
                     button_class="btn btn-ghost btn-sm".to_string()
                     button_style="color:var(--danger);".to_string()
                 />
@@ -406,14 +407,14 @@ fn render_team_row(
                     <form method="post" action="/admin/teams/members/add">
                         <input type="hidden" name="team_id" value=team_id.to_string() />
                         <div class="form-group">
-                            <label>"User"</label>
+                            <label>{if i18n.is_zh() { "选择用户" } else { "User" }}</label>
                             <select name="user_id_or_username" required=true class="form-control">{user_options.to_vec()}</select>
                         </div>
                         <div class="form-group">
-                            <label>"Role"</label>
+                            <label>{if i18n.is_zh() { "赋予角色" } else { "Role" }}</label>
                             <select name="role" class="form-control">
-                                <option value="member">"Member"</option>
-                                <option value="admin">"Admin"</option>
+                                <option value="member">{if i18n.is_zh() { "标准成员" } else { "Member" }}</option>
+                                <option value="admin">{if i18n.is_zh() { "管理员" } else { "Admin" }}</option>
                             </select>
                         </div>
                         <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">

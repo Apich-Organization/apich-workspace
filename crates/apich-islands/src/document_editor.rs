@@ -85,7 +85,9 @@ pub fn DocumentEditorIsland(
     typst_pages: Vec<String>,
     #[prop(into)] compile_error: Option<String>,
     #[prop(into)] rendered_markdown_html: Option<String>,
+    #[prop(optional)] is_zh: Option<bool>,
 ) -> impl IntoView {
+    let zh = is_zh.unwrap_or(false);
     let is_slide = flags.is_slide();
     let is_script = flags.is_script;
     let is_typst_preview = flags.is_typst_preview();
@@ -258,7 +260,7 @@ pub fn DocumentEditorIsland(
     };
 
     let preview = if is_script {
-        render_script_console(project_id.clone(), file_path.clone()).into_any()
+        render_script_console(project_id.clone(), file_path.clone(), zh).into_any()
     } else if is_typst_preview || is_slide {
         // Cargo-slide decks compile through the exact same Typst pipeline as a plain `.typ` file
         // (see `render_doc_preview_action`, which branches on file extension, not on this flag),
@@ -268,7 +270,7 @@ pub fn DocumentEditorIsland(
         // fell through to the plain-markdown branch below instead, rendering an empty
         // `markdown_html_sig` (never populated for slides) -- the preview panel showed nothing at
         // all, and typing never recompiled anything (see `on_code_input`'s matching fix).
-        render_typst_preview(compile_error_sig, pages, current_slide).into_any()
+        render_typst_preview(compile_error_sig, pages, current_slide, zh).into_any()
     } else if is_latex_preview {
         // Real `pdflatex` compilation happens inside the project's sandbox container (it has a
         // full TeX Live install; this dev host deliberately doesn't -- see
@@ -292,7 +294,7 @@ pub fn DocumentEditorIsland(
             <div style="display:flex; flex-direction:column; height:100%;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.4rem 0.75rem; background:var(--bg-muted); border-bottom:1px solid var(--border-subtle); font-size:0.8rem;">
                     <div style="display:flex; align-items:center; gap:0.4rem;">
-                        <label for="latex-engine-select" style="color:var(--text-sub);">"Engine:"</label>
+                        <label for="latex-engine-select" style="color:var(--text-sub);">{if zh { "编译引擎：" } else { "Engine:" }}</label>
                         <select
                             id="latex-engine-select"
                             class="form-control"
@@ -324,12 +326,12 @@ pub fn DocumentEditorIsland(
                         href=move || format!("/projects/{}/editor/latex-pdf?file={}&engine={}", project_id_for_dl, urlencoding::encode(&file_path_for_dl), latex_engine.get())
                         download=format!("{}.pdf", download_name)
                         class="btn btn-secondary btn-sm"
-                    >"⬇️ Download PDF"</a>
+                    >{if zh { "⬇️ 下载 PDF" } else { "⬇️ Download PDF" }}</a>
                 </div>
                 <div style="position:relative; width:100%; flex:1;">
                     {move || latex_error.get().map(|err| view! {
                         <div style="position:absolute; inset:0; background:#1e1e1e; color:#f87171; font-family:var(--font-mono); font-size:0.8rem; white-space:pre-wrap; padding:1.25rem; overflow-y:auto; z-index:5;">
-                            "⚠️ LaTeX compilation failed:\n\n" {err}
+                            {if zh { "⚠️ LaTeX 编译失败：\n\n" } else { "⚠️ LaTeX compilation failed:\n\n" }} {err}
                         </div>
                     })}
                     // Plain `<canvas>` elements rendered by PDF.js, not an `<iframe>`: a browser's
@@ -395,8 +397,8 @@ pub fn DocumentEditorIsland(
                     class="svg-page-nav-edge svg-page-nav-prev presentation-nav-edge"
                     class:hidden=move || current_slide.get() <= 1
                     on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })
-                    title="Previous Slide (← or Scroll Up)"
-                    aria-label="Previous Slide"
+                    title=if zh { "上一页幻灯片 (← 或向上滚轮)" } else { "Previous Slide (← or Scroll Up)" }
+                    aria-label=if zh { "上一页" } else { "Previous Slide" }
                 >
                     <span class="svg-page-nav-arrow">"‹"</span>
                 </button>
@@ -406,20 +408,20 @@ pub fn DocumentEditorIsland(
                         target="_blank"
                         rel="noopener noreferrer"
                         class="btn btn-primary btn-sm"
-                        title="Open interactive Web player with transitions, whiteboard ink, laser pointer, HUD charts and audio"
+                        title=if zh { "打开支持页面过渡、白板画笔、激光笔和图表的高级网页演示播放器" } else { "Open interactive Web player with transitions, whiteboard ink, laser pointer, HUD charts and audio" }
                         style="text-decoration:none; display:inline-flex; align-items:center; gap:0.3rem;"
                     >
-                        "▶ Play in Browser"
+                        {if zh { "▶ 在浏览器中放映" } else { "▶ Play in Browser" }}
                     </a>
                     <button
                         type="button"
                         class="btn btn-secondary btn-sm"
-                        title="Fill the whole screen (Esc or this button to exit)"
+                        title=if zh { "全屏播放 (按 Esc 或此按钮退出)" } else { "Fill the whole screen (Esc or this button to exit)" }
                         on:click=move |_| toggle_fullscreen(stage_ref, is_fullscreen)
                     >
-                        {move || if is_fullscreen.get() { "⤢ Exit full screen" } else { "⛶ Full screen" }}
+                        {move || if is_fullscreen.get() { if zh { "⤢ 退出全屏" } else { "⤢ Exit full screen" } } else { if zh { "⛶ 全屏播放" } else { "⛶ Full screen" } }}
                     </button>
-                    <button type="button" on:click=move |_| { exit_fullscreen_if_active(is_fullscreen); presenting.set(false); } style="background:none; border:none; color:#fff; font-size:1.75rem; cursor:pointer; line-height:1;" title="Close presentation">"×"</button>
+                    <button type="button" on:click=move |_| { exit_fullscreen_if_active(is_fullscreen); presenting.set(false); } style="background:none; border:none; color:#fff; font-size:1.75rem; cursor:pointer; line-height:1;" title=if zh { "关闭演示" } else { "Close presentation" }>"×"</button>
                 </div>
                 <div style="background:#ffffff; width:90%; max-width:1100px; aspect-ratio:16/9; border-radius:16px; padding:2.5rem; display:flex; flex-direction:column; justify-content:center; overflow:hidden; box-shadow:0 25px 60px -15px rgba(0,0,0,0.5);">
                     <div
@@ -438,15 +440,15 @@ pub fn DocumentEditorIsland(
                         let n = pages.with(|p| p.len().max(1));
                         current_slide.update(|s| if *s < n { *s = s.saturating_add(1); });
                     }
-                    title="Next Slide (→ or Scroll Down)"
-                    aria-label="Next Slide"
+                    title=if zh { "下一页幻灯片 (→ 或向下滚轮)" } else { "Next Slide (→ or Scroll Down)" }
+                    aria-label=if zh { "下一页" } else { "Next Slide" }
                 >
                     <span class="svg-page-nav-arrow">"›"</span>
                 </button>
                 <div style="display:flex; gap:1rem; align-items:center; margin-top:1.5rem; color:#94a3b8; font-size:0.9rem; z-index:30;">
-                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })>"← Prev"</button>
-                    <span>{move || format!("Slide {} of {}", current_slide.get(), pages.with(|p| p.len().max(1)))}</span>
-                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s = s.saturating_add(1); }) }>"Next →"</button>
+                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })>{if zh { "← 上一页" } else { "← Prev" }}</button>
+                    <span>{move || if zh { format!("第 {} / {} 页", current_slide.get(), pages.with(|p| p.len().max(1))) } else { format!("Slide {} of {}", current_slide.get(), pages.with(|p| p.len().max(1))) }}</span>
+                    <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s = s.saturating_add(1); }) }>{if zh { "下一页 →" } else { "Next →" }}</button>
                 </div>
             </div>
         }
@@ -456,7 +458,7 @@ pub fn DocumentEditorIsland(
         <div class="editor-studio-grid">
             <div class="outline-panel">
                 <div style="font-size:0.75rem; font-weight:700; color:var(--text-sub); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:0.75rem;">
-                    "Document Outline"
+                    {if zh { "文档大纲" } else { "Document Outline" }}
                 </div>
                 {outline_items}
             </div>
@@ -471,9 +473,9 @@ pub fn DocumentEditorIsland(
                     <script>{crate::code_highlight::CODE_HIGHLIGHT_JS}</script>
                     <div style="padding:0.4rem 1rem; background:var(--bg-muted); border-top:1px solid var(--border-subtle); display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-sub);">
                         <span>
-                            "Press Ctrl+S to save"
-                            {is_script.then_some(" • Ctrl+Enter to run script")}
-                            {(!is_script && !is_typst_preview && !is_latex_preview).then_some(" • Math: $inline$ or $$block$$")}
+                            {if zh { "按 Ctrl+S 保存" } else { "Press Ctrl+S to save" }}
+                            {is_script.then_some(if zh { " • Ctrl+Enter 运行脚本" } else { " • Ctrl+Enter to run script" })}
+                            {(!is_script && !is_typst_preview && !is_latex_preview).then_some(if zh { " • 公式：$行内$ 或 $$独立块$$" } else { " • Math: $inline$ or $$block$$" })}
                         </span>
                         <span>"UTF-8"</span>
                     </div>
@@ -776,6 +778,7 @@ fn render_typst_preview(
     compile_error: RwSignal<Option<String>>,
     pages: RwSignal<Vec<String>>,
     current_slide: RwSignal<usize>,
+    zh: bool,
 ) -> impl IntoView {
     let last_wheel_time = StoredValue::new(0f64);
 
@@ -803,7 +806,7 @@ fn render_typst_preview(
                 if let Some(err) = compile_error.get() {
                     return view! {
                         <div class="section-card" style="background:#fef2f2; border:1px solid #fecaca; padding:1.5rem; height:100%; overflow-y:auto;">
-                            <h3 style="color:#b91c1c; font-size:1rem; font-weight:700; margin-bottom:0.5rem;">"⚠️ Typst Compilation Diagnostics"</h3>
+                            <h3 style="color:#b91c1c; font-size:1rem; font-weight:700; margin-bottom:0.5rem;">{if zh { "⚠️ Typst 编译诊断信息" } else { "⚠️ Typst Compilation Diagnostics" }}</h3>
                             <pre style="color:#991b1b; font-family:var(--font-mono); font-size:0.825rem; white-space:pre-wrap; line-height:1.5;">{err}</pre>
                         </div>
                     }.into_any();
@@ -812,7 +815,7 @@ fn render_typst_preview(
                 if page_count == 0 {
                     return view! {
                         <div class="empty-state" style="padding:2.5rem; height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-                            <p style="color:var(--text-sub);">"No pages rendered yet. Save the document to compile."</p>
+                            <p style="color:var(--text-sub);">{if zh { "尚未渲染任何页面。保存文档即可编译生成预览。" } else { "No pages rendered yet. Save the document to compile." }}</p>
                         </div>
                     }.into_any();
                 }
@@ -834,12 +837,12 @@ fn render_typst_preview(
                     <div class="svg-preview-stage">
                         <div class="svg-nav-toolbar">
                             <div style="display:flex; align-items:center; gap:0.4rem;">
-                                <button type="button" class="btn btn-secondary btn-sm" on:click=on_prev_page>"← Prev"</button>
-                                <span style="font-weight:600; font-size:0.825rem; min-width:90px; text-align:center;">{move || format!("Page {} of {}", current_slide.get(), pages.with(|p| p.len().max(1)))}</span>
-                                <button type="button" class="btn btn-secondary btn-sm" on:click=on_next_page>"Next →"</button>
+                                <button type="button" class="btn btn-secondary btn-sm" on:click=on_prev_page>{if zh { "← 上一页" } else { "← Prev" }}</button>
+                                <span style="font-weight:600; font-size:0.825rem; min-width:90px; text-align:center;">{move || if zh { format!("第 {} / {} 页", current_slide.get(), pages.with(|p| p.len().max(1))) } else { format!("Page {} of {}", current_slide.get(), pages.with(|p| p.len().max(1))) }}</span>
+                                <button type="button" class="btn btn-secondary btn-sm" on:click=on_next_page>{if zh { "下一页 →" } else { "Next →" }}</button>
                             </div>
                             <div style="font-size:0.75rem; color:var(--text-sub);">
-                                <span>"💡 Click any line to jump to code • Scroll or click < > edges"</span>
+                                <span>{if zh { "💡 点击任意行可跳转至代码 • 滚动或点击左右边缘可翻页" } else { "💡 Click any line to jump to code • Scroll or click < > edges" }}</span>
                             </div>
                         </div>
                         <div class="svg-viewport-wrapper">
@@ -848,8 +851,8 @@ fn render_typst_preview(
                                 class="svg-page-nav-edge svg-page-nav-prev"
                                 class:hidden=move || current_slide.get() <= 1
                                 on:click=on_prev_page
-                                title="Previous Page (← or Scroll Up)"
-                                aria-label="Previous Page"
+                                title=if zh { "上一页 (← 或向上滚轮)" } else { "Previous Page (← or Scroll Up)" }
+                                aria-label=if zh { "上一页" } else { "Previous Page" }
                             >
                                 <span class="svg-page-nav-arrow">"‹"</span>
                             </button>
@@ -868,8 +871,8 @@ fn render_typst_preview(
                                     current_slide.get() >= n
                                 }
                                 on:click=on_next_page
-                                title="Next Page (→ or Scroll Down)"
-                                aria-label="Next Page"
+                                title=if zh { "下一页 (→ 或向下滚轮)" } else { "Next Page (→ or Scroll Down)" }
+                                aria-label=if zh { "下一页" } else { "Next Page" }
                             >
                                 <span class="svg-page-nav-arrow">"›"</span>
                             </button>
@@ -884,9 +887,10 @@ fn render_typst_preview(
 fn render_script_console(
     project_id: String,
     file_path: String,
+    zh: bool,
 ) -> impl IntoView {
     let output =
-        RwSignal::new("Ready to execute. Click \"Run Script\" or press Ctrl+Enter.".to_string());
+        RwSignal::new(if zh { "准备就绪。点击“运行脚本”或按 Ctrl+Enter 执行。".to_string() } else { "Ready to execute. Click \"Run Script\" or press Ctrl+Enter.".to_string() });
     let status = RwSignal::new(None::<(bool, i64)>);
     let time_ms = RwSignal::new(None::<f64>);
     let plots = RwSignal::new(Vec::<(String, String)>::new());
@@ -898,7 +902,7 @@ fn render_script_console(
             return;
         }
         busy.set(true);
-        output.set("Executing...".to_string());
+        output.set(if zh { "正在执行...".to_string() } else { "Executing...".to_string() });
         status.set(None);
         run_script(RunScriptArgs {
             project_id: project_id.clone(),
@@ -922,10 +926,10 @@ fn render_script_console(
         <div class="script-console-card">
             <div class="script-console-bar">
                 <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <button type="button" class="btn btn-primary btn-sm" on:click=move |_| run() disabled=move || busy.get()>"▶ Run Script"</button>
+                    <button type="button" class="btn btn-primary btn-sm" on:click=move |_| run() disabled=move || busy.get()>{if zh { "▶ 运行脚本" } else { "▶ Run Script" }}</button>
                     <input
                         type="text"
-                        placeholder="CLI arguments..."
+                        placeholder=if zh { "命令行参数..." } else { "CLI arguments..." }
                         class="form-control"
                         style="width:160px; font-size:0.75rem; height:28px; background:#1e293b; color:#fff; border-color:#334155;"
                         prop:value=move || args.get()
@@ -934,15 +938,15 @@ fn render_script_console(
                 </div>
                 <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.75rem; color:#94a3b8;">
                     {move || status.get().map(|(success, code)| {
-                        let (bg, label) = if success { ("#16a34a", format!("SUCCESS (Exit {code})")) } else { ("#dc2626", format!("FAILED (Exit {code})")) };
+                        let (bg, label) = if success { ("#16a34a", if zh { format!("执行成功 (代码 {code})") } else { format!("SUCCESS (Exit {code})") }) } else { ("#dc2626", if zh { format!("执行失败 (代码 {code})") } else { format!("FAILED (Exit {code})") }) };
                         view! { <span style=format!("padding:2px 6px; border-radius:4px; font-weight:600; background:{bg}; color:#fff;")>{label}</span> }
                     })}
                     <span style="font-family:var(--font-mono);">{move || time_ms.get().map(|t| format!("{t} ms")).unwrap_or_default()}</span>
-                    <button type="button" class="btn btn-ghost btn-sm" style="color:#94a3b8; padding:2px 6px;" title="Clear Output" on:click=move |_| {
-                        output.set("Output cleared.".to_string());
+                    <button type="button" class="btn btn-ghost btn-sm" style="color:#94a3b8; padding:2px 6px;" title=if zh { "清空输出" } else { "Clear Output" } on:click=move |_| {
+                        output.set(if zh { "输出已清空。".to_string() } else { "Output cleared.".to_string() });
                         plots.set(Vec::new());
                         status.set(None);
-                    }>"🧹 Clear"</button>
+                    }>{if zh { "🧹 清空" } else { "🧹 Clear" }}</button>
                 </div>
             </div>
             <div class="terminal-output">{move || output.get()}</div>
@@ -950,7 +954,7 @@ fn render_script_console(
                 let p = plots.get();
                 (!p.is_empty()).then(|| view! {
                     <div class="script-plot-card">
-                        <div style="font-size:0.75rem; font-weight:700; color:#cbd5e1; text-transform:uppercase; margin-bottom:0.5rem;">"Generated Plot Output"</div>
+                        <div style="font-size:0.75rem; font-weight:700; color:#cbd5e1; text-transform:uppercase; margin-bottom:0.5rem;">{if zh { "生成的图表输出" } else { "Generated Plot Output" }}</div>
                         <div>
                             {p.into_iter().map(|(name, data_uri)| view! {
                                 <div style="margin:0.5rem 0;">

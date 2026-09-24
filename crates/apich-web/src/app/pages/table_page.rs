@@ -147,28 +147,29 @@ pub fn TablePage(
                     <h1 class="page-title">"📊 " {project.name.clone()} " • " {cur_file.clone()}</h1>
                 </div>
                 <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 VCS History"</a>
+                    <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 " {i18n.history()}</a>
                     {if project.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false) {
                         let cf_file = cur_file.clone();
+                        let confirm_msg = i18n.delete_file_confirm(&cf_file);
                         view! {
                             <form
                                 method="post"
                                 action=format!("/projects/{}/delete", project_id)
                                 class="inline-form"
-                                onsubmit=format!("return confirm('Are you sure you want to permanently delete \"{}\"? This cannot be undone.');", cf_file)
+                                onsubmit=format!("return confirm('{}');", confirm_msg.replace('\'', "\\'"))
                             >
                                 <button
                                     type="submit"
                                     class="btn btn-danger btn-sm"
-                                    title="Permanently delete this file"
+                                    title=i18n.delete_file()
                                 >
-                                    "🗑️ Delete"
+                                    "🗑️ " {i18n.delete()}
                                 </button>
                             </form>
-                            <a href="/" class="btn btn-outline btn-sm">"← Back to Dashboard"</a>
+                            <a href="/" class="btn btn-outline btn-sm">"← " {i18n.back_to_dashboard()}</a>
                         }.into_any()
                     } else {
-                        view! { <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm">"📁 Back to Files"</a> }.into_any()
+                        view! { <a href=format!("/projects/{}?tab=files", project_id) class="btn btn-outline btn-sm">"📁 " {i18n.back_to_files()}</a> }.into_any()
                     }}
                 </div>
             </div>
@@ -234,8 +235,8 @@ fn render_schema_view(
 
     let grid = match table_data {
         Some(td) => render_grid(project, td, schema, column_view, cur_file, mode, search, is_zh).into_any(),
-        None if !schema.tables.is_empty() => view! { <div class="empty-state"><p>"Select a table tab above to inspect rows."</p></div> }.into_any(),
-        None => view! { <div class="empty-state"><p>"Database is empty. Use the SQL console below to create tables."</p></div> }.into_any(),
+        None if !schema.tables.is_empty() => view! { <div class="empty-state"><p>{if is_zh { "请在上方选择一个数据表标签以查看数据行。" } else { "Select a table tab above to inspect rows." }}</p></div> }.into_any(),
+        None => view! { <div class="empty-state"><p>{if is_zh { "数据库为空。请使用下方 SQL 控制台创建数据表。" } else { "Database is empty. Use the SQL console below to create tables." }}</p></div> }.into_any(),
     };
 
     let notebook_section = selected_table.map(|tbl| {
@@ -251,9 +252,9 @@ fn render_schema_view(
             .collect();
         view! {
             <details style="margin-top:1.25rem; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:10px; padding:1.25rem;" open=mode == "notebook">
-                <summary style="cursor:pointer; font-weight:700; outline:none;">"🐍 Python / R Notebook (click to expand)"</summary>
+                <summary style="cursor:pointer; font-weight:700; outline:none;">{if is_zh { "🐍 Python / R 交互笔记本（点击展开）" } else { "🐍 Python / R Notebook (click to expand)" }}</summary>
                 <p class="text-muted" style="font-size:0.8rem; margin:0.5rem 0 1rem;">
-                    "Each cell runs its own fresh Python or R process against this table's real data -- no shared state between cells (each cell re-loads what it needs; see the starter code in a new cell). Results, including any plot a cell produces, are saved with the cell."
+                    {if is_zh { "每个单元格在独立的 Python 或 R 进程中针对此表的真实数据运行——单元格之间无共享状态（每个单元格按需加载所需数据；详见新单元格中的示例代码）。执行结果（包括生成的图表）将保存在单元格中。" } else { "Each cell runs its own fresh Python or R process against this table's real data -- no shared state between cells (each cell re-loads what it needs; see the starter code in a new cell). Results, including any plot a cell produces, are saved with the cell." }}
                 </p>
                 <apich_islands::NotebookIsland
                     project_id=project_id.to_string()
@@ -284,6 +285,7 @@ fn render_column_panel(
     mode: &str,
     all_columns: &[String],
     column_view: &ColumnViewConfig,
+    is_zh: bool,
 ) -> impl IntoView {
     let action = format!("/projects/{project_id}/table/column-view");
     let visible = column_view.apply(all_columns);
@@ -320,7 +322,7 @@ fn render_column_panel(
                     <div style="display:flex; gap:0.15rem;">
                         {(i > 0).then(|| row_form("◀".to_string(), name.clone(), vec![("action", "move-left".to_string())]))}
                         {(i.saturating_add(1) < n_visible).then(|| row_form("▶".to_string(), name.clone(), vec![("action", "move-right".to_string())]))}
-                        {row_form("🙈 Hide".to_string(), name.clone(), vec![("action", "hide".to_string())])}
+                        {row_form(if is_zh { "🙈 隐藏".to_string() } else { "🙈 Hide".to_string() }, name.clone(), vec![("action", "hide".to_string())])}
                     </div>
                 </div>
             }
@@ -335,14 +337,14 @@ fn render_column_panel(
             view! {
                 <div style="display:flex; align-items:center; justify-content:space-between; padding:0.3rem 0; border-bottom:1px solid var(--border-subtle); opacity:0.6;">
                     <span style="font-size:0.8rem; font-family:var(--font-mono);">{name.clone()}</span>
-                    {row_form("👁 Show".to_string(), name.clone(), vec![("action", "show".to_string())])}
+                    {row_form(if is_zh { "👁 显示".to_string() } else { "👁 Show".to_string() }, name.clone(), vec![("action", "show".to_string())])}
                 </div>
             }
         })
         .collect();
     let hidden_section = (!hidden_rows.is_empty()).then(|| view! {
         <div style="margin-top:0.5rem; padding-top:0.5rem; border-top:2px solid var(--border-subtle);">
-            <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-sub); margin-bottom:0.25rem;">"Hidden"</div>
+            <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-sub); margin-bottom:0.25rem;">{if is_zh { "已隐藏的列" } else { "Hidden" }}</div>
             {hidden_rows}
         </div>
     });
@@ -350,7 +352,7 @@ fn render_column_panel(
     let has_customization = !column_view.order.is_empty() || !column_view.hidden.is_empty();
     let reset_btn = has_customization.then(|| {
         row_form(
-            "↺ Reset to default order".to_string(),
+            if is_zh { "↺ 恢复默认排序".to_string() } else { "↺ Reset to default order".to_string() },
             String::new(),
             vec![("action", "reset".to_string())],
         )
@@ -359,7 +361,7 @@ fn render_column_panel(
     view! {
         <div class="dropdown-menu-wrap" style="position:relative; display:inline-block;">
             <details style="display:inline-block;">
-                <summary class="btn btn-secondary btn-sm" style="list-style:none; cursor:pointer;">"🧱 Columns"</summary>
+                <summary class="btn btn-secondary btn-sm" style="list-style:none; cursor:pointer;">{if is_zh { "🧱 列管理" } else { "🧱 Columns" }}</summary>
                 <div style="position:absolute; z-index:20; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; box-shadow:var(--shadow-md); padding:0.6rem; margin-top:0.25rem; min-width:220px; max-height:320px; overflow-y:auto;">
                     {visible_rows}
                     {hidden_section}
@@ -521,11 +523,11 @@ fn render_grid(
                                             {if is_zh { "数据类型" } else { "Data Type" }}
                                         </label>
                                         <select name="column_type" class="form-control" style="width:100%; box-sizing:border-box;">
-                                            <option value="TEXT" selected=true>"TEXT (Text / String)"</option>
-                                            <option value="INTEGER">"INTEGER (Whole Number)"</option>
-                                            <option value="REAL">"REAL (Decimal / Float)"</option>
-                                            <option value="BOOLEAN">"BOOLEAN (True / False)"</option>
-                                            <option value="BLOB">"BLOB (Binary Data)"</option>
+                                            <option value="TEXT" selected=true>{if is_zh { "TEXT (文本 / 字符串)" } else { "TEXT (Text / String)" }}</option>
+                                            <option value="INTEGER">{if is_zh { "INTEGER (整数)" } else { "INTEGER (Whole Number)" }}</option>
+                                            <option value="REAL">{if is_zh { "REAL (浮点数 / 小数)" } else { "REAL (Decimal / Float)" }}</option>
+                                            <option value="BOOLEAN">{if is_zh { "BOOLEAN (布尔值)" } else { "BOOLEAN (True / False)" }}</option>
+                                            <option value="BLOB">{if is_zh { "BLOB (二进制数据)" } else { "BLOB (Binary Data)" }}</option>
                                         </select>
                                     </div>
                                     <div class="form-group" style="margin-bottom: 1.25rem;">
@@ -554,35 +556,37 @@ fn render_grid(
                         <input type="hidden" name="table" value=td.table_name.clone() />
                         <input type="hidden" id="del-row-id-col" name="row_id_col" value="rowid" />
                         <input type="hidden" id="del-row-id-val" name="row_id_val" value="" />
-                        <apich_islands::DeleteRowButtonIsland label="🗑️ Delete Row".to_string() />
+                        <apich_islands::DeleteRowButtonIsland label={if is_zh { "🗑️ 删除行".to_string() } else { "🗑️ Delete Row".to_string() }} is_zh=is_zh />
                     </form>
                     {
                         let import_action = format!("/projects/{project_id}/table/import");
                         let cur_file_owned = cur_file.to_string();
                         let table_name_owned = td.table_name.clone();
+                        let import_trigger = if is_zh { "📥 导入 CSV" } else { "📥 Import CSV" }.to_string();
+                        let import_title = if is_zh { "导入 CSV 数据到数据表" } else { "Import CSV Data into Table" }.to_string();
                         view! {
-                            <apich_islands::ModalIsland trigger_label="📥 Import CSV".to_string() trigger_class="btn btn-secondary btn-sm".to_string() title="Import CSV Data into Table".to_string()>
+                            <apich_islands::ModalIsland trigger_label=import_trigger trigger_class="btn btn-secondary btn-sm".to_string() title=import_title>
                                 <form method="post" action=import_action>
                                     <input type="hidden" name="file" value=cur_file_owned />
                                     <input type="hidden" name="table" value=table_name_owned />
                                     <div class="form-group">
-                                        <label>"Paste RFC-4180 CSV Data (with Header Row)"</label>
+                                        <label>{if is_zh { "粘贴符合 RFC-4180 规范的 CSV 数据（包含表头行）" } else { "Paste RFC-4180 CSV Data (with Header Row)" }}</label>
                                         <textarea name="csv_data" rows="8" class="form-control" style="font-family:var(--font-mono); font-size:0.825rem;" required=true placeholder="sample_id,frequency_ghz,fidelity"></textarea>
                                     </div>
                                     <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.25rem;">
-                                        <button type="submit" class="btn btn-primary">"Import Rows"</button>
+                                        <button type="submit" class="btn btn-primary">{if is_zh { "导入数据行" } else { "Import Rows" }}</button>
                                     </div>
                                 </form>
                             </apich_islands::ModalIsland>
                         }
                     }
-                    {render_column_panel(project_id, cur_file, &td.table_name, mode, &td.columns, column_view)}
+                    {render_column_panel(project_id, cur_file, &td.table_name, mode, &td.columns, column_view, is_zh)}
                     {
                         let export_base = format!("/projects/{}/table/export?file={}&table={}", project_id, urlencoding::encode(cur_file), urlencoding::encode(&td.table_name));
                         view! {
                             <div class="dropdown-menu-wrap" style="position:relative; display:inline-block;">
                                 <details style="display:inline-block;">
-                                    <summary class="btn btn-secondary btn-sm" style="list-style:none; cursor:pointer;">"📤 Export"</summary>
+                                    <summary class="btn btn-secondary btn-sm" style="list-style:none; cursor:pointer;">{if is_zh { "📤 导出" } else { "📤 Export" }}</summary>
                                     <div style="position:absolute; z-index:20; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px; box-shadow:var(--shadow-md); padding:0.35rem; margin-top:0.25rem; min-width:140px;">
                                         <a href=format!("{}&format=csv", export_base) class="dropdown-item" style="display:block; padding:0.4rem 0.6rem; font-size:0.8rem; border-radius:6px; color:var(--text-main); text-decoration:none;">"CSV"</a>
                                         <a href=format!("{}&format=tsv", export_base) class="dropdown-item" style="display:block; padding:0.4rem 0.6rem; font-size:0.8rem; border-radius:6px; color:var(--text-main); text-decoration:none;">"TSV"</a>
@@ -599,10 +603,10 @@ fn render_grid(
                         <input type="hidden" name="file" value=cur_file.to_string() />
                         <input type="hidden" name="table" value=td.table_name.clone() />
                         <input type="hidden" name="mode" value=mode.to_string() />
-                        <input type="text" name="search" value=cur_search placeholder="Search cells..." class="form-control" style="width:180px; padding:0.25rem 0.6rem; font-size:0.8rem;" />
-                        <button type="submit" class="btn btn-secondary btn-sm">"Search"</button>
+                        <input type="text" name="search" value=cur_search placeholder={if is_zh { "搜索单元格内容..." } else { "Search cells..." }} class="form-control" style="width:180px; padding:0.25rem 0.6rem; font-size:0.8rem;" />
+                        <button type="submit" class="btn btn-secondary btn-sm">{if is_zh { "搜索" } else { "Search" }}</button>
                     </form>
-                    <span style="font-size:0.775rem; color:var(--text-sub);">"Total: "<strong>{td.total_rows}</strong></span>
+                    <span style="font-size:0.775rem; color:var(--text-sub);">{if is_zh { "共计：" } else { "Total: " }}<strong>{td.total_rows}</strong></span>
                 </div>
             </div>
 
@@ -620,10 +624,10 @@ fn render_grid(
             />
 
             <div style="display:flex; justify-content:space-between; align-items:center; padding:0.65rem 1rem; background:var(--bg-muted); border-top:1px solid var(--border-subtle); font-size:0.8rem;">
-                <div>"Page "<strong>{td.page}</strong>" of "<strong>{td.total_pages}</strong></div>
+                <div>{if is_zh { "第 " } else { "Page " }}<strong>{td.page}</strong>{if is_zh { " / " } else { " of " }}<strong>{td.total_pages}</strong>{if is_zh { " 页" } else { "" }}</div>
                 <div style="display:flex; gap:0.5rem;">
-                    <a href=prev_url class="btn btn-secondary btn-sm">"< Previous"</a>
-                    <a href=next_url class="btn btn-secondary btn-sm">"Next >"</a>
+                    <a href=prev_url class="btn btn-secondary btn-sm">{if is_zh { "< 上一页" } else { "< Previous" }}</a>
+                    <a href=next_url class="btn btn-secondary btn-sm">{if is_zh { "下一页 >" } else { "Next >" }}</a>
                 </div>
             </div>
         </div>
@@ -702,19 +706,19 @@ fn render_sql_console(
 
     view! {
         <details style="margin-top:1.5rem; background:#0f172a; border-radius:10px; padding:1.25rem; color:#fff;" open=is_open>
-            <summary style="cursor:pointer; font-weight:700; color:#38bdf8; outline:none;">"💻 SQLite Console & Raw SQL (click to expand)"</summary>
+            <summary style="cursor:pointer; font-weight:700; color:#38bdf8; outline:none;">{if is_zh { "💻 SQLite 控制台与原生 SQL（点击展开）" } else { "💻 SQLite Console & Raw SQL (click to expand)" }}</summary>
             <form method="post" action=format!("/projects/{}/table/sql", project_id) style="margin-top:1rem;">
                 <input type="hidden" name="file" value=cur_file.to_string() />
                 {sql_input}
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.5rem;">
                     <span style="font-size:0.75rem; color:#94a3b8; display:flex; align-items:center; gap:0.6rem;">
-                        "Target: "<code>{cur_file.to_string()}</code>
+                        {if is_zh { "目标文件：" } else { "Target: " }}<code>{cur_file.to_string()}</code>
                         <label style="display:flex; align-items:center; gap:0.3rem;">
-                            "Row limit:"
+                            {if is_zh { "最大行数：" } else { "Row limit:" }}
                             <input type="number" name="max_rows" value="500" min="1" max="5000" style="width:70px; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:4px; padding:0.15rem 0.35rem; font-size:0.75rem;" />
                         </label>
                     </span>
-                    <button type="submit" class="btn btn-primary btn-sm" title="Ctrl+Enter / Cmd+Enter also runs">"▶ Run SQL"</button>
+                    <button type="submit" class="btn btn-primary btn-sm" title=if is_zh { "也可以按 Ctrl+Enter / Cmd+Enter 执行" } else { "Ctrl+Enter / Cmd+Enter also runs" }>{if is_zh { "▶ 执行 SQL" } else { "▶ Run SQL" }}</button>
                 </div>
             </form>
             {result}

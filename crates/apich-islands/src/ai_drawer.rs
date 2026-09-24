@@ -40,16 +40,26 @@ struct AgentRunRequest<'a> {
 pub fn AiDrawerIsland(
     #[prop(into)] project_id: String,
     file_path: Option<String>,
+    #[prop(optional)] is_zh: Option<bool>,
 ) -> impl IntoView {
+    let zh = is_zh.unwrap_or(false);
     let mode = RwSignal::new("chat".to_string());
 
     // --- Chat state ---
     let provider = RwSignal::new("builtin".to_string());
     let api_key = RwSignal::new(String::new());
     let welcome_text = if file_path.is_some() {
-        "Ask about this file -- formulas, analysis, drafting, or scripts.".to_string()
+        if zh {
+            "针对此文件提问 —— 公式、数据分析、起草或脚本。".to_string()
+        } else {
+            "Ask about this file -- formulas, analysis, drafting, or scripts.".to_string()
+        }
     } else {
-        "Ask about this project, or open a file to ask about it specifically.".to_string()
+        if zh {
+            "针对此项目提问，或打开特定文件进行针对性探讨。".to_string()
+        } else {
+            "Ask about this project, or open a file to ask about it specifically.".to_string()
+        }
     };
     let messages = RwSignal::new(vec![ChatMessage {
         is_user: false,
@@ -66,8 +76,11 @@ pub fn AiDrawerIsland(
     let selected_agent = RwSignal::new(String::new());
     let agent_api_key = RwSignal::new(String::new());
     let agent_prompt = RwSignal::new(String::new());
-    let agent_output =
-        RwSignal::new("Pick an agent and describe what you want done in this project.".to_string());
+    let agent_output = RwSignal::new(if zh {
+        "选择一个智能体并描述你想在本项目中完成的任务。".to_string()
+    } else {
+        "Pick an agent and describe what you want done in this project.".to_string()
+    });
     let agent_busy = RwSignal::new(false);
 
     // --- Agent-login state ---
@@ -220,24 +233,24 @@ pub fn AiDrawerIsland(
                 <div style="display:flex; align-items:center; gap:0.5rem;">
                     <span style="font-size:1.2rem;">"🤖"</span>
                     <div>
-                        <strong style="font-size:0.95rem; color:var(--text-main);">"APICH Copilot"</strong>
-                        <div style="font-size:0.75rem; color:var(--text-sub);">"Bring-your-own-key assistant"</div>
+                        <strong style="font-size:0.95rem; color:var(--text-main);">{if zh { "APICH 助手" } else { "APICH Copilot" }}</strong>
+                        <div style="font-size:0.75rem; color:var(--text-sub);">{if zh { "支持自带 API 密钥与智能体" } else { "Bring-your-own-key assistant" }}</div>
                     </div>
                 </div>
                 <label for="ai-drawer-toggle-cb" class="btn btn-ghost btn-sm" style="font-size:1.25rem; line-height:1;">"×"</label>
             </div>
 
             <div style="padding:0.5rem 1.25rem 0; display:flex; gap:0.4rem; border-bottom:1px solid var(--border-subtle);">
-                <button type="button" class="btn btn-sm" class:btn-primary=move || mode.get() == "chat" class:btn-secondary=move || mode.get() != "chat" style="font-size:0.75rem;" on:click={let f = on_tab_click.clone(); move |_| f("chat")}>"💬 Chat"</button>
-                <button type="button" class="btn btn-sm" class:btn-primary=move || mode.get() == "agent" class:btn-secondary=move || mode.get() != "agent" style="font-size:0.75rem;" on:click={let f = on_tab_click.clone(); move |_| f("agent")}>"🧑‍💻 Run Agent"</button>
+                <button type="button" class="btn btn-sm" class:btn-primary=move || mode.get() == "chat" class:btn-secondary=move || mode.get() != "chat" style="font-size:0.75rem;" on:click={let f = on_tab_click.clone(); move |_| f("chat")}>{if zh { "💬 对话" } else { "💬 Chat" }}</button>
+                <button type="button" class="btn btn-sm" class:btn-primary=move || mode.get() == "agent" class:btn-secondary=move || mode.get() != "agent" style="font-size:0.75rem;" on:click={let f = on_tab_click.clone(); move |_| f("agent")}>{if zh { "🧑‍💻 运行智能体" } else { "🧑‍💻 Run Agent" }}</button>
             </div>
 
             <div style:display=move || if mode.get() == "chat" { "block" } else { "none" }>
                 <div style="background:var(--bg-muted); padding:0.6rem 1.25rem; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.4rem; font-size:0.75rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span style="font-weight:600; color:var(--text-sub);">"Provider:"</span>
+                        <span style="font-weight:600; color:var(--text-sub);">{if zh { "模型服务商：" } else { "Provider:" }}</span>
                         <select class="form-control" style="width:auto; height:26px; padding:0 6px; font-size:0.75rem;" prop:value=move || provider.get() on:change=move |ev| provider.set(event_target_value(&ev))>
-                            <option value="builtin">"Built-in"</option>
+                            <option value="builtin">{if zh { "内置服务" } else { "Built-in" }}</option>
                             <option value="gemini">"Google Gemini (API key)"</option>
                             <option value="openai">"OpenAI (API key)"</option>
                             <option value="ollama">"Ollama (local)"</option>
@@ -246,7 +259,7 @@ pub fn AiDrawerIsland(
                     <div style:display=move || if provider.get() == "gemini" || provider.get() == "openai" { "block" } else { "none" }>
                         <input
                             type="password"
-                            placeholder="Paste your API key (stored in local storage)"
+                            placeholder=if zh { "粘贴你的 API 密钥（保存在本地存储）" } else { "Paste your API key (stored in local storage)" }
                             class="form-control"
                             style="font-size:0.75rem; height:28px;"
                             prop:value=move || api_key.get()
@@ -269,8 +282,8 @@ pub fn AiDrawerIsland(
                                     let c2 = c;
                                     view! {
                                         <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
-                                            <button type="button" class="btn btn-primary btn-sm" style="font-size:0.75rem;" on:click=move |_| insert(c1.clone())>"✍️ Insert at Cursor"</button>
-                                            <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.75rem;" on:click=move |_| copy(c2.clone())>"📋 Copy Code"</button>
+                                            <button type="button" class="btn btn-primary btn-sm" style="font-size:0.75rem;" on:click=move |_| insert(c1.clone())>"✍️ " {if zh { "在光标处插入" } else { "Insert at Cursor" }}</button>
+                                            <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.75rem;" on:click=move |_| copy(c2.clone())>"📋 " {if zh { "复制代码" } else { "Copy Code" }}</button>
                                         </div>
                                     }
                                 })}
@@ -280,9 +293,9 @@ pub fn AiDrawerIsland(
                 </div>
 
                 <div style="padding:0.5rem 1.25rem; background:var(--bg-surface); border-top:1px solid var(--border-subtle); display:flex; flex-wrap:wrap; gap:0.35rem;">
-                    <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set("Add a formula in this document format".to_string())>"🔬 Formula"</button>
-                    <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set("Write a python script to analyze and plot this data".to_string())>"🐍 Python plot"</button>
-                    <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set("Suggest next tasks for this file".to_string())>"📋 Suggest tasks"</button>
+                    <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set(if zh { "在此文档中添加公式".to_string() } else { "Add a formula in this document format".to_string() })>"🔬 " {if zh { "公式" } else { "Formula" }}</button>
+                    <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set(if zh { "编写 Python 脚本分析并绘制数据".to_string() } else { "Write a python script to analyze and plot this data".to_string() })>"🐍 " {if zh { "Python 绘图" } else { "Python plot" }}</button>
+                    <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set(if zh { "为此文件建议后续任务".to_string() } else { "Suggest next tasks for this file".to_string() })>"📋 " {if zh { "建议任务" } else { "Suggest tasks" }}</button>
                 </div>
 
                 <div class="ai-drawer-footer">
@@ -291,11 +304,11 @@ pub fn AiDrawerIsland(
                             rows="2"
                             class="form-control"
                             style="font-size:0.85rem; resize:none;"
-                            placeholder="Ask APICH Copilot..."
+                            placeholder=if zh { "向 APICH 助手提问..." } else { "Ask APICH Copilot..." }
                             prop:value=move || prompt.get()
                             on:input=move |ev| prompt.set(event_target_value(&ev))
                         ></textarea>
-                        <button type="submit" class="btn btn-primary" style="padding:0 1rem;" disabled=move || chat_busy.get()>"Send"</button>
+                        <button type="submit" class="btn btn-primary" style="padding:0 1rem;" disabled=move || chat_busy.get()>{if zh { "发送" } else { "Send" }}</button>
                     </form>
                 </div>
             </div>
@@ -303,18 +316,22 @@ pub fn AiDrawerIsland(
             <div style:display=move || if mode.get() == "agent" { "flex" } else { "none" } style="flex-direction:column; flex:1; min-height:0;">
                 <div style="background:var(--bg-muted); padding:0.6rem 1.25rem; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.4rem; font-size:0.75rem;">
                     <div style="font-size:0.7rem; color:var(--text-sub);">
-                        "Runs a real CLI agent with full access to this project's actual files -- not a hosted chat call."
+                        {if zh {
+                            "运行具有完整项目文件读写权限的真实 CLI 智能体 —— 而非简单的对话调用。"
+                        } else {
+                            "Runs a real CLI agent with full access to this project's actual files -- not a hosted chat call."
+                        }}
                     </div>
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
-                        <span style="font-weight:600; color:var(--text-sub);">"Agent:"</span>
+                        <span style="font-weight:600; color:var(--text-sub);">{if zh { "智能体：" } else { "Agent:" }}</span>
                         <select class="form-control" style="flex:1; height:26px; padding:0 6px; font-size:0.75rem;" prop:value=move || selected_agent.get() on:change=move |ev| selected_agent.set(event_target_value(&ev))>
                             {move || {
                                 let list = agents.get();
                                 if list.is_empty() {
-                                    view! { <option value="">{if agents_loaded.get() { "Failed to check available agents" } else { "Checking available agents..." }}</option> }.into_any()
+                                    view! { <option value="">{if agents_loaded.get() { if zh { "检查可用智能体失败" } else { "Failed to check available agents" } } else { if zh { "正在检查可用智能体..." } else { "Checking available agents..." } }}</option> }.into_any()
                                 } else {
                                     list.into_iter().map(|a| {
-                                        let label = if a.available { a.name.clone() } else { format!("{} (not available)", a.name) };
+                                        let label = if a.available { a.name.clone() } else { format!("{} ({})", a.name, if zh { "不可用" } else { "not available" }) };
                                         view! { <option value=a.id.clone() disabled=!a.available>{label}</option> }
                                     }).collect::<Vec<_>>().into_any()
                                 }
@@ -327,48 +344,40 @@ pub fn AiDrawerIsland(
                             style="font-size:0.7rem; white-space:nowrap;"
                             on:click=move |_| start_login()
                         >
-                            "🔐 Login"
+                            "🔐 " {if zh { "登录" } else { "Login" }}
                         </button>
                     </div>
                     <input
                         type="password"
-                        placeholder="Or paste an API key (sent only for this run, never stored server-side)"
+                        placeholder=if zh { "或粘贴 API 密钥（仅用于本次运行，服务端不保存）" } else { "Or paste an API key (sent only for this run, never stored server-side)" }
                         class="form-control"
                         style="font-size:0.75rem; height:28px;"
                         prop:value=move || agent_api_key.get()
                         on:input=move |ev| agent_api_key.set(event_target_value(&ev))
                     />
                     <div style:display=move || if login_visible.get() { "block" } else { "none" } style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:6px; padding:0.5rem;">
-                        <div style="font-size:0.7rem; font-weight:600; color:var(--text-sub); margin-bottom:0.3rem;">"Account login"</div>
-                        // agy's own OAuth flow enforces a short, fixed deadline (its own binary,
-                        // confirmed live: "Waiting for authentication (timeout 60s)...", not
-                        // configurable by this app) from the moment it shows the sign-in URL --
-                        // and confirmed live, this app's own relay of that URL and of a pasted-
-                        // back code both land in well under a second, so a failure here is really
-                        // agy's own clock running out during the human part of the round trip
-                        // (open the link, sign in to Google, get redirected, copy the code, come
-                        // back), not something to blame on a stuck submission. Telling the user
-                        // this up front, before they hit it, is more honest than a bare error
-                        // after the fact -- and clicking "Login" again is a real, working retry
-                        // (a stale attempt's own process gets killed server-side first, see
-                        // `start_agent_login`'s doc comment), not just a hope.
+                        <div style="font-size:0.7rem; font-weight:600; color:var(--text-sub); margin-bottom:0.3rem;">{if zh { "账号登录" } else { "Account login" }}</div>
                         <div
                             style:display=move || if login_visible.get() && selected_agent.get() == "agy" { "block" } else { "none" }
                             style="font-size:0.7rem; color:var(--text-sub); background:var(--bg-muted); border-radius:4px; padding:0.4rem 0.5rem; margin-bottom:0.4rem; line-height:1.4;"
                         >
-                            "⏱️ Antigravity's own sign-in link expires about a minute after it appears -- move quickly (open it, sign in, copy the code, paste it back here) once it shows up below. If it times out, just click \"Login\" again."
+                            {if zh {
+                                "⏱️ 登录链接将在约一分钟后过期 —— 请在下方出现链接后尽快在浏览器中打开、登录并复制验证码粘贴回此处。如果超时，请重新点击“登录”。"
+                            } else {
+                                "⏱️ Antigravity's own sign-in link expires about a minute after it appears -- move quickly (open it, sign in, copy the code, paste it back here) once it shows up below. If it times out, just click \"Login\" again."
+                            }}
                         </div>
                         <pre style="margin:0; font-size:0.7rem; white-space:pre-wrap; max-height:140px; overflow-y:auto;" inner_html=move || login_output.get()></pre>
                         <div style:display=move || if login_code_visible.get() { "flex" } else { "none" } style="gap:0.4rem; margin-top:0.4rem;">
                             <input
                                 type="text"
-                                placeholder="Paste the code from your browser"
+                                placeholder=if zh { "粘贴来自浏览器的验证码" } else { "Paste the code from your browser" }
                                 class="form-control"
                                 style="flex:1; font-size:0.75rem; height:26px;"
                                 prop:value=move || login_code.get()
                                 on:input=move |ev| login_code.set(event_target_value(&ev))
                             />
-                            <button type="button" class="btn btn-primary btn-sm" style="font-size:0.7rem;" on:click=move |_| submit_code()>"Submit"</button>
+                            <button type="button" class="btn btn-primary btn-sm" style="font-size:0.7rem;" on:click=move |_| submit_code()>{if zh { "提交" } else { "Submit" }}</button>
                         </div>
                     </div>
                 </div>
@@ -379,11 +388,11 @@ pub fn AiDrawerIsland(
                             rows="2"
                             class="form-control"
                             style="font-size:0.85rem; resize:none;"
-                            placeholder="e.g. Summarize the data in results.csv and suggest a plot"
+                            placeholder=if zh { "例如：总结 results.csv 中的数据并建议绘制图表" } else { "e.g. Summarize the data in results.csv and suggest a plot" }
                             prop:value=move || agent_prompt.get()
                             on:input=move |ev| agent_prompt.set(event_target_value(&ev))
                         ></textarea>
-                        <button type="submit" class="btn btn-primary" style="padding:0 1rem;" disabled=move || agent_busy.get()>"Run"</button>
+                        <button type="submit" class="btn btn-primary" style="padding:0 1rem;" disabled=move || agent_busy.get()>{if zh { "运行" } else { "Run" }}</button>
                     </form>
                 </div>
             </div>

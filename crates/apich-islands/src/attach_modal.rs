@@ -45,7 +45,9 @@ struct UploadFileResponse {
 pub fn AttachModalIsland(
     #[prop(into)] project_id: String,
     #[prop(into)] active_file: String,
+    #[prop(optional)] is_zh: Option<bool>,
 ) -> impl IntoView {
+    let zh = is_zh.unwrap_or(false);
     let visible = RwSignal::new(false);
     let active_tab = RwSignal::new("attach".to_string()); // "attach" or "upload"
     let category_filter = RwSignal::new("all".to_string()); // "all", "image", "document", "data", "other"
@@ -186,9 +188,9 @@ pub fn AttachModalIsland(
                     <div style="display:flex; align-items:center; gap:0.5rem;">
                         <span style="font-size:1.4rem;">"📎"</span>
                         <div>
-                            <h3 style="margin:0; font-size:1.15rem; font-weight:600;">"Insert Files & Images"</h3>
+                            <h3 style="margin:0; font-size:1.15rem; font-weight:600;">{if zh { "插入文件与图片" } else { "Insert Files & Images" }}</h3>
                             <p style="margin:0.2rem 0 0; font-size:0.8rem; color:var(--text-muted);">
-                                "Insert file references or upload new assets into this project."
+                                {if zh { "在当前项目中插入文件引用或上传新素材资源。" } else { "Insert file references or upload new assets into this project." }}
                             </p>
                         </div>
                     </div>
@@ -196,7 +198,7 @@ pub fn AttachModalIsland(
                         type="button"
                         class="modal-close"
                         on:click=move |_| visible.set(false)
-                        title="Close (Esc)"
+                        title=if zh { "关闭 (Esc)" } else { "Close (Esc)" }
                     >
                         "×"
                     </button>
@@ -210,7 +212,7 @@ pub fn AttachModalIsland(
                         class=("active", move || active_tab.get() == "attach")
                         on:click=move |_| active_tab.set("attach".to_string())
                     >
-                        <span>"🗂️ Project Files"</span>
+                        <span>{if zh { "🗂️ 项目文件" } else { "🗂️ Project Files" }}</span>
                         <span class="attach-badge">{move || files.get().len()}</span>
                     </button>
                     <button
@@ -219,7 +221,7 @@ pub fn AttachModalIsland(
                         class=("active", move || active_tab.get() == "upload")
                         on:click=move |_| active_tab.set("upload".to_string())
                     >
-                        <span>"📤 Upload New File"</span>
+                        <span>{if zh { "📤 上传新文件" } else { "📤 Upload New File" }}</span>
                     </button>
                 </div>
 
@@ -236,7 +238,7 @@ pub fn AttachModalIsland(
                                 <input
                                     type="text"
                                     class="attach-modern-input attach-search-input"
-                                    placeholder="Search project files by name or path..."
+                                    placeholder=if zh { "按文件名或路径搜索项目文件..." } else { "Search project files by name or path..." }
                                     prop:value=move || search_query.get()
                                     on:input=move |ev| search_query.set(event_target_value(&ev))
                                 />
@@ -248,7 +250,7 @@ pub fn AttachModalIsland(
                                             type="button"
                                             class="attach-search-clear"
                                             on:click=move |_| search_query.set(String::new())
-                                            title="Clear search"
+                                            title=if zh { "清空搜索" } else { "Clear search" }
                                         >
                                             "×"
                                         </button>
@@ -265,12 +267,12 @@ pub fn AttachModalIsland(
                                     {move || {
                                         let (all_cnt, img_cnt, doc_cnt, data_cnt, other_cnt) = counts();
                                         view! {
-                                            <option value="all">{format!("📁 All Categories ({all_cnt})")}</option>
-                                            <option value="image">{format!("🖼️ Images ({img_cnt})")}</option>
-                                            <option value="document">{format!("📄 Documents ({doc_cnt})")}</option>
-                                            <option value="data">{format!("📊 Data & Tables ({data_cnt})")}</option>
+                                            <option value="all">{if zh { format!("📁 全部类别 ({all_cnt})") } else { format!("📁 All Categories ({all_cnt})") }}</option>
+                                            <option value="image">{if zh { format!("🖼️ 图片 ({img_cnt})") } else { format!("🖼️ Images ({img_cnt})") }}</option>
+                                            <option value="document">{if zh { format!("📄 文档 ({doc_cnt})") } else { format!("📄 Documents ({doc_cnt})") }}</option>
+                                            <option value="data">{if zh { format!("📊 数据与表格 ({data_cnt})") } else { format!("📊 Data & Tables ({data_cnt})") }}</option>
                                             {(other_cnt > 0).then(|| {
-                                                view! { <option value="other">{format!("📦 Other Files ({other_cnt})")}</option> }
+                                                view! { <option value="other">{if zh { format!("📦 其他文件 ({other_cnt})") } else { format!("📦 Other Files ({other_cnt})") }}</option> }
                                             })}
                                         }
                                     }}
@@ -289,7 +291,7 @@ pub fn AttachModalIsland(
                                         class=("active", category_filter.get() == "all")
                                         on:click=move |_| category_filter.set("all".to_string())
                                     >
-                                        "All (" {all_cnt} ")"
+                                        {if zh { "全部 (" } else { "All (" }} {all_cnt} ")"
                                     </button>
                                     <button
                                         type="button"
@@ -297,7 +299,7 @@ pub fn AttachModalIsland(
                                         class=("active", category_filter.get() == "image")
                                         on:click=move |_| category_filter.set("image".to_string())
                                     >
-                                        "🖼️ Images (" {img_cnt} ")"
+                                        {if zh { "🖼️ 图片 (" } else { "🖼️ Images (" }} {img_cnt} ")"
                                     </button>
                                     <button
                                         type="button"
@@ -305,7 +307,7 @@ pub fn AttachModalIsland(
                                         class=("active", category_filter.get() == "document")
                                         on:click=move |_| category_filter.set("document".to_string())
                                     >
-                                        "📄 Documents (" {doc_cnt} ")"
+                                        {if zh { "📄 文档 (" } else { "📄 Documents (" }} {doc_cnt} ")"
                                     </button>
                                     <button
                                         type="button"
@@ -313,7 +315,7 @@ pub fn AttachModalIsland(
                                         class=("active", category_filter.get() == "data")
                                         on:click=move |_| category_filter.set("data".to_string())
                                     >
-                                        "📊 Data (" {data_cnt} ")"
+                                        {if zh { "📊 数据 (" } else { "📊 Data (" }} {data_cnt} ")"
                                     </button>
                                     {if other_cnt > 0 {
                                         view! {
@@ -323,7 +325,7 @@ pub fn AttachModalIsland(
                                                 class=("active", category_filter.get() == "other")
                                                 on:click=move |_| category_filter.set("other".to_string())
                                             >
-                                                "📦 Other (" {other_cnt} ")"
+                                                {if zh { "📦 其他 (" } else { "📦 Other (" }} {other_cnt} ")"
                                             </button>
                                         }.into_any()
                                     } else {
@@ -341,7 +343,7 @@ pub fn AttachModalIsland(
                                 view! {
                                     <div class="attach-empty-state">
                                         <div class="spinner" style="width:24px; height:24px; margin-bottom:0.5rem;"></div>
-                                        <span>"Loading project files..."</span>
+                                        <span>{if zh { "正在加载项目文件..." } else { "Loading project files..." }}</span>
                                     </div>
                                 }.into_any()
                             } else {
@@ -350,9 +352,9 @@ pub fn AttachModalIsland(
                                     view! {
                                         <div class="attach-empty-state">
                                             <span style="font-size:2rem; margin-bottom:0.5rem;">"📂"</span>
-                                            <p style="margin:0 0 0.5rem; font-weight:500;">"No files found"</p>
+                                            <p style="margin:0 0 0.5rem; font-weight:500;">{if zh { "未找到文件" } else { "No files found" }}</p>
                                             <p style="margin:0; font-size:0.8rem; color:var(--text-muted);">
-                                                "No files match your query. You can switch to the Upload tab to add files."
+                                                {if zh { "没有匹配的文件。你可以切换到上传标签页添加文件。" } else { "No files match your query. You can switch to the Upload tab to add files." }}
                                             </p>
                                             <button
                                                 type="button"
@@ -360,7 +362,7 @@ pub fn AttachModalIsland(
                                                 style="margin-top:0.8rem;"
                                                 on:click=move |_| active_tab.set("upload".to_string())
                                             >
-                                                "📤 Upload a File"
+                                                {if zh { "📤 上传文件" } else { "📤 Upload a File" }}
                                             </button>
                                         </div>
                                     }.into_any()
@@ -397,18 +399,18 @@ pub fn AttachModalIsland(
                                                             <button
                                                                 type="button"
                                                                 class="btn btn-secondary btn-xs attach-btn-copy"
-                                                                title="Copy snippet syntax to clipboard"
+                                                                title=if zh { "复制语法片段到剪贴板" } else { "Copy snippet syntax to clipboard" }
                                                                 on:click=on_copy
                                                             >
-                                                                "📋 Copy"
+                                                                {if zh { "📋 复制" } else { "📋 Copy" }}
                                                             </button>
                                                             <button
                                                                 type="button"
                                                                 class="btn btn-primary btn-xs attach-btn-insert"
-                                                                title="Insert at cursor into active document"
+                                                                title=if zh { "在光标处插入到当前文档" } else { "Insert at cursor into active document" }
                                                                 on:click=on_ins
                                                             >
-                                                                "↵ Insert"
+                                                                {if zh { "↵ 插入" } else { "↵ Insert" }}
                                                             </button>
                                                         </div>
                                                     </div>
@@ -434,17 +436,17 @@ pub fn AttachModalIsland(
                         >
                             <span class="attach-dropzone-icon">"☁️"</span>
                             <div class="attach-dropzone-title">
-                                "Choose a file or drag & drop here"
+                                {if zh { "选择文件或拖拽至此处" } else { "Choose a file or drag & drop here" }}
                             </div>
                             <div class="attach-dropzone-sub">
-                                "Supports images (.png, .jpg, .svg, .webp), documents (.pdf, .typ), data (.csv, .json), and more"
+                                {if zh { "支持图片 (.png, .jpg, .svg, .webp)、文档 (.pdf, .typ)、数据表格 (.csv, .json) 等" } else { "Supports images (.png, .jpg, .svg, .webp), documents (.pdf, .typ), data (.csv, .json), and more" }}
                             </div>
                             <button
                                 type="button"
                                 class="btn btn-secondary attach-browse-btn"
                                 onclick="event.stopPropagation(); document.getElementById('attach-file-input')?.click()"
                             >
-                                "📁 Browse Local File"
+                                {if zh { "📁 浏览本地文件" } else { "📁 Browse Local File" }}
                             </button>
                             <input
                                 type="file"
@@ -472,9 +474,9 @@ pub fn AttachModalIsland(
                                             type="button"
                                             class="btn btn-secondary btn-xs"
                                             on:click=on_clear_file
-                                            title="Change selected file"
+                                            title=if zh { "更换所选文件" } else { "Change selected file" }
                                         >
-                                            "✕ Change"
+                                            {if zh { "✕ 更换" } else { "✕ Change" }}
                                         </button>
                                     </div>
                                 }
@@ -483,7 +485,7 @@ pub fn AttachModalIsland(
 
                         <div class="attach-form-group">
                             <label class="attach-form-label">
-                                "📁 Destination Folder in Project"
+                                {if zh { "📁 项目保存目标目录" } else { "📁 Destination Folder in Project" }}
                             </label>
                             <div class="attach-folder-row">
                                 <select
@@ -491,21 +493,21 @@ pub fn AttachModalIsland(
                                     prop:value=move || upload_folder_preset.get()
                                     on:change=move |ev| upload_folder_preset.set(event_target_value(&ev))
                                 >
-                                    <option value="assets">"assets/ (Standard - Recommended for images & docs)"</option>
-                                    <option value="images">"images/ (Dedicated images folder)"</option>
-                                    <option value="data">"data/ (Data files & spreadsheets)"</option>
-                                    <option value="">"Project Root (/)"</option>
-                                    <option value="custom">"✏️ Custom folder path..."</option>
+                                    <option value="assets">{if zh { "assets/ (标准 - 推荐存放图片与文档)" } else { "assets/ (Standard - Recommended for images & docs)" }}</option>
+                                    <option value="images">{if zh { "images/ (专用图片目录)" } else { "images/ (Dedicated images folder)" }}</option>
+                                    <option value="data">{if zh { "data/ (数据文件与表格)" } else { "data/ (Data files & spreadsheets)" }}</option>
+                                    <option value="">{if zh { "项目根目录 (/)" } else { "Project Root (/)" }}</option>
+                                    <option value="custom">{if zh { "✏️ 自定义目录路径..." } else { "✏️ Custom folder path..." }}</option>
                                 </select>
                             </div>
                             {move || if upload_folder_preset.get() == "custom" {
                                 view! {
                                     <div class="attach-custom-folder-row">
-                                        <label class="attach-form-sublabel">"Enter custom folder path:"</label>
+                                        <label class="attach-form-sublabel">{if zh { "输入自定义目录路径：" } else { "Enter custom folder path:" }}</label>
                                         <input
                                             type="text"
                                             class="attach-modern-input"
-                                            placeholder="e.g. assets/diagrams or docs/images"
+                                            placeholder=if zh { "例如 assets/diagrams 或 docs/images" } else { "e.g. assets/diagrams or docs/images" }
                                             prop:value=move || upload_custom_folder.get()
                                             on:input=move |ev| upload_custom_folder.set(event_target_value(&ev))
                                         />
@@ -528,7 +530,7 @@ pub fn AttachModalIsland(
                             view! {
                                 <div class="upload-live-metrics-panel" style="margin:1rem 0; display:flex; flex-direction:column; gap:0.75rem;">
                                     <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem;">
-                                        <span style="font-weight:600; color:var(--text-main, #f0f3f6);">{if is_proc { "Finalizing on server disk..." } else { "Uploading to project..." }}</span>
+                                        <span style="font-weight:600; color:var(--text-main, #f0f3f6);">{if is_proc { if zh { "正在写入服务器磁盘..." } else { "Finalizing on server disk..." } } else { if zh { "正在上传至项目..." } else { "Uploading to project..." } }}</span>
                                         <span style="font-weight:700; color:var(--primary, #3b82f6);">{format!("{pct:.1}%")}</span>
                                     </div>
                                     <div class="upload-progress-container" style="background:var(--bg-elevated, #282c37); border-radius:10px; height:10px; overflow:hidden; position:relative;">
@@ -541,16 +543,16 @@ pub fn AttachModalIsland(
                                     </div>
                                     <div class="upload-metrics-grid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem; text-align:center;">
                                         <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
-                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"Speed"</div>
+                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">{if zh { "速度" } else { "Speed" }}</div>
                                             <div style="font-weight:700; font-size:0.85rem; color:#38bdf8;">{speed}</div>
                                         </div>
                                         <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
-                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"Transferred"</div>
+                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">{if zh { "已传输" } else { "Transferred" }}</div>
                                             <div style="font-weight:700; font-size:0.8rem; color:var(--text-main, #f0f3f6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title=transferred_title>{transferred}</div>
                                         </div>
                                         <div class="upload-metric-card" style="background:var(--bg-elevated, #282c37); border:1px solid var(--border-subtle, #3a3f50); border-radius:6px; padding:0.4rem;">
-                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">"ETA"</div>
-                                            <div style="font-weight:700; font-size:0.85rem; color:#a78bfa;">{if is_proc { "Processing...".to_string() } else { eta }}</div>
+                                            <div style="font-size:0.7rem; color:var(--text-sub, #9aa0a6);">{if zh { "预计剩余" } else { "ETA" }}</div>
+                                            <div style="font-weight:700; font-size:0.85rem; color:#a78bfa;">{if is_proc { if zh { "处理中...".to_string() } else { "Processing...".to_string() } } else { eta }}</div>
                                         </div>
                                     </div>
                                 </div>
@@ -582,7 +584,7 @@ pub fn AttachModalIsland(
                                         class="btn btn-danger btn-sm"
                                         onclick="window.dispatchEvent(new CustomEvent('apich-abort-attach-upload'))"
                                     >
-                                        "🛑 Cancel Upload"
+                                        {if zh { "🛑 取消上传" } else { "🛑 Cancel Upload" }}
                                     </button>
                                 }.into_any()
                             } else {
@@ -591,7 +593,7 @@ pub fn AttachModalIsland(
                                         type="submit"
                                         class="btn btn-primary attach-submit-btn"
                                     >
-                                        "📤 Upload & Make Available"
+                                        {if zh { "📤 上传并插入可用" } else { "📤 Upload & Make Available" }}
                                     </button>
                                 }.into_any()
                             }}
