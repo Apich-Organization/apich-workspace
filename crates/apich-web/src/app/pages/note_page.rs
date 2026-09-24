@@ -103,7 +103,7 @@ pub fn NotePage(
         },
     );
 
-    let (share_label, share_mode, share_role, share_users) = match file_share {
+    let (share_label, share_mode, share_role, share_users, share_token) = match file_share {
         | Some(s) => {
             let label = match s.mode.as_str() {
                 | "public" => format!("🌐 {}", i18n.share_public(&s.role)),
@@ -111,7 +111,7 @@ pub fn NotePage(
                 | _ => format!("🔒 {}", i18n.share_private()),
             };
             let users = s.allowed_users.join(",");
-            (label, s.mode, s.role, users)
+            (label, s.mode, s.role, users, s.token)
         },
         | None => {
             (
@@ -119,10 +119,11 @@ pub fn NotePage(
                 "private".to_string(),
                 "read".to_string(),
                 String::new(),
+                String::new(),
             )
         },
     };
-    let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
+    let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users, "token": share_token }).to_string();
     let share_onclick = format!(
         "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))"
     );

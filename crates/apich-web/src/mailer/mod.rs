@@ -375,4 +375,42 @@ impl MailerService {
 
         self.send_mail(settings, to_email, &subject, &body).await
     }
+
+    /// Send a document or presentation share notification email.
+    pub async fn send_file_share_email(
+        &self,
+        settings: &SystemSettings,
+        to_email: &str,
+        sender_name: &str,
+        project_name: &str,
+        file_name: &str,
+        slide_url: Option<&str>,
+        pdf_url: Option<&str>,
+        custom_note: Option<&str>,
+    ) -> WebResult<()> {
+        let subject = format!("[APICH] {sender_name} shared \"{file_name}\" with you ({project_name})");
+        let note_text = match custom_note {
+            Some(n) if !n.trim().is_empty() => format!("\nMessage from {sender_name}:\n\"{n}\"\n"),
+            _ => String::new(),
+        };
+        let mut links = String::new();
+        if let Some(s_url) = slide_url {
+            links.push_str(&format!("\n• Interactive In-Browser Presentation / Slides:\n  {s_url}\n"));
+        }
+        if let Some(p_url) = pdf_url {
+            links.push_str(&format!("\n• Rendered Document & PDF Viewer:\n  {p_url}\n"));
+        }
+
+        let body = format!(
+            "Hello,\n\n\
+            {sender_name} has shared a document with you from project \"{project_name}\" on APICH Technical & Academic Workspace.\n\
+            {note_text}\
+            {links}\n\
+            You can open the link in any modern web browser to view the document or presentation, and submit comments.\n\n\
+            Best regards,\n\
+            The APICH Team"
+        );
+
+        self.send_mail(settings, to_email, &subject, &body).await
+    }
 }

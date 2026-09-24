@@ -1,3 +1,4 @@
+pub mod comments_ui;
 pub mod handlers;
 pub mod i18n;
 pub mod template_handlers;

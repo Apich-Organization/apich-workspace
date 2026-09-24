@@ -16,6 +16,7 @@ use crate::models::Document;
 use crate::models::DocumentSearchResult;
 use crate::models::EffectiveHubLinks;
 use crate::models::Fido2Credential;
+use crate::models::FileComment;
 use crate::models::GpgPublicKey;
 use crate::models::Invitation;
 use crate::models::KnowledgeEdge;
@@ -3181,4 +3182,78 @@ impl<'a> Repository<'a> {
         .await?;
         Ok(res.rows_affected() > 0)
     }
+
+    // --- File, Slide, and Document Comments ---
+
+    /// Create a comment on a file, slide, or document page.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn create_file_comment(
+        &self,
+        project_id: Uuid,
+        user_id: Option<Uuid>,
+        author_name: &str,
+        file_path: &str,
+        content: &str,
+        slide_or_page: Option<i32>,
+    ) -> Result<FileComment> {
+        let id = Uuid::now_v7();
+        let comment = sqlx::query_as::<_, FileComment>(
+            r#"
+            INSERT INTO file_comments (id, project_id, file_path, user_id, author_name, content, slide_or_page)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(project_id)
+        .bind(file_path)
+        .bind(user_id)
+        .bind(author_name)
+        .bind(content)
+        .bind(slide_or_page)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(comment)
+    }
+
+    /// List all comments on a specific file, ordered chronologically.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn list_file_comments(
+        &self,
+        project_id: Uuid,
+        file_path: &str,
+    ) -> Result<Vec<FileComment>> {
+        let comments = sqlx::query_as::<_, FileComment>(
+            r#"
+            SELECT * FROM file_comments
+            WHERE project_id = $1 AND file_path = $2
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(project_id)
+        .bind(file_path)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(comments)
+    }
+
+    /// Delete a file comment by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn delete_file_comment(
+        &self,
+        comment_id: Uuid,
+    ) -> Result<bool> {
+        let res = sqlx::query("DELETE FROM file_comments WHERE id = $1")
+            .bind(comment_id)
+            .execute(self.pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
 }
+

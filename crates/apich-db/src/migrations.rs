@@ -111,6 +111,11 @@ impl MigrationManager {
             name: "013_user_git_credentials",
             sql: USER_GIT_CREDENTIALS_SQL,
         });
+        manager.register(Migration {
+            version: 14,
+            name: "014_file_comments",
+            sql: FILE_COMMENTS_SQL,
+        });
         manager
     }
 
@@ -965,3 +970,20 @@ CREATE TABLE IF NOT EXISTS user_git_credentials (
 );
 CREATE INDEX IF NOT EXISTS idx_user_git_credentials_user ON user_git_credentials(user_id);
 ";
+
+/// SQL schema migration 014: File, slide, and document comments
+pub const FILE_COMMENTS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS file_comments (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    author_name VARCHAR(128) NOT NULL,
+    content TEXT NOT NULL,
+    slide_or_page INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_file_comments_proj_file ON file_comments(project_id, file_path);
+CREATE INDEX IF NOT EXISTS idx_file_comments_created ON file_comments(created_at ASC);
+"#;
+

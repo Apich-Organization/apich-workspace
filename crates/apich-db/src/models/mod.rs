@@ -2,6 +2,8 @@
 pub mod audit;
 /// Authentication, credentials, sessions, and system settings models.
 pub mod auth;
+/// File, slide, and document comments.
+pub mod comment;
 /// Document storage and full-text search models.
 pub mod document;
 /// External Git provider credentials for users (GitHub, GitLab).
@@ -38,6 +40,8 @@ pub use auth::SystemSettings;
 pub use auth::UpdateSystemSettingsDto;
 pub use auth::User2faChallenge;
 pub use auth::UserSession;
+pub use comment::CreateFileCommentDto;
+pub use comment::FileComment;
 pub use document::CreateDocumentDto;
 pub use document::DocType;
 pub use document::Document;

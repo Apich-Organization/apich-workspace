@@ -2516,7 +2516,12 @@ impl ProjectManager {
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
 
-        let token = format!("fsh_{}", uuid::Uuid::new_v4().simple());
+        let existing_token = file_shares
+            .get(file_path)
+            .and_then(|val| serde_json::from_value::<FileShareInfo>(val.clone()).ok())
+            .map(|s| s.token)
+            .filter(|t| !t.is_empty());
+        let token = existing_token.unwrap_or_else(|| format!("fsh_{}", uuid::Uuid::new_v4().simple()));
         let share_info = FileShareInfo {
             mode: mode.to_string(),
             role: role.to_string(),
@@ -2556,6 +2561,54 @@ impl ProjectManager {
             .and_then(|val| serde_json::from_value::<FileShareInfo>(val.clone()).ok());
 
         Ok(info)
+    }
+
+    /// Retrieve or generate a sharing token for a file.
+    pub async fn ensure_file_share_token(
+        &self,
+        project_id: Uuid,
+        file_path: &str,
+    ) -> WebResult<FileShareInfo> {
+        let repo = self.db.repository();
+        let proj = repo
+            .get_project_by_id(project_id)
+            .await?
+            .ok_or_else(|| WebError::NotFound("Project not found".to_string()))?;
+
+        let mut settings = proj.settings.as_object().cloned().unwrap_or_default();
+        let mut file_shares = settings
+            .get("file_shares")
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+
+        if let Some(existing) = file_shares
+            .get(file_path)
+            .and_then(|val| serde_json::from_value::<FileShareInfo>(val.clone()).ok())
+        {
+            if !existing.token.is_empty() {
+                return Ok(existing);
+            }
+        }
+
+        let token = format!("fsh_{}", uuid::Uuid::new_v4().simple());
+        let share_info = FileShareInfo {
+            mode: "private".to_string(),
+            role: "read".to_string(),
+            allowed_users: Vec::new(),
+            token,
+        };
+
+        let share_value = serde_json::to_value(&share_info)
+            .map_err(|e| WebError::Internal(format!("Failed to serialize share info: {e}")))?;
+        file_shares.insert(file_path.to_string(), share_value);
+        settings.insert(
+            "file_shares".to_string(),
+            serde_json::Value::Object(file_shares),
+        );
+
+        repo.update_project_settings(project_id, serde_json::Value::Object(settings))
+            .await?;
+        Ok(share_info)
     }
 
     /// Update project-level sharing configuration (mode: public/specific/private, role: `read_only/read_and_review/read_write_and_review`)

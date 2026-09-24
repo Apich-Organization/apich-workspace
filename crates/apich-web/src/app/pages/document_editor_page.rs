@@ -79,7 +79,7 @@ pub fn DocumentEditorPage(
         "TYPST / LATEX"
     };
 
-    let (share_label, share_mode, share_role, share_users) = match file_share {
+    let (share_label, share_mode, share_role, share_users, share_token) = match file_share {
         | Some(s) => {
             let label = match s.mode.as_str() {
                 | "public" => format!("🌐 {}", i18n.share_public(&s.role)),
@@ -87,7 +87,7 @@ pub fn DocumentEditorPage(
                 | _ => format!("🔒 {}", i18n.share_private()),
             };
             let users = s.allowed_users.join(",");
-            (label, s.mode, s.role, users)
+            (label, s.mode, s.role, users, s.token)
         },
         | None => {
             (
@@ -95,10 +95,11 @@ pub fn DocumentEditorPage(
                 "private".to_string(),
                 "read".to_string(),
                 String::new(),
+                String::new(),
             )
         },
     };
-    let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users }).to_string();
+    let share_detail = serde_json::json!({ "path": file_path, "mode": share_mode, "role": share_role, "users": share_users, "token": share_token }).to_string();
     let share_onclick = format!(
         "window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))"
     );
@@ -132,6 +133,28 @@ pub fn DocumentEditorPage(
         || std::path::Path::new(&file_path)
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("typ"));
+
+    let pdf_view_browser_btn = is_typst_preview.then(|| {
+        let pdf_href = format!(
+            "/projects/{}/pdf-view?file={}",
+            project_id,
+            urlencoding::encode(&file_path)
+        );
+        let pdf_label = if i18n.is_zh() { "浏览器预览 PDF" } else { "View PDF in Browser" };
+        view! {
+            <a
+                href=pdf_href
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-secondary btn-sm"
+                title=if i18n.is_zh() { "在浏览器中查看渲染后的 PDF 并支持添加页面评审意见" } else { "View rendered PDF in browser with page review comments" }
+                style="display:inline-flex; align-items:center; gap:0.35rem; font-weight:600;"
+            >
+                "📄 " {pdf_label}
+            </a>
+        }
+    });
+
     let is_latex_preview = !is_script
         && !is_typst_preview
         && std::path::Path::new(&file_path)
@@ -281,6 +304,7 @@ pub fn DocumentEditorPage(
                     {download_pdf_btn}
                     {download_slide_bin_btn}
                     {slide_play_browser_btn}
+                    {pdf_view_browser_btn}
                     {slide_present_btn}
                     {if is_single_file {
                         let cf_file = file_path.clone();

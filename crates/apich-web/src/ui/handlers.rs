@@ -33,6 +33,7 @@ use axum::response::Html;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
+use axum::routing::delete;
 use axum::routing::get;
 use axum::routing::post;
 use axum::Router;
@@ -402,6 +403,21 @@ pub fn build_ui_router() -> Router<AppState> {
         )
         .route("/projects/:id/script/run", post(run_script_action))
         .route("/projects/:id/files/share", post(share_file_action))
+        .route(
+            "/projects/:id/files/share/email",
+            post(share_file_email_action),
+        )
+        .route("/projects/:id/pdf-view", get(pdf_viewer_redirect_action))
+        .route("/projects/:id/pdf-view/", get(pdf_viewer_page_action))
+        .route("/projects/:id/pdf-raw", get(pdf_raw_action))
+        .route(
+            "/api/projects/:id/files/comments",
+            get(get_file_comments_action).post(post_file_comment_action),
+        )
+        .route(
+            "/api/projects/:id/files/comments/:comment_id",
+            delete(delete_file_comment_action),
+        )
         .route("/projects/:id/delete", post(delete_project_action))
         .route("/projects/:id/rename", post(rename_project_action))
         .route(
@@ -2971,6 +2987,7 @@ pub struct EditorQuery {
     pub notice: Option<String>,
     pub error: Option<String>,
     pub engine: Option<String>,
+    pub token: Option<String>,
 }
 
 /// Dedicated Document & Slide Editor Studio
@@ -2986,7 +3003,7 @@ async fn project_editor_page(
     };
 
     let i18n = get_i18n(&headers, None);
-    let repo = state.db.repository();
+    let _repo = state.db.repository();
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,
@@ -3333,30 +3350,122 @@ pub fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// Helper to extract share token from query parameters, Referer URL, or Cookies.
+fn extract_token_from_request(headers: &HeaderMap, query_token: Option<&str>) -> Option<String> {
+    if let Some(t) = query_token {
+        let clean = t.trim();
+        if !clean.is_empty() {
+            return Some(clean.to_string());
+        }
+    }
+    // Check referer query ?token=...
+    if let Some(ref_url) = headers.get(header::REFERER).and_then(|r| r.to_str().ok()) {
+        if let Some((_, q)) = ref_url.split_once('?') {
+            for part in q.split('&') {
+                if let Some((k, v)) = part.split_once('=') {
+                    if k == "token" {
+                        if let Ok(dec) = urlencoding::decode(v) {
+                            let clean = dec.trim();
+                            if !clean.is_empty() {
+                                return Some(clean.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Check cookies
+    if let Some(cookie_str) = headers.get(header::COOKIE).and_then(|c| c.to_str().ok()) {
+        for pair in cookie_str.split(';') {
+            let mut parts = pair.trim().splitn(2, '=');
+            if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+                let k_trim = k.trim();
+                if k_trim == "apich_slide_token" || k_trim == "apich_file_token" {
+                    if let Ok(dec) = urlencoding::decode(v.trim()) {
+                        let clean = dec.trim();
+                        if !clean.is_empty() {
+                            return Some(clean.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Helper to check if a user or anonymous visitor has access to a specific file in a project.
+async fn check_file_access(
+    state: &AppState,
+    auth: Option<&AuthUser>,
+    project: &Project,
+    file_path: &str,
+    token_param: Option<&str>,
+) -> bool {
+    // 1. If project-level access passes for logged-in user
+    if let Some(auth_user) = auth {
+        if IdentityPermissionResolver::can_access_project(state.db.pool(), auth_user.0.id, project.id)
+            .await
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+
+    // 2. If project itself is public
+    let is_project_public = project
+        .settings
+        .get("share_mode")
+        .and_then(|v| v.as_str())
+        .is_some_and(|m| m == "public");
+    if is_project_public {
+        return true;
+    }
+
+    // 3. Check file-level share configuration
+    if let Ok(Some(share_info)) = state.project_manager.get_file_share(project.id, file_path).await {
+        if share_info.mode == "public" {
+            return true;
+        }
+        if let Some(tok) = token_param {
+            if !tok.trim().is_empty() && tok.trim() == share_info.token.trim() {
+                return true;
+            }
+        }
+        if let Some(auth_user) = auth {
+            if share_info.mode == "specific"
+                && share_info.allowed_users.iter().any(|u| u == &auth_user.0.username)
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Compiles a `.typ` file to a downloadable PDF (separate from the live SVG preview -- see
 /// `DocumentRenderer::compile_typst_pdf`). Used by the editor's "Download PDF" button.
 async fn typst_pdf_action(
     auth: Option<AuthUser>,
+    headers: HeaderMap,
     Path(id_or_slug): Path<String>,
     Query(query): Query<EditorQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let Some(AuthUser(user)) = auth else {
-        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
-    };
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
-    let can_access =
-        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
-            .await
-            .unwrap_or(false);
-    if !can_access {
-        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
-    }
     let Some(file) = query.file else {
         return (StatusCode::BAD_REQUEST, Html("Missing ?file=")).into_response();
     };
+
+    let token = extract_token_from_request(&headers, query.token.as_deref());
+    let can_access = check_file_access(&state, auth.as_ref(), &project, &file, token.as_deref()).await;
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
+    }
 
     match crate::services::document_renderer::DocumentRenderer::compile_typst_pdf(&project.storage_path, &file).await {
         Ok(pdf_bytes) => {
@@ -3852,6 +3961,7 @@ pub const SLIDE_WEB_WASM: &[u8] =
 #[derive(Debug, Deserialize)]
 pub struct SlidePresentationQuery {
     pub file: Option<String>,
+    pub token: Option<String>,
 }
 
 /// Redirects `/projects/:id/presentation` to `/projects/:id/presentation/` (with trailing slash)
@@ -3861,35 +3971,52 @@ async fn slide_presentation_redirect_action(
     Path(id_or_slug): Path<String>,
     Query(query): Query<SlidePresentationQuery>,
 ) -> Response {
-    let mut target = format!("/projects/{id_or_slug}/presentation/");
-    if let Some(f) = query.file {
-        target = format!("{target}?file={}", urlencoding::encode(&f));
+    let mut params = Vec::new();
+    if let Some(ref f) = query.file {
+        params.push(format!("file={}", urlencoding::encode(f)));
     }
+    if let Some(ref t) = query.token {
+        params.push(format!("token={}", urlencoding::encode(t)));
+    }
+    let query_str = if params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", params.join("&"))
+    };
+    let target = format!("/projects/{id_or_slug}/presentation/{query_str}");
     axum::response::Redirect::to(&target).into_response()
 }
 
-/// Serves the presentation viewer HTML shell with active slide file cookie.
+/// Serves the presentation viewer HTML shell with active slide file cookie and embedded comments drawer.
 async fn slide_presentation_page_action(
     auth: Option<AuthUser>,
+    headers: HeaderMap,
     Path(id_or_slug): Path<String>,
     Query(query): Query<SlidePresentationQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let Some(AuthUser(user)) = auth else {
-        return (StatusCode::UNAUTHORIZED, Html("Unauthorized")).into_response();
-    };
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
-    let can_access =
-        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
-            .await
-            .unwrap_or(false);
-    if !can_access {
-        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
-    }
 
     let file_param = query.file.unwrap_or_else(|| "slides.typ".to_string());
+    let token_param = extract_token_from_request(&headers, query.token.as_deref());
+
+    let can_access = check_file_access(
+        &state,
+        auth.as_ref(),
+        &project,
+        &file_param,
+        token_param.as_deref(),
+    )
+    .await;
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Html("<html><body style=\"background:#0f172a;color:#fff;font-family:system-ui;padding:3rem;text-align:center;\"><h2>🔒 Private Presentation</h2><p>This presentation is private. Please sign in or use a valid share link.</p><a href=\"/login\" style=\"color:#635bff;\">Sign In to APICH</a></body></html>"),
+        ).into_response();
+    }
+
     let cookie_slug = format!(
         "apich_slide_file={}; Path=/projects/{}/presentation; SameSite=Lax",
         urlencoding::encode(&file_param),
@@ -3911,7 +4038,48 @@ async fn slide_presentation_page_action(
         }
     }
 
-    (response_headers, SLIDE_INDEX_HTML).into_response()
+    if let Some(ref tok) = token_param {
+        let cookie_tok_slug = format!(
+            "apich_slide_token={}; Path=/projects/{}/presentation; SameSite=Lax",
+            urlencoding::encode(tok),
+            id_or_slug
+        );
+        if let Ok(val) = cookie_tok_slug.parse() {
+            response_headers.append(header::SET_COOKIE, val);
+        }
+        if id_or_slug != project.id.to_string() {
+            let cookie_tok_id = format!(
+                "apich_slide_token={}; Path=/projects/{}/presentation; SameSite=Lax",
+                urlencoding::encode(tok),
+                project.id
+            );
+            if let Ok(val) = cookie_tok_id.parse() {
+                response_headers.append(header::SET_COOKIE, val);
+            }
+        }
+    }
+
+    let user_name = auth
+        .as_ref()
+        .map(|a| {
+            if a.0.display_name.trim().is_empty() {
+                a.0.username.clone()
+            } else {
+                a.0.display_name.clone()
+            }
+        })
+        .unwrap_or_default();
+    let comments_html = crate::ui::comments_ui::render_comments_drawer_component(
+        &project.id.to_string(),
+        &file_param,
+        token_param.as_deref(),
+        &user_name,
+        true, // is_slide
+        true, // show_fab
+    );
+
+    let final_html = SLIDE_INDEX_HTML.replace("</body>", &format!("{comments_html}</body>"));
+    (response_headers, Html(final_html)).into_response()
 }
 
 async fn slide_presentation_bootstrap_js_action() -> Response {
@@ -3960,13 +4128,6 @@ async fn slide_presentation_deck_json_action(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
-    let Some(AuthUser(user)) = auth else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "Unauthorized"})),
-        )
-            .into_response();
-    };
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,
@@ -3974,17 +4135,6 @@ async fn slide_presentation_deck_json_action(
         )
             .into_response();
     };
-    let can_access =
-        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
-            .await
-            .unwrap_or(false);
-    if !can_access {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "Forbidden"})),
-        )
-            .into_response();
-    }
 
     let referer_file = headers
         .get(header::REFERER)
@@ -4023,9 +4173,27 @@ async fn slide_presentation_deck_json_action(
         .or(cookie_file)
         .unwrap_or_else(|| "slides.typ".to_string());
 
+    let token = extract_token_from_request(&headers, query.token.as_deref());
+    let can_access = check_file_access(
+        &state,
+        auth.as_ref(),
+        &project,
+        &file_to_build,
+        token.as_deref(),
+    )
+    .await;
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden"})),
+        )
+            .into_response();
+    }
+
+    let effective_user_id = auth.as_ref().map(|a| a.0.id).unwrap_or(project.owner_id);
     match state
         .project_manager
-        .get_slide_deck_json(project.id, user.id, &file_to_build)
+        .get_slide_deck_json(project.id, effective_user_id, &file_to_build)
         .await
     {
         Ok(json_content) => (
@@ -4081,19 +4249,40 @@ async fn slide_presentation_deck_json_action(
 /// Serves referenced project assets (images, audio, video, CSV data) for the presentation.
 async fn slide_presentation_project_asset_action(
     auth: Option<AuthUser>,
+    headers: HeaderMap,
     Path((id_or_slug, asset_path)): Path<(String, String)>,
     State(state): State<AppState>,
 ) -> Response {
-    let Some(AuthUser(user)) = auth else {
-        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
-    };
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, "Project not found").into_response();
     };
-    let can_access =
-        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
-            .await
-            .unwrap_or(false);
+
+    let cookie_file = headers
+        .get(header::COOKIE)
+        .and_then(|c| c.to_str().ok())
+        .and_then(|cookie_str| {
+            cookie_str.split(';').find_map(|pair| {
+                let mut parts = pair.trim().splitn(2, '=');
+                let k = parts.next()?.trim();
+                let v = parts.next()?.trim();
+                if k == "apich_slide_file" {
+                    urlencoding::decode(v).ok().map(std::borrow::Cow::into_owned)
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_else(|| "slides.typ".to_string());
+
+    let token = extract_token_from_request(&headers, None);
+    let can_access = check_file_access(
+        &state,
+        auth.as_ref(),
+        &project,
+        &cookie_file,
+        token.as_deref(),
+    )
+    .await;
     if !can_access {
         return (StatusCode::FORBIDDEN, "Forbidden").into_response();
     }
@@ -4116,12 +4305,613 @@ async fn slide_presentation_project_asset_action(
     };
 
     let content_type = mime_type_for_path(path_to_read.to_str().unwrap_or(""));
-    let mut headers = HeaderMap::new();
+    let mut resp_headers = HeaderMap::new();
     if let Ok(ct) = content_type.parse() {
-        headers.insert(header::CONTENT_TYPE, ct);
+        resp_headers.insert(header::CONTENT_TYPE, ct);
     }
 
-    (headers, bytes).into_response()
+    (resp_headers, bytes).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PdfViewerQuery {
+    pub file: Option<String>,
+    pub token: Option<String>,
+    pub download: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ShareFileEmailForm {
+    pub file: String,
+    pub to_email: String,
+    pub note: Option<String>,
+    pub redirect_to: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileCommentQuery {
+    pub file: String,
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateFileCommentPayload {
+    pub file: String,
+    pub author_name: Option<String>,
+    pub content: String,
+    pub slide_or_page: Option<i32>,
+    pub token: Option<String>,
+}
+
+/// Redirects `/projects/:id/pdf-view` to `/projects/:id/pdf-view/`
+async fn pdf_viewer_redirect_action(
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<PdfViewerQuery>,
+) -> Response {
+    let mut params = Vec::new();
+    if let Some(ref f) = query.file {
+        params.push(format!("file={}", urlencoding::encode(f)));
+    }
+    if let Some(ref t) = query.token {
+        params.push(format!("token={}", urlencoding::encode(t)));
+    }
+    let query_str = if params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", params.join("&"))
+    };
+    let target = format!("/projects/{id_or_slug}/pdf-view/{query_str}");
+    axum::response::Redirect::to(&target).into_response()
+}
+
+/// In-browser responsive PDF viewer with top navigation bar and sliding comments drawer.
+async fn pdf_viewer_page_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<PdfViewerQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
+    };
+
+    let Some(ref file) = query.file else {
+        return (StatusCode::BAD_REQUEST, Html("Missing ?file=")).into_response();
+    };
+
+    let token = extract_token_from_request(&headers, query.token.as_deref());
+    let can_access = check_file_access(&state, auth.as_ref(), &project, file, token.as_deref()).await;
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Html("<html><body style=\"background:#0f172a;color:#fff;font-family:system-ui;padding:3rem;text-align:center;\"><h2>🔒 Private Document</h2><p>This document is private. Please sign in or use a valid share link.</p><a href=\"/login\" style=\"color:#635bff;\">Sign In to APICH</a></body></html>"),
+        ).into_response();
+    }
+
+    let is_authenticated = auth.is_some();
+    let user_name = auth
+        .as_ref()
+        .map(|a| {
+            if a.0.display_name.trim().is_empty() {
+                a.0.username.clone()
+            } else {
+                a.0.display_name.clone()
+            }
+        })
+        .unwrap_or_default();
+    let is_zh = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|l| l.to_str().ok())
+        .is_some_and(|l| l.contains("zh"));
+
+    let html = crate::ui::comments_ui::render_pdf_viewer_page(
+        &project.id.to_string(),
+        &project.name,
+        file,
+        token.as_deref(),
+        is_authenticated,
+        &user_name,
+        is_zh,
+    );
+
+    let mut resp_headers = HeaderMap::new();
+    resp_headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+    if let Some(ref tok) = token {
+        let cookie_tok = format!(
+            "apich_file_token={}; Path=/projects/{}/; SameSite=Lax",
+            urlencoding::encode(tok),
+            id_or_slug
+        );
+        if let Ok(val) = cookie_tok.parse() {
+            resp_headers.append(header::SET_COOKIE, val);
+        }
+    }
+
+    (resp_headers, Html(html)).into_response()
+}
+
+/// Raw PDF binary stream for the in-browser viewer or direct download.
+async fn pdf_raw_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<PdfViewerQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
+    };
+
+    let Some(ref file) = query.file else {
+        return (StatusCode::BAD_REQUEST, Html("Missing ?file=")).into_response();
+    };
+
+    let token = extract_token_from_request(&headers, query.token.as_deref());
+    let can_access = check_file_access(&state, auth.as_ref(), &project, file, token.as_deref()).await;
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
+    }
+
+    let download_stem = std::path::Path::new(file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document");
+    let is_download = query.download.as_deref() == Some("1");
+    let disposition = if is_download {
+        format!("attachment; filename=\"{download_stem}.pdf\"")
+    } else {
+        format!("inline; filename=\"{download_stem}.pdf\"")
+    };
+
+    if file.ends_with(".typ") {
+        match crate::services::document_renderer::DocumentRenderer::compile_typst_pdf(
+            &project.storage_path,
+            file,
+        )
+        .await
+        {
+            Ok(bytes) => (
+                [
+                    (header::CONTENT_TYPE, "application/pdf".to_string()),
+                    (header::CONTENT_DISPOSITION, disposition),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Err(e) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())],
+                Html(format!(
+                    "<html><body style=\"background:#0f172a; color:#f87171; font-family:monospace; padding:2rem;\"><h3>⚠️ Typst Compilation Error</h3><pre>{}</pre></body></html>",
+                    html_escape(&e)
+                )),
+            )
+                .into_response(),
+        }
+    } else if file.ends_with(".tex") {
+        let user_id = auth.as_ref().map(|a| a.0.id).unwrap_or(project.owner_id);
+        match state
+            .project_manager
+            .compile_latex_in_sandbox(project.id, user_id, file, "xelatex")
+            .await
+        {
+            Ok(Ok(bytes)) => (
+                [
+                    (header::CONTENT_TYPE, "application/pdf".to_string()),
+                    (header::CONTENT_DISPOSITION, disposition),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Ok(Err(log)) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())],
+                Html(format!(
+                    "<html><body style=\"background:#0f172a; color:#f87171; font-family:monospace; padding:2rem;\"><h3>⚠️ LaTeX Compilation Error</h3><pre>{}</pre></body></html>",
+                    html_escape(&log)
+                )),
+            )
+                .into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Html(format!("LaTeX compilation service error: {e}")),
+            )
+                .into_response(),
+        }
+    } else {
+        // Direct PDF or document file on disk
+        let storage_dir = std::path::Path::new(&project.storage_path);
+        let path = storage_dir.join(file.trim_start_matches('/'));
+        if !path.exists() || !path.is_file() {
+            return (StatusCode::NOT_FOUND, Html("File not found on disk")).into_response();
+        }
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => (
+                [
+                    (header::CONTENT_TYPE, "application/pdf".to_string()),
+                    (header::CONTENT_DISPOSITION, disposition),
+                ],
+                bytes,
+            )
+                .into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Html(format!("Failed to read file: {e}")),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Send file share link via email.
+async fn share_file_email_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"success": false, "error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"success": false, "error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let can_access = IdentityPermissionResolver::can_access_project(
+        state.db.pool(),
+        user.id,
+        project.id,
+    )
+    .await
+    .unwrap_or(false);
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"success": false, "error": "Forbidden"})),
+        )
+            .into_response();
+    }
+
+    let payload: ShareFileEmailForm = match parse_payload(&headers, &body) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"success": false, "error": format!("Bad request: {e}")})),
+            )
+                .into_response()
+        }
+    };
+
+    let clean_email = payload.to_email.trim();
+    if clean_email.is_empty() || !clean_email.contains('@') {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"success": false, "error": "Invalid recipient email address"})),
+        )
+            .into_response();
+    }
+
+    // Ensure sharing token exists for this file
+    let share_info = match state
+        .project_manager
+        .ensure_file_share_token(project.id, &payload.file)
+        .await
+    {
+        Ok(info) => info,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"success": false, "error": e.to_string()})),
+            )
+                .into_response()
+        }
+    };
+
+    // Determine host origin from Host or X-Forwarded-Host
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost:3000");
+    let scheme = if headers
+        .get("x-forwarded-proto")
+        .and_then(|p| p.to_str().ok())
+        == Some("https")
+    {
+        "https"
+    } else {
+        "http"
+    };
+    let base_url = format!("{scheme}://{host}");
+
+    let is_slide = payload.file.ends_with(".typ") || payload.file.ends_with(".md");
+    let slide_url = if is_slide {
+        Some(format!(
+            "{base_url}/projects/{}/presentation/?file={}&token={}",
+            project.id,
+            urlencoding::encode(&payload.file),
+            share_info.token
+        ))
+    } else {
+        None
+    };
+
+    let pdf_url = format!(
+        "{base_url}/projects/{}/pdf-view/?file={}&token={}",
+        project.id,
+        urlencoding::encode(&payload.file),
+        share_info.token
+    );
+
+    let sender_name = if user.display_name.trim().is_empty() {
+        &user.username
+    } else {
+        &user.display_name
+    };
+    let settings = state
+        .db
+        .repository()
+        .get_system_settings()
+        .await
+        .unwrap_or_default();
+
+    if let Err(e) = state
+        .mailer
+        .send_file_share_email(
+            &settings,
+            clean_email,
+            sender_name,
+            &project.name,
+            &payload.file,
+            slide_url.as_deref(),
+            Some(&pdf_url),
+            payload.note.as_deref(),
+        )
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"success": false, "error": format!("Failed to send email: {e}")})),
+        )
+            .into_response();
+    }
+
+    let is_json_req = headers
+        .get(header::ACCEPT)
+        .and_then(|a| a.to_str().ok())
+        .is_some_and(|a| a.contains("application/json"))
+        || headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|c| c.to_str().ok())
+            .is_some_and(|c| c.contains("application/json"));
+
+    if is_json_req {
+        Json(json!({
+            "success": true,
+            "message": format!("Share link emailed to {clean_email}"),
+            "slide_url": slide_url,
+            "pdf_url": pdf_url,
+            "token": share_info.token,
+        }))
+        .into_response()
+    } else {
+        let redirect_to = payload.redirect_to.unwrap_or_else(|| {
+            format!("/projects/{}?tab=files&notice=email_sent", project.id)
+        });
+        Redirect::to(&redirect_to).into_response()
+    }
+}
+
+/// Retrieve comments on a specific file (public / token / auth access).
+async fn get_file_comments_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<FileCommentQuery>,
+) -> Response {
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let token = extract_token_from_request(&headers, query.token.as_deref());
+    let can_access =
+        check_file_access(&state, auth.as_ref(), &project, &query.file, token.as_deref()).await;
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Access denied to this file"})),
+        )
+            .into_response();
+    }
+
+    let comments = state
+        .db
+        .repository()
+        .list_file_comments(project.id, &query.file)
+        .await
+        .unwrap_or_default();
+    let current_user_id = auth.as_ref().map(|a| a.0.id);
+
+    let items: Vec<serde_json::Value> = comments
+        .into_iter()
+        .map(|c| {
+            let is_author = current_user_id.is_some() && current_user_id == c.user_id;
+            json!({
+                "id": c.id.to_string(),
+                "author_name": c.author_name,
+                "content": c.content,
+                "slide_or_page": c.slide_or_page,
+                "created_at": c.created_at.to_rfc3339(),
+                "is_author": is_author,
+            })
+        })
+        .collect();
+
+    Json(json!({ "comments": items })).into_response()
+}
+
+/// Create a new comment on a file or slide (public / token / auth access).
+async fn post_file_comment_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(id_or_slug): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let payload: CreateFileCommentPayload = match parse_payload(&headers, &body) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Bad request: {e}")})),
+            )
+                .into_response()
+        }
+    };
+
+    let token = extract_token_from_request(&headers, payload.token.as_deref());
+    let can_access = check_file_access(
+        &state,
+        auth.as_ref(),
+        &project,
+        &payload.file,
+        token.as_deref(),
+    )
+    .await;
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Access denied"})),
+        )
+            .into_response();
+    }
+
+    let clean_content = payload.content.trim();
+    if clean_content.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Comment content cannot be empty"})),
+        )
+            .into_response();
+    }
+
+    let author_name = if let Some(ref a) = auth {
+        if a.0.display_name.trim().is_empty() {
+            a.0.username.clone()
+        } else {
+            a.0.display_name.clone()
+        }
+    } else {
+        payload
+            .author_name
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+
+    let final_author = if author_name.is_empty() {
+        "Reviewer".to_string()
+    } else {
+        author_name
+    };
+
+    let user_id = auth.as_ref().map(|a| a.0.id);
+
+    match state
+        .db
+        .repository()
+        .create_file_comment(
+            project.id,
+            user_id,
+            &final_author,
+            &payload.file,
+            clean_content,
+            payload.slide_or_page,
+        )
+        .await
+    {
+        Ok(comment) => Json(json!({
+            "success": true,
+            "comment": {
+                "id": comment.id.to_string(),
+                "author_name": comment.author_name,
+                "content": comment.content,
+                "slide_or_page": comment.slide_or_page,
+                "created_at": comment.created_at.to_rfc3339(),
+                "is_author": true,
+            }
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to create comment: {e}")})),
+        )
+            .into_response(),
+    }
+}
+
+/// Delete a comment by ID.
+async fn delete_file_comment_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path((id_or_slug, comment_id_str)): Path<(String, String)>,
+    Query(query): Query<FileCommentQuery>,
+) -> Response {
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+
+    let token = extract_token_from_request(&headers, query.token.as_deref());
+    let can_access =
+        check_file_access(&state, auth.as_ref(), &project, &query.file, token.as_deref()).await;
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Access denied"})),
+        )
+            .into_response();
+    }
+
+    let Ok(comment_id) = uuid::Uuid::parse_str(&comment_id_str) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid comment ID"})),
+        )
+            .into_response();
+    };
+
+    let _ = state.db.repository().delete_file_comment(comment_id).await;
+    Json(json!({ "success": true })).into_response()
 }
 
 /// apich-vcs's own remote protocol -- "clone"/"pull": download a full history bundle. Accepts
@@ -7890,7 +8680,7 @@ async fn project_note_page(
     };
 
     let i18n = get_i18n(&headers, None);
-    let repo = state.db.repository();
+    let _repo = state.db.repository();
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,

@@ -755,7 +755,8 @@ fn render_files_tab(
                 // also opens in the plain-text editor, see `open_url`'s doc comment) stay
                 // same-tab on purpose -- only "asset" is raw, non-SPA content.
                 let open_target = if f.category == "asset" { "_blank" } else { "_self" };
-                let share_detail = serde_json::json!({ "path": path, "mode": mode, "role": role, "users": users_csv }).to_string();
+                let token = f.share_info.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                let share_detail = serde_json::json!({ "path": path, "mode": mode, "role": role, "users": users_csv, "token": token }).to_string();
                 let onclick = format!("window.dispatchEvent(new CustomEvent('apich-open-share-modal', {{detail: {share_detail}}}))");
 
                 let delete_confirm_msg = i18n.delete_file_confirm(&path);
