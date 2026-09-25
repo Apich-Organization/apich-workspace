@@ -10,6 +10,27 @@ use leptos::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
 
+/// Managed temporary share link representation for the UI.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ManagedSharedLink {
+    pub token: String,
+    pub project_id: String,
+    pub file_path: String,
+    pub target_type: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub is_revoked: bool,
+    #[serde(default)]
+    pub allow_comments: bool,
+    #[serde(default)]
+    pub view_count: i64,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub url: String,
+}
+
 /// Candidate user record that can be granted access in the file share dialog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareableUser {
@@ -46,8 +67,26 @@ pub fn FileShareModalIsland(
     let email_feedback = RwSignal::new(Option::<Result<String, String>>::None);
     let copy_feedback = RwSignal::new(Option::<String>::None);
 
+    let shared_links = RwSignal::new(Vec::<ManagedSharedLink>::new());
+    let is_links_loading = RwSignal::new(false);
+    let is_creating_link = RwSignal::new(false);
+    let new_link_target = RwSignal::new("slide".to_string());
+    let new_link_expiry = RwSignal::new("7".to_string());
+    let new_link_comments = RwSignal::new(true);
+
+    // All-project shared links management
+    let all_links = RwSignal::new(Vec::<ManagedSharedLink>::new());
+    let is_all_links_loading = RwSignal::new(false);
+    let all_links_loaded = RwSignal::new(false);
+
     let pid_for_email = project_id.clone();
     let pid_for_urls = project_id.clone();
+    let pid_for_listener = project_id.clone();
+    let pid_for_create = project_id.clone();
+    let pid_for_list = project_id.clone();
+    let pid_for_form = project_id.clone();
+    let pid_for_all_links = project_id.clone();
+    let pid_for_all_rev = project_id.clone();
 
     wire_open_listener(
         visible,
@@ -62,50 +101,50 @@ pub fn FileShareModalIsland(
         email_note,
         email_feedback,
         copy_feedback,
+        pid_for_listener,
+        shared_links,
+        is_links_loading,
     );
 
-    let slide_url = Memo::new({
+    let primary_opaque_link = Memo::new({
+        move |_| {
+            let links = shared_links.get();
+            let fp = file_path.get();
+            let is_slide = fp.ends_with(".typ") || fp.ends_with(".slide");
+            let target = if is_slide { "slide" } else { "pdf" };
+            links.into_iter().find(|l| !l.is_revoked && l.target_type == target)
+                .or_else(|| shared_links.get().into_iter().find(|l| !l.is_revoked))
+        }
+    });
+
+    let slide_internal_url = Memo::new({
         let pid = pid_for_urls.clone();
         move |_| {
             let fp = file_path.get();
             if fp.is_empty() {
                 return String::new();
             }
-            let tok = token.get();
-            let tok_param = if tok.is_empty() {
-                String::new()
-            } else {
-                format!("&token={}", urlencoding::encode(&tok))
-            };
             format!(
-                "{}/projects/{}/presentation/?file={}{}",
+                "{}/projects/{}/presentation/?file={}",
                 get_window_origin(),
                 pid,
-                urlencoding::encode(&fp),
-                tok_param
+                urlencoding::encode(&fp)
             )
         }
     });
 
-    let pdf_url = Memo::new({
+    let pdf_internal_url = Memo::new({
         let pid = pid_for_urls;
         move |_| {
             let fp = file_path.get();
             if fp.is_empty() {
                 return String::new();
             }
-            let tok = token.get();
-            let tok_param = if tok.is_empty() {
-                String::new()
-            } else {
-                format!("&token={}", urlencoding::encode(&tok))
-            };
             format!(
-                "{}/projects/{}/pdf-view?file={}{}",
+                "{}/projects/{}/pdf-view?file={}",
                 get_window_origin(),
                 pid,
-                urlencoding::encode(&fp),
-                tok_param
+                urlencoding::encode(&fp)
             )
         }
     });
@@ -190,6 +229,30 @@ pub fn FileShareModalIsland(
                     >
                         "🔒 " {if zh { "权限与协作者" } else { "Access & Permissions" }}
                     </button>
+                    <button
+                        type="button"
+                        style=move || {
+                            let active = active_tab.get() == "all_links";
+                            format!(
+                                "padding:0.5rem 1rem; border:none; background:none; font-weight:{}; color:{}; border-bottom:2px solid {}; cursor:pointer; font-size:0.875rem; transition:all 0.15s ease;",
+                                if active { "700" } else { "500" },
+                                if active { "var(--primary, #635bff)" } else { "var(--text-sub, #64748b)" },
+                                if active { "var(--primary, #635bff)" } else { "transparent" },
+                            )
+                        }
+                        on:click={
+                            let pid = pid_for_all_links.clone();
+                            move |_| {
+                                active_tab.set("all_links".to_string());
+                                if !all_links_loaded.get() {
+                                    all_links_loaded.set(true);
+                                    fetch_shared_links(pid.clone(), String::new(), all_links, is_all_links_loading);
+                                }
+                            }
+                        }
+                    >
+                        "📋 " {if zh { "全部分享链接" } else { "All Shared Links" }}
+                    </button>
                 </div>
 
                 // Modal Content Area
@@ -203,130 +266,371 @@ pub fn FileShareModalIsland(
                             </div>
                         })}
 
-                        // Slide Presentation Player Link Card
-                        <div style="background:var(--bg-muted, #f8fafc); border:1px solid var(--border-subtle, #e2e8f0); border-radius:10px; padding:1rem 1.15rem; margin-bottom:1rem;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
-                                <div style="font-weight:700; font-size:0.9rem; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
-                                    <span>"🖥️"</span>
-                                    <span>{if zh { "浏览器幻灯片播放链接 (Slide Player)" } else { "Browser Slide Player Link" }}</span>
-                                </div>
-                                <span style="font-size:0.75rem; background:#ecfdf5; color:#059669; padding:2px 8px; border-radius:12px; font-weight:600; border:1px solid #a7f3d0;">
-                                    "💬 " {if zh { "支持幻灯片在线评论与白板" } else { "Slide comments & whiteboard" }}
-                                </span>
-                            </div>
-                            <p style="font-size:0.78rem; color:var(--text-sub); margin-bottom:0.6rem; line-height:1.4;">
-                                {if zh {
-                                    "在浏览器中放映全屏演示，支持翻页过渡动画、绘图标注、激光笔，以及实时附着在幻灯片页面的评审评论。"
-                                } else {
-                                    "Play fullscreen presentation with slide transitions, whiteboard drawings, laser pointer, and attached slide comments."
-                                }}
-                            </p>
-                            <div style="display:flex; gap:0.5rem; align-items:center;">
-                                <input
-                                    type="text"
-                                    readonly
-                                    class="form-control"
-                                    style="flex:1; height:36px; font-size:0.82rem; font-family:monospace; background:var(--bg-surface, #fff);"
-                                    prop:value=move || slide_url.get()
-                                    onclick="this.select()"
-                                />
-                                <button
-                                    type="button"
-                                    class="btn btn-secondary btn-sm"
-                                    style="height:36px; white-space:nowrap; padding:0 0.85rem;"
-                                    on:click=move |_| {
-                                        let url = slide_url.get();
-                                        let msg = if zh { "演示播放链接已复制到剪贴板！".to_string() } else { "Slide link copied to clipboard!".to_string() };
-                                        copy_to_clipboard(url, copy_feedback, msg);
-                                    }
-                                >
-                                    "📋 " {if zh { "复制" } else { "Copy" }}
-                                </button>
-                                <a
-                                    href=move || slide_url.get()
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class="btn btn-primary btn-sm"
-                                    style="height:36px; white-space:nowrap; padding:0 0.85rem; display:inline-flex; align-items:center;"
-                                >
-                                    "▶ " {if zh { "播放" } else { "Play" }}
-                                </a>
-                            </div>
-                        </div>
-
-                        // PDF Viewer Link Card
-                        <div style="background:var(--bg-muted, #f8fafc); border:1px solid var(--border-subtle, #e2e8f0); border-radius:10px; padding:1rem 1.15rem; margin-bottom:1rem;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
-                                <div style="font-weight:700; font-size:0.9rem; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
-                                    <span>"📄"</span>
-                                    <span>{if zh { "浏览器 PDF 在线预览链接 (PDF Viewer)" } else { "Browser PDF Viewer Link" }}</span>
+                        // SECTION 1: Secure Temporary Links (Opaque /s/:token)
+                        <div style="background:var(--bg-muted, #f8fafc); border:1px solid var(--border-subtle, #e2e8f0); border-radius:10px; padding:1.1rem; margin-bottom:1.25rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem; flex-wrap:wrap; gap:0.4rem;">
+                                <div style="font-weight:700; font-size:0.92rem; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
+                                    <span>"🛡️"</span>
+                                    <span>{if zh { "安全临时分享链接 (推荐)" } else { "Secure Temporary Links (Recommended)" }}</span>
                                 </div>
                                 <span style="font-size:0.75rem; background:#eff6ff; color:#2563eb; padding:2px 8px; border-radius:12px; font-weight:600; border:1px solid #bfdbfe;">
-                                    "💬 " {if zh { "支持按页码添加评审评论" } else { "Page-by-page review comments" }}
+                                    {if zh { "不暴露文件名 · 防篡改 · 支持撤销" } else { "Opaque URL · Tamper-proof · Revocable" }}
                                 </span>
                             </div>
-                            <p style="font-size:0.78rem; color:var(--text-sub); margin-bottom:0.6rem; line-height:1.4;">
+                            <p style="font-size:0.78rem; color:var(--text-sub); margin-bottom:0.85rem; line-height:1.4;">
                                 {if zh {
-                                    "在线查看渲染后的 PDF 格式文档，内置原生缩放、翻页、下载，并支持用户针对具体页码发表评审评论。"
+                                    "生成形如 /s/:token 的安全混淆链接，外部访客无法获知项目路径或文件名，可单独设定有效天数和评审评论权限，且支持随时一键失效撤销。"
                                 } else {
-                                    "View rendered PDF with native controls, page navigation, download, and page-specific review comments."
+                                    "Generates an opaque /s/:token URL hiding project ID and file paths. Set an expiration date and comments permission, or revoke anytime."
                                 }}
                             </p>
-                            <div style="display:flex; gap:0.5rem; align-items:center;">
-                                <input
-                                    type="text"
-                                    readonly
-                                    class="form-control"
-                                    style="flex:1; height:36px; font-size:0.82rem; font-family:monospace; background:var(--bg-surface, #fff);"
-                                    prop:value=move || pdf_url.get()
-                                    onclick="this.select()"
-                                />
+
+                            // Primary Opaque Link Hero Card
+                            {move || {
+                                primary_opaque_link.get().map(|lnk| {
+                                    let full_url = lnk.url.clone();
+                                    let full_url_copy = full_url.clone();
+                                    let full_url_play = full_url.clone();
+                                    let is_slide = lnk.target_type == "slide";
+
+                                    view! {
+                                        <div style="background:linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(168,85,247,0.06) 100%); border:2px solid var(--primary, #635bff); border-radius:10px; padding:1.15rem; margin-bottom:1.15rem; box-shadow: 0 4px 12px rgba(99,102,241,0.08);">
+                                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem; flex-wrap:wrap; gap:0.4rem;">
+                                                <div style="font-weight:700; font-size:0.95rem; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
+                                                    <span>{if is_slide { "🖥️" } else { "📄" }}</span>
+                                                    <span>{if is_slide {
+                                                        if zh { "当前文件专属安全播放链接" } else { "Secure Presentation Share Link" }
+                                                    } else {
+                                                        if zh { "当前文件专属安全预览链接" } else { "Secure Document Share Link" }
+                                                    }}</span>
+                                                </div>
+                                                <span style="font-size:0.75rem; background:#ecfdf5; color:#059669; padding:2px 8px; border-radius:12px; font-weight:700; border:1px solid #a7f3d0;">
+                                                    "✓ " {if zh { "防篡改 · 隐藏文件名" } else { "Tamper-Proof · Opaque" }}
+                                                </span>
+                                            </div>
+                                            <p style="font-size:0.78rem; color:var(--text-sub); margin-bottom:0.75rem; line-height:1.4;">
+                                                {if zh {
+                                                    "外部访客通过此链接可直接在浏览器中全屏放映与评审，URL 完全混淆，无法探知项目路径与文件名称。"
+                                                } else {
+                                                    "Viewers can play fullscreen and review directly. The URL is fully opaque without revealing internal paths or filenames."
+                                                }}
+                                            </p>
+                                            <div style="display:flex; gap:0.5rem; align-items:center;">
+                                                <input
+                                                    type="text"
+                                                    readonly
+                                                    class="form-control"
+                                                    style="flex:1; height:38px; font-size:0.85rem; font-family:monospace; background:var(--bg-surface, #fff); font-weight:600;"
+                                                    prop:value=full_url
+                                                    onclick="this.select()"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-primary"
+                                                    style="height:38px; white-space:nowrap; padding:0 1rem; font-weight:600; display:inline-flex; align-items:center; gap:0.35rem;"
+                                                    on:click=move |_| {
+                                                        let msg = if zh { "安全分享链接已复制到剪贴板！".to_string() } else { "Secure link copied to clipboard!".to_string() };
+                                                        copy_to_clipboard(full_url_copy.clone(), copy_feedback, msg);
+                                                    }
+                                                >
+                                                    "📋 " {if zh { "复制安全链接" } else { "Copy Secure Link" }}
+                                                </button>
+                                                <a
+                                                    href=full_url_play
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    class="btn btn-secondary"
+                                                    style="height:38px; white-space:nowrap; padding:0 0.85rem; display:inline-flex; align-items:center; gap:0.35rem; font-weight:600;"
+                                                >
+                                                    {if is_slide { "▶ " } else { "↗ " }}
+                                                    {if is_slide {
+                                                        if zh { "立即播放" } else { "Play" }
+                                                    } else {
+                                                        if zh { "在线预览" } else { "View" }
+                                                    }}
+                                                </a>
+                                            </div>
+                                        </div>
+                                    }
+                                })
+                            }}
+
+                            // Create controls bar
+                            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; background:var(--bg-surface, #fff); padding:0.6rem 0.85rem; border-radius:8px; border:1px solid var(--border-subtle, #cbd5e1);">
+                                <div style="display:flex; align-items:center; gap:0.35rem;">
+                                    <label style="font-size:0.8rem; font-weight:600; color:var(--text-sub);">{if zh { "类型:" } else { "Type:" }}</label>
+                                    <select
+                                        class="form-control"
+                                        style="height:32px; font-size:0.8rem; padding:0 6px;"
+                                        prop:value=move || new_link_target.get()
+                                        on:change=move |ev| new_link_target.set(event_target_value(&ev))
+                                    >
+                                        <option value="slide">{if zh { "🖥️ 幻灯片放映" } else { "🖥️ Slide Player" }}</option>
+                                        <option value="pdf">{if zh { "📄 PDF 预览" } else { "📄 PDF Viewer" }}</option>
+                                    </select>
+                                </div>
+
+                                <div style="display:flex; align-items:center; gap:0.35rem;">
+                                    <label style="font-size:0.8rem; font-weight:600; color:var(--text-sub);">{if zh { "有效期限:" } else { "Expiry:" }}</label>
+                                    <select
+                                        class="form-control"
+                                        style="height:32px; font-size:0.8rem; padding:0 6px;"
+                                        prop:value=move || new_link_expiry.get()
+                                        on:change=move |ev| new_link_expiry.set(event_target_value(&ev))
+                                    >
+                                        <option value="7">{if zh { "7 天有效" } else { "7 Days" }}</option>
+                                        <option value="30">{if zh { "30 天有效" } else { "30 Days" }}</option>
+                                        <option value="90">{if zh { "90 天有效" } else { "90 Days" }}</option>
+                                        <option value="0">{if zh { "永久有效" } else { "Permanent" }}</option>
+                                    </select>
+                                </div>
+
+                                <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.8rem; cursor:pointer; margin:0 0.25rem;">
+                                    <input
+                                        type="checkbox"
+                                        prop:checked=move || new_link_comments.get()
+                                        on:change=move |ev| new_link_comments.set(event_target_checked(&ev))
+                                    />
+                                    <span>{if zh { "允许评论" } else { "Comments" }}</span>
+                                </label>
+
                                 <button
                                     type="button"
-                                    class="btn btn-secondary btn-sm"
-                                    style="height:36px; white-space:nowrap; padding:0 0.85rem;"
-                                    on:click=move |_| {
-                                        let url = pdf_url.get();
-                                        let msg = if zh { "PDF 预览链接已复制到剪贴板！".to_string() } else { "PDF link copied to clipboard!".to_string() };
-                                        copy_to_clipboard(url, copy_feedback, msg);
+                                    class="btn btn-primary btn-sm"
+                                    style="height:32px; font-size:0.8rem; padding:0 0.85rem; margin-left:auto; display:inline-flex; align-items:center; gap:0.3rem;"
+                                    disabled=move || is_creating_link.get()
+                                    on:click={
+                                        let pid = pid_for_create.clone();
+                                        move |_| {
+                                            let exp = match new_link_expiry.get().as_str() {
+                                                "0" => None,
+                                                other => other.parse::<i64>().ok(),
+                                            };
+                                            create_managed_link(
+                                                pid.clone(),
+                                                file_path.get(),
+                                                new_link_target.get(),
+                                                exp,
+                                                new_link_comments.get(),
+                                                is_creating_link,
+                                                shared_links,
+                                                copy_feedback,
+                                                zh,
+                                            );
+                                        }
                                     }
                                 >
-                                    "📋 " {if zh { "复制" } else { "Copy" }}
+                                    {move || if is_creating_link.get() {
+                                        view! { <span>"⏳ " {if zh { "生成中..." } else { "Generating..." }}</span> }.into_any()
+                                    } else {
+                                        view! { <span>"+ " {if zh { "生成安全临时链接" } else { "Generate Safe Link" }}</span> }.into_any()
+                                    }}
                                 </button>
-                                <a
-                                    href=move || pdf_url.get()
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class="btn btn-primary btn-sm"
-                                    style="height:36px; white-space:nowrap; padding:0 0.85rem; display:inline-flex; align-items:center;"
-                                >
-                                    "↗ " {if zh { "查看" } else { "View" }}
-                                </a>
+                            </div>
+
+                            // Active Links List
+                            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+                                {
+                                    let pid_rev = pid_for_list.clone();
+                                    move || {
+                                        let links = shared_links.get();
+                                        let loading = is_links_loading.get();
+                                        if loading && links.is_empty() {
+                                            view! {
+                                                <div style="padding:0.75rem; text-align:center; font-size:0.8rem; color:var(--text-sub);">
+                                                    "⏳ " {if zh { "正在加载已生成的分享链接..." } else { "Loading active links..." }}
+                                                </div>
+                                            }.into_any()
+                                        } else if links.is_empty() {
+                                            view! {
+                                                <div style="padding:0.75rem; text-align:center; font-size:0.8rem; color:var(--text-sub); background:rgba(0,0,0,0.02); border-radius:6px; border:1px dashed var(--border-subtle, #cbd5e1);">
+                                                    {if zh { "当前文件暂无生成的安全临时分享链接，点击上方按钮可快速生成。" } else { "No active safe temporary links for this file. Click above to generate one." }}
+                                                </div>
+                                            }.into_any()
+                                        } else {
+                                            let items: Vec<_> = links.into_iter().map(|lnk| {
+                                                let full_url = lnk.url.clone();
+                                                let full_url_copy = full_url.clone();
+                                                let full_url_open = full_url.clone();
+                                                let tok = lnk.token.clone();
+                                                let pid_this = pid_rev.clone();
+                                            let is_slide = lnk.target_type == "slide";
+
+                                            view! {
+                                                <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; background:var(--bg-surface, #fff); border:1px solid var(--border-subtle, #e2e8f0); border-radius:8px; padding:0.6rem 0.85rem; font-size:0.82rem;">
+                                                    <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden; flex:1;">
+                                                        <span style=format!(
+                                                            "font-size:0.75rem; padding:2px 6px; border-radius:4px; font-weight:700; white-space:nowrap; background:{}; color:{};",
+                                                            if is_slide { "#ecfdf5" } else { "#eff6ff" },
+                                                            if is_slide { "#059669" } else { "#2563eb" },
+                                                        )>
+                                                            {if is_slide { "🖥️ Slide" } else { "📄 PDF" }}
+                                                        </span>
+                                                        <input
+                                                            type="text"
+                                                            readonly
+                                                            class="form-control"
+                                                            style="height:30px; font-size:0.8rem; font-family:monospace; flex:1; min-width:180px;"
+                                                            prop:value=full_url
+                                                            onclick="this.select()"
+                                                        />
+                                                        <span style="font-size:0.75rem; color:var(--text-sub); white-space:nowrap;" title=if zh { "访问次数" } else { "View count" }>
+                                                            "👁️ " {lnk.view_count}
+                                                        </span>
+                                                        <span style="font-size:0.75rem; color:var(--text-sub); white-space:nowrap;">
+                                                            {if let Some(exp) = lnk.expires_at {
+                                                                let short_exp = exp.chars().take(10).collect::<String>();
+                                                                format!("⏳ {short_exp}")
+                                                            } else {
+                                                                (if zh { "永久有效" } else { "Permanent" }).to_string()
+                                                            }}
+                                                        </span>
+                                                    </div>
+                                                    <div style="display:flex; align-items:center; gap:0.35rem; flex-shrink:0;">
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-secondary btn-sm"
+                                                            style="height:30px; font-size:0.75rem; padding:0 0.55rem;"
+                                                            title=if zh { "复制链接" } else { "Copy Link" }
+                                                            on:click=move |_| {
+                                                                let msg = if zh { "安全分享链接已复制到剪贴板！".to_string() } else { "Secure link copied to clipboard!".to_string() };
+                                                                copy_to_clipboard(full_url_copy.clone(), copy_feedback, msg);
+                                                            }
+                                                        >
+                                                            "📋"
+                                                        </button>
+                                                        <a
+                                                            href=full_url_open
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            class="btn btn-secondary btn-sm"
+                                                            style="height:30px; font-size:0.75rem; padding:0 0.55rem; display:inline-flex; align-items:center;"
+                                                            title=if zh { "打开测试" } else { "Open" }
+                                                        >
+                                                            "↗"
+                                                        </a>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-danger btn-sm"
+                                                            style="height:30px; font-size:0.75rem; padding:0 0.55rem; background:#fee2e2; color:#b91c1c; border:1px solid #fecaca;"
+                                                            title=if zh { "撤销失效此链接" } else { "Revoke link" }
+                                                            on:click={
+                                                                let p = pid_this.clone();
+                                                                let t = tok.clone();
+                                                                move |_| {
+                                                                    revoke_managed_link(p.clone(), t.clone(), shared_links, copy_feedback, zh);
+                                                                }
+                                                            }
+                                                        >
+                                                            {if zh { "🚫 撤销" } else { "🚫 Revoke" }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }).collect();
+                                        view! { <div style="display:flex; flex-direction:column; gap:0.5rem;">{items}</div> }.into_any()
+                                    }
+                                }}
                             </div>
                         </div>
 
-                        // Token & Access Helper Note
-                        <div style="display:flex; align-items:flex-start; gap:0.5rem; background:rgba(99,102,241,0.06); border:1px solid rgba(99,102,241,0.2); border-radius:8px; padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-main);">
-                            <span style="font-size:1.1rem; line-height:1;">"💡"</span>
-                            <div style="line-height:1.45;">
-                                {move || {
-                                    let tok = token.get();
-                                    if !tok.is_empty() {
-                                        if zh {
-                                            "以上链接已自动附带安全访问令牌（Token）。获得此链接的任何人无需登录即可直接在浏览器中查看演示/PDF并提交评审评论。".to_string()
-                                        } else {
-                                            "These links automatically include a secure access token. Anyone with the link can view presentations/PDFs and leave comments without logging in.".to_string()
-                                        }
+                        // SECTION 2: Internal Debug Links
+                        <details style="background:var(--bg-muted, #f8fafc); border:1px solid var(--border-subtle, #e2e8f0); border-radius:10px; padding:0.75rem 1rem; margin-bottom:1rem;">
+                            <summary style="font-weight:700; font-size:0.875rem; color:var(--text-sub); cursor:pointer; user-select:none;">
+                                "🛠️ " {if zh { "项目成员内部调试直达路径 (仅限内部登录访问，不带Token)" } else { "Internal Workspace URL (For logged-in members only, no token)" }}
+                            </summary>
+                            <div style="margin-top:0.75rem;">
+                                <p style="font-size:0.75rem; color:var(--text-sub); margin-bottom:0.6rem; line-height:1.4;">
+                                    {if zh {
+                                        "⚠️ 注意：以下内部路径直接包含项目 ID 与文件名，仅供已登录工作区成员本地预览调试使用，禁止对外公开发送。"
                                     } else {
-                                        if zh {
-                                            "如需允许外部人员无密码免登录访问，可在【权限与协作者】选项卡中将模式设为【公开链接】。".to_string()
-                                        } else {
-                                            "To allow external users to view without login, set the sharing mode to 'Public Link' in the Access & Permissions tab.".to_string()
-                                        }
-                                    }
-                                }}
+                                        "Note: These direct routes expose project IDs and file paths. Use only for internal logged-in members."
+                                    }}
+                                </p>
+
+                                // Slide Presentation Player Link Card
+                                <div style="background:var(--bg-surface, #fff); border:1px solid var(--border-subtle, #e2e8f0); border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+                                        <div style="font-weight:600; font-size:0.85rem; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
+                                            <span>"🖥️"</span>
+                                            <span>{if zh { "内部幻灯片播放路径" } else { "Internal Slide Player Link" }}</span>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                                        <input
+                                            type="text"
+                                            readonly
+                                            class="form-control"
+                                            style="flex:1; height:32px; font-size:0.8rem; font-family:monospace; background:var(--bg-surface, #fff);"
+                                            prop:value=move || slide_internal_url.get()
+                                            onclick="this.select()"
+                                        />
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary btn-sm"
+                                            style="height:32px; white-space:nowrap; padding:0 0.75rem; font-size:0.8rem;"
+                                            on:click=move |_| {
+                                                let url = slide_internal_url.get();
+                                                let msg = if zh { "内部路径已复制！".to_string() } else { "Internal URL copied!".to_string() };
+                                                copy_to_clipboard(url, copy_feedback, msg);
+                                            }
+                                        >
+                                            "📋 " {if zh { "复制" } else { "Copy" }}
+                                        </button>
+                                        <a
+                                            href=move || slide_internal_url.get()
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="btn btn-secondary btn-sm"
+                                            style="height:32px; white-space:nowrap; padding:0 0.75rem; font-size:0.8rem; display:inline-flex; align-items:center;"
+                                        >
+                                            "▶ " {if zh { "内部放映" } else { "Play" }}
+                                        </a>
+                                    </div>
+                                </div>
+
+                                // PDF Viewer Link Card
+                                <div style="background:var(--bg-surface, #fff); border:1px solid var(--border-subtle, #e2e8f0); border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.75rem;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+                                        <div style="font-weight:600; font-size:0.85rem; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
+                                            <span>"📄"</span>
+                                            <span>{if zh { "内部 PDF 预览路径" } else { "Internal PDF Viewer Link" }}</span>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                                        <input
+                                            type="text"
+                                            readonly
+                                            class="form-control"
+                                            style="flex:1; height:32px; font-size:0.8rem; font-family:monospace; background:var(--bg-surface, #fff);"
+                                            prop:value=move || pdf_internal_url.get()
+                                            onclick="this.select()"
+                                        />
+                                        <button
+                                            type="button"
+                                            class="btn btn-secondary btn-sm"
+                                            style="height:32px; white-space:nowrap; padding:0 0.75rem; font-size:0.8rem;"
+                                            on:click=move |_| {
+                                                let url = pdf_internal_url.get();
+                                                let msg = if zh { "内部路径已复制！".to_string() } else { "Internal URL copied!".to_string() };
+                                                copy_to_clipboard(url, copy_feedback, msg);
+                                            }
+                                        >
+                                            "📋 " {if zh { "复制" } else { "Copy" }}
+                                        </button>
+                                        <a
+                                            href=move || pdf_internal_url.get()
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="btn btn-secondary btn-sm"
+                                            style="height:32px; white-space:nowrap; padding:0 0.75rem; font-size:0.8rem; display:inline-flex; align-items:center;"
+                                        >
+                                            "↗ " {if zh { "内部查看" } else { "View" }}
+                                        </a>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        </details>
                     </div>
 
                     // TAB 2: Send via Email
@@ -417,7 +721,7 @@ pub fn FileShareModalIsland(
                     <div style:display=move || if active_tab.get() == "access" { "block" } else { "none" }>
                         <form
                             method="post"
-                            action=format!("/projects/{}/files/share", project_id)
+                            action=format!("/projects/{}/files/share", pid_for_form)
                             style="display:flex; flex-direction:column;"
                         >
                             <input type="hidden" name="file" prop:value=move || file_path.get() />
@@ -700,6 +1004,179 @@ pub fn FileShareModalIsland(
                             </div>
                         </form>
                     </div>
+
+                    // TAB 4: All Project Shared Links Management
+                    <div style:display=move || if active_tab.get() == "all_links" { "flex" } else { "none" } style="flex-direction:column; gap:0; min-height:200px;">
+                        <div style="margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+                            <div style="font-size:0.85rem; color:var(--text-sub); line-height:1.4; flex:1;">
+                                {if zh {
+                                    "管理本项目中所有文件的对外分享临时链接，可随时复制或一键撤销失效。"
+                                } else {
+                                    "Manage all temporary share links across every file in this project. Copy or revoke any link at any time."
+                                }}
+                            </div>
+                            <button
+                                type="button"
+                                class="btn btn-secondary btn-sm"
+                                style="height:32px; font-size:0.8rem; padding:0 0.85rem; display:inline-flex; align-items:center; gap:0.35rem; flex-shrink:0;"
+                                disabled=move || is_all_links_loading.get()
+                                on:click={
+                                    let pid = pid_for_all_rev.clone();
+                                    move |_| {
+                                        fetch_shared_links(pid.clone(), String::new(), all_links, is_all_links_loading);
+                                    }
+                                }
+                            >
+                                {move || if is_all_links_loading.get() {
+                                    view! { <span>"⏳"</span> }.into_any()
+                                } else {
+                                    view! { <span>"🔄 " {if zh { "刷新" } else { "Refresh" }}</span> }.into_any()
+                                }}
+                            </button>
+                        </div>
+
+                        // All-links table
+                        {move || {
+                            let links = all_links.get();
+                            let loading = is_all_links_loading.get();
+
+                            if loading && links.is_empty() {
+                                view! {
+                                    <div style="padding:2rem; text-align:center; font-size:0.85rem; color:var(--text-sub);">
+                                        "⏳ " {if zh { "正在加载全部分享链接..." } else { "Loading all shared links..." }}
+                                    </div>
+                                }.into_any()
+                            } else if links.is_empty() {
+                                view! {
+                                    <div style="padding:2rem; text-align:center; font-size:0.85rem; color:var(--text-sub); background:rgba(0,0,0,0.02); border-radius:8px; border:1px dashed var(--border-subtle, #cbd5e1);">
+                                        {if zh { "该项目暂无任何对外分享链接。" } else { "No shared links have been created for this project yet." }}
+                                    </div>
+                                }.into_any()
+                            } else {
+                                // Group by file_path for a readable layout
+                                let mut by_file: Vec<(String, Vec<ManagedSharedLink>)> = Vec::new();
+                                for lnk in links {
+                                    if let Some(group) = by_file.iter_mut().find(|(fp, _)| fp == &lnk.file_path) {
+                                        group.1.push(lnk);
+                                    } else {
+                                        by_file.push((lnk.file_path.clone(), vec![lnk]));
+                                    }
+                                }
+
+                                let groups: Vec<_> = by_file.into_iter().map(|(file, file_links)| {
+                                    let file_display = file.clone();
+                                    let rows: Vec<_> = file_links.into_iter().map(|lnk| {
+                                        let full_url = lnk.url.clone();
+                                        let full_url_copy = full_url.clone();
+                                        let tok = lnk.token.clone();
+                                        let pid_rev = pid_for_form.clone();
+                                        let is_slide = lnk.target_type == "slide";
+                                        let is_revoked = lnk.is_revoked;
+
+                                        view! {
+                                            <div style=format!(
+                                                "display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.55rem 0.85rem; border-bottom:1px solid var(--border-subtle, #f1f5f9); font-size:0.82rem; {};",
+                                                if is_revoked { "opacity:0.45; text-decoration:line-through;" } else { "" }
+                                            )>
+                                                <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden; flex:1; min-width:0;">
+                                                    <span style=format!(
+                                                        "font-size:0.7rem; padding:2px 5px; border-radius:4px; font-weight:700; white-space:nowrap; flex-shrink:0; background:{}; color:{};",
+                                                        if is_slide { "#ecfdf5" } else { "#eff6ff" },
+                                                        if is_slide { "#059669" } else { "#2563eb" },
+                                                    )>
+                                                        {if is_slide { "🖥️" } else { "📄" }}
+                                                    </span>
+                                                    <input
+                                                        type="text"
+                                                        readonly
+                                                        class="form-control"
+                                                        style="height:28px; font-size:0.78rem; font-family:monospace; flex:1; min-width:0;"
+                                                        prop:value=full_url
+                                                        onclick="this.select()"
+                                                    />
+                                                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:1px; flex-shrink:0;">
+                                                        <span style="font-size:0.7rem; color:var(--text-sub); white-space:nowrap;">
+                                                            "👁️ " {lnk.view_count}
+                                                        </span>
+                                                        <span style="font-size:0.7rem; color:var(--text-sub); white-space:nowrap;">
+                                                            {if let Some(exp) = lnk.expires_at {
+                                                                format!("⏳ {}", exp.chars().take(10).collect::<String>())
+                                                            } else {
+                                                                (if zh { "永久" } else { "∞ never" }).to_string()
+                                                            }}
+                                                        </span>
+                                                        <span style=format!(
+                                                            "font-size:0.7rem; padding:1px 5px; border-radius:9999px; white-space:nowrap; background:{}; color:{};",
+                                                            if lnk.allow_comments { "rgba(16,185,129,0.12)" } else { "rgba(239,68,68,0.1)" },
+                                                            if lnk.allow_comments { "#059669" } else { "#dc2626" },
+                                                        )>
+                                                            {if lnk.allow_comments {
+                                                                if zh { "💬 评论" } else { "💬 cmts" }
+                                                            } else {
+                                                                if zh { "🔇 无评论" } else { "🔇 no cmts" }
+                                                            }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div style="display:flex; align-items:center; gap:0.3rem; flex-shrink:0;">
+                                                    {if !is_revoked {
+                                                        view! {
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-secondary btn-sm"
+                                                                style="height:28px; font-size:0.75rem; padding:0 0.45rem;"
+                                                                title=if zh { "复制链接" } else { "Copy link" }
+                                                                on:click=move |_| {
+                                                                    let msg = if zh { "链接已复制！".to_string() } else { "Link copied!".to_string() };
+                                                                    copy_to_clipboard(full_url_copy.clone(), copy_feedback, msg);
+                                                                }
+                                                            >
+                                                                "📋"
+                                                            </button>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! { <span style="font-size:0.7rem; color:#b91c1c; font-weight:700;">"✕"</span> }.into_any()
+                                                    }}
+                                                    {if !is_revoked {
+                                                        view! {
+                                                            <button
+                                                                type="button"
+                                                                class="btn btn-danger btn-sm"
+                                                                style="height:28px; font-size:0.72rem; padding:0 0.5rem; background:#fee2e2; color:#b91c1c; border:1px solid #fecaca; white-space:nowrap;"
+                                                                title=if zh { "撤销此链接" } else { "Revoke" }
+                                                                on:click={
+                                                                    let p = pid_rev.clone();
+                                                                    let t = tok.clone();
+                                                                    move |_| {
+                                                                        revoke_managed_link(p.clone(), t.clone(), all_links, copy_feedback, zh);
+                                                                    }
+                                                                }
+                                                            >
+                                                                {if zh { "🚫 撤销" } else { "🚫 Revoke" }}
+                                                            </button>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! { <span style="font-size:0.7rem; color:#94a3b8;">" "</span> }.into_any()
+                                                    }}
+                                                </div>
+                                            </div>
+                                        }
+                                    }).collect();
+
+                                    view! {
+                                        <div style="margin-bottom:0.85rem; background:var(--bg-muted, #f8fafc); border:1px solid var(--border-subtle, #e2e8f0); border-radius:8px; overflow:hidden;">
+                                            <div style="padding:0.5rem 0.85rem; background:var(--bg-surface, #fff); border-bottom:1px solid var(--border-subtle, #e2e8f0); display:flex; align-items:center; gap:0.4rem;">
+                                                <span style="font-size:0.8rem; font-weight:700; color:var(--primary, #635bff); font-family:monospace;">{file_display}</span>
+                                            </div>
+                                            {rows}
+                                        </div>
+                                    }
+                                }).collect::<Vec<_>>();
+
+                                view! { <div style="display:flex; flex-direction:column;">{groups}</div> }.into_any()
+                            }
+                        }}
+                    </div>
                 </div>
 
                 // Modal Footer (Close button visible on all tabs)
@@ -834,10 +1311,14 @@ fn wire_open_listener(
     email_note: RwSignal<String>,
     email_feedback: RwSignal<Option<Result<String, String>>>,
     copy_feedback: RwSignal<Option<String>>,
+    project_id: String,
+    shared_links: RwSignal<Vec<ManagedSharedLink>>,
+    is_links_loading: RwSignal<bool>,
 ) {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
 
+    let pid_closure = project_id.clone();
     let closure = Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |ev: web_sys::CustomEvent| {
         let detail = ev.detail();
         let get_str = |key: &str| -> String {
@@ -846,7 +1327,8 @@ fn wire_open_listener(
                 .and_then(|v| v.as_string())
                 .unwrap_or_default()
         };
-        file_path.set(get_str("path"));
+        let p = get_str("path");
+        file_path.set(p.clone());
         token.set(get_str("token"));
         let m = get_str("mode");
         mode.set(if m.is_empty() {
@@ -873,6 +1355,7 @@ fn wire_open_listener(
         email_feedback.set(None);
         copy_feedback.set(None);
         fetch_share_users(String::new(), search_results, is_search_loading);
+        fetch_shared_links(pid_closure.clone(), p, shared_links, is_links_loading);
         visible.set(true);
     });
     if let Some(win) = web_sys::window() {
@@ -885,7 +1368,7 @@ fn wire_open_listener(
 }
 
 #[cfg(not(feature = "hydrate"))]
-const fn wire_open_listener(
+fn wire_open_listener(
     _visible: RwSignal<bool>,
     _file_path: RwSignal<String>,
     _token: RwSignal<String>,
@@ -898,6 +1381,181 @@ const fn wire_open_listener(
     _email_note: RwSignal<String>,
     _email_feedback: RwSignal<Option<Result<String, String>>>,
     _copy_feedback: RwSignal<Option<String>>,
+    _project_id: String,
+    _shared_links: RwSignal<Vec<ManagedSharedLink>>,
+    _is_links_loading: RwSignal<bool>,
+) {
+}
+
+#[cfg(feature = "hydrate")]
+fn fetch_shared_links(
+    project_id: String,
+    file_path: String,
+    links: RwSignal<Vec<ManagedSharedLink>>,
+    is_loading: RwSignal<bool>,
+) {
+    if project_id.is_empty() {
+        return;
+    }
+    is_loading.set(true);
+    wasm_bindgen_futures::spawn_local(async move {
+        let file_query = if file_path.is_empty() {
+            String::new()
+        } else {
+            format!("?file={}", urlencoding::encode(&file_path))
+        };
+        let url = format!("/api/projects/{}/shared-links{}", project_id, file_query);
+        if let Ok(resp) = gloo_net::http::Request::get(&url).send().await {
+            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                if let Some(arr) = data.get("shared_links").and_then(|v| v.as_array()) {
+                    let mut items: Vec<ManagedSharedLink> = arr
+                        .iter()
+                        .filter_map(|val| serde_json::from_value(val.clone()).ok())
+                        .collect();
+                    if items.is_empty() && !file_path.is_empty() {
+                        let is_slide = file_path.ends_with(".typ") || file_path.ends_with(".slide");
+                        let target_type = if is_slide { "slide" } else { "pdf" };
+                        let post_url = format!("/api/projects/{}/shared-links", project_id);
+                        let post_body = serde_json::json!({
+                            "file_path": file_path,
+                            "target_type": target_type,
+                            "expiry_days": 30,
+                            "allow_comments": true,
+                        });
+                        if let Ok(req) = gloo_net::http::Request::post(&post_url)
+                            .header("Content-Type", "application/json")
+                            .body(post_body.to_string())
+                        {
+                            if let Ok(res) = req.send().await {
+                                if let Ok(created_json) = res.json::<serde_json::Value>().await {
+                                    if let Some(created_val) = created_json.get("shared_link") {
+                                        if let Ok(new_l) = serde_json::from_value::<ManagedSharedLink>(created_val.clone()) {
+                                            items.push(new_l);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    links.set(items);
+                }
+            }
+        }
+        is_loading.set(false);
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn fetch_shared_links(
+    _project_id: String,
+    _file_path: String,
+    _links: RwSignal<Vec<ManagedSharedLink>>,
+    _is_loading: RwSignal<bool>,
+) {
+}
+
+#[cfg(feature = "hydrate")]
+fn create_managed_link(
+    project_id: String,
+    file_path: String,
+    target_type: String,
+    expiry_days: Option<i64>,
+    allow_comments: bool,
+    is_creating: RwSignal<bool>,
+    links: RwSignal<Vec<ManagedSharedLink>>,
+    feedback: RwSignal<Option<String>>,
+    zh: bool,
+) {
+    if project_id.is_empty() || file_path.is_empty() {
+        return;
+    }
+    is_creating.set(true);
+    wasm_bindgen_futures::spawn_local(async move {
+        let url = format!("/api/projects/{}/shared-links", project_id);
+        let req_body = serde_json::json!({
+            "file_path": file_path,
+            "target_type": target_type,
+            "expiry_days": expiry_days,
+            "allow_comments": allow_comments,
+        });
+        let resp = gloo_net::http::Request::post(&url)
+            .header("Content-Type", "application/json")
+            .body(req_body.to_string());
+        if let Ok(req) = resp {
+            if let Ok(res) = req.send().await {
+                if res.ok() {
+                    if let Ok(data) = res.json::<serde_json::Value>().await {
+                        if let Some(link_val) = data.get("shared_link") {
+                            if let Ok(new_link) =
+                                serde_json::from_value::<ManagedSharedLink>(link_val.clone())
+                            {
+                                links.update(|l| l.insert(0, new_link));
+                                let msg = if zh {
+                                    "已生成新的安全临时分享链接！".to_string()
+                                } else {
+                                    "New secure shared link generated!".to_string()
+                                };
+                                feedback.set(Some(msg));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        is_creating.set(false);
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn create_managed_link(
+    _project_id: String,
+    _file_path: String,
+    _target_type: String,
+    _expiry_days: Option<i64>,
+    _allow_comments: bool,
+    _is_creating: RwSignal<bool>,
+    _links: RwSignal<Vec<ManagedSharedLink>>,
+    _feedback: RwSignal<Option<String>>,
+    _zh: bool,
+) {
+}
+
+#[cfg(feature = "hydrate")]
+fn revoke_managed_link(
+    project_id: String,
+    token: String,
+    links: RwSignal<Vec<ManagedSharedLink>>,
+    feedback: RwSignal<Option<String>>,
+    zh: bool,
+) {
+    if project_id.is_empty() || token.is_empty() {
+        return;
+    }
+    let tok_for_update = token.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let url = format!("/api/projects/{}/shared-links/{}/revoke", project_id, token);
+        let resp = gloo_net::http::Request::post(&url).send().await;
+        if let Ok(res) = resp {
+            if res.ok() {
+                links.update(|l| l.retain(|item| item.token != tok_for_update));
+                let msg = if zh {
+                    "分享链接已成功撤销，访问已失效。".to_string()
+                } else {
+                    "Shared link revoked successfully.".to_string()
+                };
+                feedback.set(Some(msg));
+            }
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn revoke_managed_link(
+    _project_id: String,
+    _token: String,
+    _links: RwSignal<Vec<ManagedSharedLink>>,
+    _feedback: RwSignal<Option<String>>,
+    _zh: bool,
 ) {
 }
 

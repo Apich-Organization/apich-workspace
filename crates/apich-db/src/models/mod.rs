@@ -22,6 +22,8 @@ pub mod sso;
 pub mod team;
 /// Reusable project templates, versions, and shares.
 pub mod template;
+/// Managed opaque temporary share links.
+pub mod shared_link;
 /// User accounts, profiles, and roles.
 pub mod user;
 /// Workspaces, members, and workspace-level settings.
@@ -74,6 +76,8 @@ pub use sso::OAuthAuthCode;
 pub use sso::OAuthClient;
 pub use sso::OidcClaims;
 pub use sso::OidcDiscovery;
+pub use shared_link::CreateSharedLinkDto;
+pub use shared_link::SharedLink;
 pub use team::CreateTeamDto;
 pub use team::Team;
 pub use team::TeamMember;

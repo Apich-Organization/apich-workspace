@@ -116,6 +116,11 @@ impl MigrationManager {
             name: "014_file_comments",
             sql: FILE_COMMENTS_SQL,
         });
+        manager.register(Migration {
+            version: 15,
+            name: "015_shared_links",
+            sql: SHARED_LINKS_SQL,
+        });
         manager
     }
 
@@ -985,5 +990,25 @@ CREATE TABLE IF NOT EXISTS file_comments (
 );
 CREATE INDEX IF NOT EXISTS idx_file_comments_proj_file ON file_comments(project_id, file_path);
 CREATE INDEX IF NOT EXISTS idx_file_comments_created ON file_comments(created_at ASC);
+"#;
+
+/// SQL schema migration 015: Managed opaque temporary share links
+pub const SHARED_LINKS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS shared_links (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    token VARCHAR(64) NOT NULL UNIQUE,
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    target_type VARCHAR(32) NOT NULL DEFAULT 'slide',
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    expires_at TIMESTAMPTZ,
+    is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    allow_comments BOOLEAN NOT NULL DEFAULT TRUE,
+    view_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_shared_links_token ON shared_links(token);
+CREATE INDEX IF NOT EXISTS idx_shared_links_proj_file ON shared_links(project_id, file_path);
 "#;
 

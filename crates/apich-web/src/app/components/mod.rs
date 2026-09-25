@@ -166,17 +166,17 @@ pub fn AppShell(
         Some(view! {
             <div class="sidebar-section">
                 <span class="sidebar-heading">{i18n.sidebar_heading_platform()}</span>
-                <a href="/admin/users" class="sidebar-link" class:active=active_nav.is(ActiveNav::UserAdmin)>
+                <a href="/admin/users" class="sidebar-link" class:active=active_nav.is(ActiveNav::UserAdmin) title=i18n.sidebar_user_admin()>
                     <span class="sidebar-icon">"👥"</span>
-                    <span>{i18n.sidebar_user_admin()}</span>
+                    <span class="sidebar-label">{i18n.sidebar_user_admin()}</span>
                 </a>
-                <a href="/admin/platform" class="sidebar-link" class:active=active_nav.is(ActiveNav::PlatformAdmin)>
+                <a href="/admin/platform" class="sidebar-link" class:active=active_nav.is(ActiveNav::PlatformAdmin) title=i18n.sidebar_platform_admin()>
                     <span class="sidebar-icon">"🛡️"</span>
-                    <span>{i18n.sidebar_platform_admin()}</span>
+                    <span class="sidebar-label">{i18n.sidebar_platform_admin()}</span>
                 </a>
-                <a href="/admin/orgs" class="sidebar-link" class:active=active_nav.is(ActiveNav::OrgAdmin)>
-                    <span class="sidebar-icon">"🏛️"</span>
-                    <span>{i18n.sidebar_org_admin()}</span>
+                <a href="/admin/orgs" class="sidebar-link" class:active=active_nav.is(ActiveNav::OrgAdmin) title=i18n.sidebar_org_admin()>
+                    <span class="sidebar-icon">"🏑️"</span>
+                    <span class="sidebar-label">{i18n.sidebar_org_admin()}</span>
                 </a>
             </div>
         }.into_any())
@@ -184,9 +184,9 @@ pub fn AppShell(
         Some(view! {
             <div class="sidebar-section">
                 <span class="sidebar-heading">{i18n.sidebar_heading_admin()}</span>
-                <a href="/admin/orgs" class="sidebar-link" class:active=active_nav.is(ActiveNav::OrgAdmin)>
-                    <span class="sidebar-icon">"🏛️"</span>
-                    <span>{i18n.sidebar_my_org_admin()}</span>
+                <a href="/admin/orgs" class="sidebar-link" class:active=active_nav.is(ActiveNav::OrgAdmin) title=i18n.sidebar_my_org_admin()>
+                    <span class="sidebar-icon">"🏑️"</span>
+                    <span class="sidebar-label">{i18n.sidebar_my_org_admin()}</span>
                 </a>
             </div>
         }.into_any())
@@ -216,26 +216,27 @@ pub fn AppShell(
                             type="button"
                             id="sidebar-toggle"
                             class="sidebar-toggle"
-                            title=if i18n.is_zh() { "折叠/展开侧边栏 (Ctrl+B)" } else { "Collapse/expand sidebar (Ctrl+B)" }
+                            title=if i18n.is_zh() { "折叠/展开侧边栏 (Ctrl+B)" } else { "Expand/collapse sidebar (Ctrl+B)" }
                             aria-label="Toggle sidebar"
-                        >"«"</button>
+                        >"›"</button>
                         <aside class="app-sidebar">
                             <div class="sidebar-brand">
-                                <a href="/" class="brand-link">
-                                    <span class="brand-badge">"APICH"</span>
+                                <a href="/" class="brand-link" title=i18n.brand_title()>
+                                    <span class="brand-badge brand-badge-full">"APICH"</span>
+                                    <span class="brand-badge brand-badge-mini">"A"</span>
                                     <span class="brand-title">{i18n.brand_title()}</span>
                                 </a>
                             </div>
                             <div class="sidebar-body">
                                 <div class="sidebar-section">
                                     <span class="sidebar-heading">{i18n.sidebar_heading_workspace()}</span>
-                                    <a href="/" class="sidebar-link" class:active=active_nav.is(ActiveNav::Projects)>
+                                    <a href="/" class="sidebar-link" class:active=active_nav.is(ActiveNav::Projects) title=i18n.nav_projects()>
                                         <span class="sidebar-icon">"📁"</span>
-                                        <span>{i18n.nav_projects()}</span>
+                                        <span class="sidebar-label">{i18n.nav_projects()}</span>
                                     </a>
-                                    <a href="/templates" class="sidebar-link" class:active=active_nav.is(ActiveNav::Templates)>
+                                    <a href="/templates" class="sidebar-link" class:active=active_nav.is(ActiveNav::Templates) title=i18n.nav_templates()>
                                         <span class="sidebar-icon">"📚"</span>
-                                        <span>{i18n.nav_templates()}</span>
+                                        <span class="sidebar-label">{i18n.nav_templates()}</span>
                                     </a>
                                 </div>
                                 // One-click "start writing X" shortcuts. The island asks where
@@ -245,31 +246,33 @@ pub fn AppShell(
                                 {admin_section}
                                 <div class="sidebar-section">
                                     <span class="sidebar-heading">{i18n.sidebar_heading_account()}</span>
-                                    <a href="/settings" class="sidebar-link" class:active=active_nav.is(ActiveNav::Settings)>
+                                    <a href="/settings" class="sidebar-link" class:active=active_nav.is(ActiveNav::Settings) title=i18n.sidebar_settings()>
                                         <span class="sidebar-icon">"⚙️"</span>
-                                        <span>{i18n.sidebar_settings()}</span>
+                                        <span class="sidebar-label">{i18n.sidebar_settings()}</span>
                                     </a>
                                 </div>
                             </div>
                             <div class="sidebar-footer">
-                                <div class="sidebar-user-card">
+                                <div class="sidebar-user-card" title=user.display_name.clone()>
                                     <div class="sidebar-user-avatar">{user_initial}</div>
                                     <div class="sidebar-user-info">
-                                        <div class="sidebar-user-name" title=user.display_name>{user.display_name.clone()}</div>
+                                        <div class="sidebar-user-name" title=user.display_name.clone()>{user.display_name.clone()}</div>
                                         <div class="sidebar-user-role">{role_title}</div>
                                     </div>
                                 </div>
                                 <div class="sidebar-actions">
                                     <a
                                         href=lang_toggle_url
-                                        class="lang-toggle"
+                                        class="sidebar-action-btn lang-toggle"
                                         title=if i18n.is_zh() { "切换语言" } else { "Switch Language" }
                                     >
-                                        "🌐 " {i18n.lang.toggle_label()}
+                                        <span class="sidebar-icon">"🌐"</span>
+                                        <span class="sidebar-label">{i18n.lang.toggle_label()}</span>
                                     </a>
-                                    <form method="post" action="/logout" class="inline-form">
-                                        <button type="submit" class="btn btn-ghost btn-sm" title=i18n.logout()>
-                                            "🚪 " {i18n.logout()}
+                                    <form method="post" action="/logout" class="inline-form sidebar-action-form">
+                                        <button type="submit" class="sidebar-action-btn logout-btn" title=i18n.logout()>
+                                            <span class="sidebar-icon">"🚪"</span>
+                                            <span class="sidebar-label">{i18n.logout()}</span>
                                         </button>
                                     </form>
                                 </div>
@@ -296,14 +299,15 @@ pub fn AppShell(
 const SIDEBAR_TOGGLE_JS: &str = r"
 (function(){
     var KEY = 'apich-sidebar-collapsed';
-    // Below the responsive breakpoint the sidebar is a slide-over, so it starts closed unless
-    // the user has explicitly opened it -- matching the `@media (max-width: 900px)` rules.
+    // Default: collapsed (icon-rail) on first visit. Desktop users can expand.
+    // Below the responsive breakpoint the sidebar is a slide-over overlay that starts closed.
     function stored(){
         try {
             var v = localStorage.getItem(KEY);
-            if (v === null) { return window.innerWidth <= 900; }
+            // No preference stored yet → start collapsed (icon rail on desktop, hidden on mobile)
+            if (v === null) { return true; }
             return v === '1';
-        } catch (e) { return window.innerWidth <= 900; }
+        } catch (e) { return true; }
     }
     function save(v){
         try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {}
@@ -312,7 +316,7 @@ const SIDEBAR_TOGGLE_JS: &str = r"
         var layout = document.querySelector('.app-layout');
         if (layout) { layout.classList.toggle('sidebar-collapsed', collapsed); }
         var btn = document.getElementById('sidebar-toggle');
-        if (btn) { btn.textContent = collapsed ? '»' : '«'; }
+        if (btn) { btn.textContent = collapsed ? '›' : '‹'; }
     }
     function init(){
         apply(stored());

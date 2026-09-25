@@ -8,6 +8,7 @@ use crate::models::CreateKnowledgeNodeDto;
 use crate::models::CreateOAuthClientDto;
 use crate::models::CreateOrganizationDto;
 use crate::models::CreateProjectDto;
+use crate::models::CreateSharedLinkDto;
 use crate::models::CreateTeamDto;
 use crate::models::CreateTemplateDto;
 use crate::models::CreateUserDto;
@@ -32,6 +33,7 @@ use crate::models::ProjectMember;
 use crate::models::ProjectMemberWithUser;
 use crate::models::ProjectSandbox;
 use crate::models::PublishTemplateVersionDto;
+use crate::models::SharedLink;
 use crate::models::SshPublicKey;
 use crate::models::SystemSettings;
 use crate::models::Team;
@@ -3254,6 +3256,136 @@ impl<'a> Repository<'a> {
             .execute(self.pool)
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// Create a new managed temporary share link.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn create_shared_link(
+        &self,
+        dto: CreateSharedLinkDto,
+    ) -> Result<SharedLink> {
+        let token = dto.token.unwrap_or_else(|| format!("fsh_{}", Uuid::new_v4().simple()));
+        let link = sqlx::query_as::<_, SharedLink>(
+            r#"
+            INSERT INTO shared_links (
+                token, project_id, file_path, target_type, created_by_user_id, expires_at, allow_comments
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *
+            "#,
+        )
+        .bind(token)
+        .bind(dto.project_id)
+        .bind(dto.file_path)
+        .bind(dto.target_type)
+        .bind(dto.created_by_user_id)
+        .bind(dto.expires_at)
+        .bind(dto.allow_comments)
+        .fetch_one(self.pool)
+        .await?;
+        Ok(link)
+    }
+
+    /// Retrieve a managed shared link by its unique token.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn get_shared_link_by_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<SharedLink>> {
+        let link = sqlx::query_as::<_, SharedLink>(
+            r#"
+            SELECT * FROM shared_links
+            WHERE token = $1
+            "#,
+        )
+        .bind(token)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(link)
+    }
+
+    /// List all shared links for a project (optionally filtered by file path).
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn list_shared_links(
+        &self,
+        project_id: Uuid,
+        file_path: Option<&str>,
+    ) -> Result<Vec<SharedLink>> {
+        let links = if let Some(fp) = file_path {
+            sqlx::query_as::<_, SharedLink>(
+                r#"
+                SELECT * FROM shared_links
+                WHERE project_id = $1 AND file_path = $2
+                ORDER BY created_at DESC
+                "#,
+            )
+            .bind(project_id)
+            .bind(fp)
+            .fetch_all(self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, SharedLink>(
+                r#"
+                SELECT * FROM shared_links
+                WHERE project_id = $1
+                ORDER BY created_at DESC
+                "#,
+            )
+            .bind(project_id)
+            .fetch_all(self.pool)
+            .await?
+        };
+        Ok(links)
+    }
+
+    /// Revoke a shared link so it can no longer be used.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn revoke_shared_link(
+        &self,
+        project_id: Uuid,
+        token: &str,
+    ) -> Result<bool> {
+        let res = sqlx::query(
+            r#"
+            UPDATE shared_links
+            SET is_revoked = TRUE, updated_at = CURRENT_TIMESTAMP
+            WHERE project_id = $1 AND token = $2 AND NOT is_revoked
+            "#,
+        )
+        .bind(project_id)
+        .bind(token)
+        .execute(self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// Increment view count for a shared link upon access.
+    ///
+    /// # Errors
+    /// Returns an error if the database query or operation fails.
+    pub async fn increment_shared_link_view_count(
+        &self,
+        token: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE shared_links
+            SET view_count = view_count + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE token = $1
+            "#,
+        )
+        .bind(token)
+        .execute(self.pool)
+        .await?;
+        Ok(())
     }
 }
 

@@ -8,7 +8,7 @@
 // Slide 1: Title Slide with Autoplay Ambient Track
 #title-slide(
   title: "Building Modern Slides with Rust & Typst",
-  subtitle: "Zero-JS Native Engine • 60 FPS Vector Graphics • Hardware Media • Interactive Charts",
+  subtitle: "Native Binary • LZMA2 Standalone Packages • Zero-JS Leptos CSR • Advanced Brushes",
   author: "Cargo Slide Team",
   date: "2026",
 )
@@ -472,27 +472,164 @@
   ]
 ]
 
-// Slide 18: Summary & Standalone Binary Delivery (Transition: Iris)
-#slide(title: "Ready for Your Next Presentation", transition: "iris")[
-  #align(center + horizon)[
-    #text(size: 24pt, weight: "bold", fill: slide-colors.accent)[One Command to Build & Deliver]
+// Slide 18: Standalone .slide Packaging & Universal Viewer (Transition: Zoom)
+#slide(title: "Standalone .slide Packaging & Universal Viewer", transition: "zoom")[
+  #cols(
+    [
+      === High-Ratio LZMA2 Archive
+      #callout(title: "Extreme LZMA2 Compression (.slide)", stroke-color: slide-colors.accent)[
+        - Bundles all vector slides, fonts, datasets, audio tracks, and video clips into a single portable file.
+        - Employs LZMA2 preset 9 with dictionary optimization for maximum compression ratio.
+        - Zero installation needed on target machines when paired with `slide-viewer`.
+      ]
+      
+      #v(0.15cm)
+      #code-window(title: "pack.sh")[
+        ```bash
+        # Pack presentation into portable .slide archive
+        cargo slide pack --output talk.slide
+        ```
+      ]
+    ],
+    [
+      === Universal `slide-viewer` GUI
+      #callout(title: "Modern GUI Launcher & 1-Click Install", stroke-color: slide-colors.accent-cyan)[
+        - *File Chooser (O)*: Browse and select any `.slide`, `.typ`, or `.json` presentation on disk.
+        - *System Installer (I)*: 1-click installer registering desktop launcher and native file associations across Windows, macOS, and Linux.
+        - *Double-Click & Keyboard*: Full mouse navigation, smooth scroll wheel, instant live demo.
+      ]
 
-    #v(0.4cm)
+      #v(0.15cm)
+      #code-window(title: "viewer.sh")[
+        ```bash
+        # Open universal GUI launcher or play directly
+        slide-viewer talk.slide
+        slide-viewer install   # Register system associations
+        ```
+      ]
+    ]
+  )
+]
+
+// Slide 19: Pure Rust Leptos WASM Web Player (Transition: Slide-Left)
+#slide(title: "Pure Rust Leptos WASM Web Player (Zero-JS Full CSR)", transition: "slide-left")[
+  #cols(
+    [
+      === Zero-JS Leptos 0.7 Architecture
+      #callout(title: "100% Pure Rust WebAssembly", stroke-color: slide-colors.accent-purple)[
+        - Compiled to `wasm32-unknown-unknown` using Leptos reactive signals.
+        - Strictly *ZERO* inline JavaScript: pure Rust client-side rendering (CSR).
+        - Standalone directory deployment ready for GitHub Pages, Netlify, or S3.
+      ]
+
+      #v(0.15cm)
+      #code-window(title: "serve.sh")[
+        ```bash
+        # Built-in static web server with live browser launch
+        cargo slide serve --port 8080 --open
+        cargo slide export --format wasm
+        ```
+      ]
+    ],
+    [
+      === Web Presenter Experience
+      #callout(title: "Desktop-Class Web Interactivity", stroke-color: slide-colors.accent-orange)[
+        - *True Fullscreen (F)*: Native HTML5 fullscreen without breaking during page flips or leaving borders.
+        - *Syntax Code Viewer*: Built-in high-contrast modal for inspecting local files with line numbers.
+        - *Video & Audio DSP*: In-browser WebAudio volume fades and theater/fullscreen video playback.
+        - *Animated Laser Pointer*: Real-time velocity-based glowing trail.
+      ]
+
+      #v(0.15cm)
+      #badge("Zero Inline JS", fill: slide-colors.accent) #h(4pt)
+      #badge("Leptos 0.7 CSR", fill: slide-colors.accent-cyan) #h(4pt)
+      #badge("Static Hostable", fill: slide-colors.accent-purple)
+    ]
+  )
+]
+
+// Slide 20: Multi-Brush Presenter System (Transition: Slide-Up)
+#slide(title: "Multi-Brush Presenter System: 4 Modes & 14-Color Palette", transition: "slide-up")[
+  #grid(
+    columns: (1fr, 1fr),
+    gutter: 0.8cm,
+    [
+      === 4 Specialized Brush Engines
+      #v(0.1cm)
+      #callout(title: "1. Solid Pen (P) & 2. Highlighter (T)", stroke-color: slide-colors.accent)[
+        - *Solid Pen*: Opaque, high-contrast vector ink for fine annotations and notes.
+        - *Translucent Highlighter*: 3.5x wide stroke with multiply blending; text beneath remains completely legible.
+      ]
+
+      #v(0.15cm)
+      #callout(title: "3. Neon Glow (T) & 4. Directional Arrow (T)", stroke-color: slide-colors.accent-cyan)[
+        - *Neon Glow*: Cyberpunk dual-layer luminous beam with soft neon halo and bright center core.
+        - *Directional Arrow*: Geometric vector trajectory with auto-oriented arrowhead.
+      ]
+    ],
+    [
+      === Palette, Sizing & Undo Controls
+      #v(0.1cm)
+      #callout(title: "14-Color Swatches & Custom RGB Tuning", stroke-color: slide-colors.accent-purple)[
+        - 14 neon & high-contrast swatches (Cyan, Red, Green, Yellow, Purple, Sky, Lime, Gold, etc.).
+        - Custom color tuning via native color picker or number keys `1`..`0`.
+        - Variable widths: `2px`, `4px`, `8px`, `14px` (keys `[` / `]`).
+      ]
+
+      #v(0.15cm)
+      #callout(title: "Complete History & Quick Actions", stroke-color: slide-colors.accent-orange)[
+        - *Undo Stroke (`U` / `Ctrl+Z`)*: Step back individual strokes effortlessly.
+        - *Clear Whiteboard (`C` / `X`)*: Instant one-key blackboard wipe.
+        - Floating dock toolbox overlay across both desktop and web!
+      ]
+    ]
+  )
+]
+
+// Slide 21: Three Delivery Paradigms (Transition: Iris)
+#slide(title: "Three Delivery Paradigms: Architecture & Feature Matrix", transition: "iris")[
+  #table(
+    columns: (1.5fr, 2fr, 2fr, 2fr),
+    fill: (col, row) => if row == 0 { slide-colors.card-bg } else if calc.even(row) { rgb(22, 27, 34, 40%) } else { none },
+    stroke: 0.5pt + slide-colors.card-border,
+    align: (col, row) => if col == 0 { left } else { center },
+    table.header([*Feature / Metric*], [*1. Direct Binary*], [*2. Standalone .slide*], [*3. Leptos Web CSR*]),
+    [Delivery Artifact], [`./presentation` binary], [`.slide` (LZMA2 Package)], [`index.html` + `.wasm`],
+    [Player Runtime], [Embedded in executable], [Universal `slide-viewer`], [Any standard Web Browser],
+    [Installation], [Zero (Runs anywhere)], [1-Click Install `[🚀]` / CLI], [Zero (Open URL / Server)],
+    [Audio / Sound], [Rodio multi-thread DSP], [Rodio multi-thread DSP], [WebAudio API with fades],
+    [Video Playback], [Native window overlay], [Native window overlay], [HTML5 Video + Theater],
+    [Whiteboard Brushes], [4 Brushes + 14 Palette], [4 Brushes + 14 Palette], [4 Brushes + SVG Filters],
+    [Offline / Air-Gapped], [100% Offline], [100% Offline], [100% Offline],
+    [File Selection], [CLI arguments], [Native File Picker (O)], [Local file linking],
+  )
+]
+
+// Slide 22: Summary & Getting Started (Transition: Fade)
+#slide(title: "Ready for Your Next Presentation", transition: "fade")[
+  #align(center + horizon)[
+    #text(size: 24pt, weight: "bold", fill: slide-colors.accent)[One Toolchain • Three Modern Delivery Paradigms]
+
+    #v(0.35cm)
     #code-window(title: "terminal")[
       ```bash
-      # Compile into a standalone native binary with all SVGs & assets bundled
-      cargo slide build
+      # 1. Native Direct Binary: Self-contained 60 FPS presentation
+      cargo slide build --output slides-bin
 
-      # Run anywhere with zero dependencies (no Typst, no Node.js needed!)
-      ./slides-presentation
+      # 2. Standalone Package: Compressed archive played with universal viewer
+      cargo slide pack --output slides.slide && slide-viewer slides.slide
+
+      # 3. Pure WASM Web Player: Zero-JS Leptos CSR hosted on static server
+      cargo slide serve --port 8080 --open
       ```
     ]
 
     #v(0.3cm)
-    #badge("Cross-Platform", fill: slide-colors.accent-cyan) #h(6pt)
-    #badge("Single Binary (~12 MB)", fill: slide-colors.accent-dark) #h(6pt)
-    #badge("60 FPS Native", fill: slide-colors.accent-purple) #h(6pt)
-    #badge("In-Slide Builds", fill: slide-colors.accent-red) #h(6pt)
-    #badge("Interactive SQL/DSL", fill: slide-colors.accent-orange)
+    #badge("Native Binary", fill: slide-colors.accent) #h(6pt)
+    #badge("LZMA2 .slide Package", fill: slide-colors.accent-cyan) #h(6pt)
+    #badge("Leptos WASM CSR", fill: slide-colors.accent-purple) #h(6pt)
+    #badge("4-Brush System", fill: slide-colors.accent-orange) #h(6pt)
+    #badge("Cross-Platform", fill: slide-colors.accent-dark)
   ]
 ]
+

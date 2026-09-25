@@ -157,17 +157,18 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
 
 /* Persistent Left Sidebar Layout */
 .app-layout {
+    --sidebar-w: 260px;
     display: flex;
     min-height: 100vh;
     background-color: transparent;
 }
+.app-layout.sidebar-collapsed {
+    --sidebar-w: 60px;
+}
 
-/* Solid, not frosted: "visually quiet" reads better as a plain surface with a hairline edge,
-   and it keeps the sidebar from becoming a containing block for fixed-position overlays (the
-   bug that stranded the collapse button inside the sidebar when it slid away). No shadow --
-   the 1px border is the separation. */
+/* Solid, not frosted: "visually quiet" reads better as a plain surface with a hairline edge */
 .app-sidebar {
-    width: 260px;
+    width: var(--sidebar-w);
     background: var(--bg-surface);
     border-right: 1px solid var(--border-subtle);
     display: flex;
@@ -177,14 +178,28 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     bottom: 0;
     left: 0;
     z-index: 90;
+    overflow: hidden;
+    transition: width 0.22s var(--ease-out-cubic);
 }
 
+.app-main {
+    margin-left: var(--sidebar-w);
+    flex: 1;
+    min-width: 0;
+    padding: 2.25rem 3rem;
+    display: flex;
+    flex-direction: column;
+    transition: margin-left 0.22s var(--ease-out-cubic);
+}
+
+/* Sidebar Brand Row */
 .sidebar-brand {
     height: 66px;
     padding: 0 1.25rem;
     display: flex;
     align-items: center;
     border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
 }
 .sidebar-brand .brand-link {
     display: flex;
@@ -203,11 +218,25 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     letter-spacing: 0.5px;
     box-shadow: var(--shadow-sm);
 }
-.brand-title { font-weight: 700; font-size: 1.05rem; color: var(--text-main); letter-spacing: -0.2px; }
+.brand-badge-mini {
+    display: none;
+}
+.brand-badge-full {
+    display: inline-block;
+}
+.brand-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text-main);
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+}
 
+/* Sidebar Body & Sections */
 .sidebar-body {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 1.25rem 0.85rem;
     display: flex;
     flex-direction: column;
@@ -229,7 +258,7 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
 .sidebar-link {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: 0.75rem;
     padding: 0.55rem 0.7rem;
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
@@ -238,15 +267,11 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     text-decoration: none;
     transition: background var(--transition), color var(--transition);
 }
-/* No translateX nudge: nav items shifting under the cursor is the kind of motion that reads as
-   fidgety rather than responsive, especially on a list you scan constantly. */
 .sidebar-link:hover {
     background: var(--bg-muted);
     color: var(--text-main);
     text-decoration: none;
 }
-/* Active state via an inset left accent rather than a border, so it can't shift the row by a
-   pixel relative to its inactive siblings. */
 .sidebar-link.active {
     background: var(--primary-light);
     color: var(--primary);
@@ -258,7 +283,30 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     width: 22px;
     display: inline-flex;
     justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
 }
+.sidebar-label {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sidebar-badge {
+    margin-left: auto;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-sub);
+    background: var(--bg-muted);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+
+/* Sidebar Footer & User Info */
 .sidebar-footer {
     padding: 1rem 0.85rem;
     border-top: 1px solid var(--border-subtle);
@@ -266,6 +314,7 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    flex-shrink: 0;
 }
 .sidebar-user-card {
     display: flex;
@@ -306,35 +355,40 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 0.5rem;
+}
+.sidebar-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: var(--bg-muted);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.sidebar-action-btn:hover {
+    background: var(--border-subtle);
+    color: var(--text-main);
+    text-decoration: none;
+}
+.sidebar-action-btn .sidebar-icon {
+    font-size: 0.95rem;
+}
+.sidebar-action-form {
+    margin: 0;
+    display: inline-block;
 }
 
-.app-main {
-    margin-left: 260px;
-    flex: 1;
-    min-width: 0;
-    padding: 2.25rem 3rem;
-    display: flex;
-    flex-direction: column;
-    transition: margin-left 0.2s var(--ease-out-cubic);
-}
-
-/* Collapsed sidebar: the whole aside slides out of view and the main column reclaims its
-   260px, leaving only the toggle button pinned at the screen edge to bring it back. Driven by
-   a class on `.app-layout` (set by SIDEBAR_TOGGLE_JS from localStorage before first paint, so
-   a collapsed sidebar never flashes open on navigation). */
-.app-layout.sidebar-collapsed .app-sidebar {
-    transform: translateX(-260px);
-}
-.app-layout.sidebar-collapsed .app-main {
-    margin-left: 0;
-}
-.app-sidebar {
-    transition: transform 0.2s var(--ease-out-cubic);
-}
+/* Sidebar Toggle Button */
 .sidebar-toggle {
     position: fixed;
-    top: 20px;
-    left: 234px;
+    top: 18px;
+    left: calc(var(--sidebar-w) - 13px);
     z-index: 95;
     width: 26px;
     height: 26px;
@@ -342,39 +396,137 @@ a:hover { color: var(--primary-hover); text-decoration: underline; }
     border: 1px solid var(--border-subtle);
     background: var(--bg-surface);
     color: var(--text-sub);
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     line-height: 1;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     box-shadow: var(--shadow-sm);
-    transition: left 0.2s var(--ease-out-cubic), color 0.15s ease;
+    transition: left 0.22s var(--ease-out-cubic), background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .sidebar-toggle:hover {
-    color: var(--primary);
-}
-/* Collapsed, this button is the *only* way back to the sidebar, so it gets a solid accent
-   treatment rather than the subtle edge-of-sidebar look it has when expanded -- it has to read
-   as an obvious control on an otherwise empty left edge. */
-.app-layout.sidebar-collapsed .sidebar-toggle {
-    left: 12px;
-    width: 30px;
-    height: 30px;
     background: var(--primary);
     border-color: var(--primary);
     color: #fff;
-    font-size: 0.9rem;
-    box-shadow: var(--shadow-md);
-}
-.app-layout.sidebar-collapsed .sidebar-toggle:hover {
-    color: #fff;
-    filter: brightness(1.08);
 }
 
-/* Quick-start shortcuts: real <form> POSTs styled to sit flush with the nav links around them
-   (a button, not a link, because each one creates a project -- a state change that must not be
-   a GET). */
+/* =========================================================================
+   COLLAPSED SIDEBAR: ICON-RAIL MODE (60px)
+   Hide all text, labels, titles, and extra metadata; display only centered icons.
+   ========================================================================= */
+.app-layout.sidebar-collapsed .sidebar-label,
+.app-layout.sidebar-collapsed .sidebar-heading,
+.app-layout.sidebar-collapsed .brand-title,
+.app-layout.sidebar-collapsed .brand-badge-full,
+.app-layout.sidebar-collapsed .sidebar-user-info,
+.app-layout.sidebar-collapsed .sidebar-badge,
+.app-layout.sidebar-collapsed .sidebar-link > :not(.sidebar-icon),
+.app-layout.sidebar-collapsed .sidebar-quick-btn > :not(.sidebar-icon) {
+    display: none !important;
+}
+
+.app-layout.sidebar-collapsed .sidebar-brand {
+    padding: 0;
+    justify-content: center;
+}
+.app-layout.sidebar-collapsed .sidebar-brand .brand-link {
+    justify-content: center;
+    gap: 0;
+}
+.app-layout.sidebar-collapsed .brand-badge-mini {
+    display: inline-flex !important;
+    width: 34px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.05rem;
+    font-weight: 800;
+    border-radius: 8px;
+    background: var(--primary-gradient);
+    color: #fff;
+    box-shadow: var(--shadow-sm);
+}
+
+.app-layout.sidebar-collapsed .sidebar-body {
+    padding: 0.85rem 0;
+    align-items: center;
+    gap: 0.5rem;
+}
+.app-layout.sidebar-collapsed .sidebar-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 0.5rem;
+    margin-top: 0.35rem;
+}
+.app-layout.sidebar-collapsed .sidebar-section:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+.app-layout.sidebar-collapsed .sidebar-link {
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    margin: 0 auto;
+    justify-content: center;
+    align-items: center;
+    border-radius: var(--radius-sm);
+    gap: 0;
+}
+.app-layout.sidebar-collapsed .sidebar-link .sidebar-icon {
+    font-size: 1.25rem;
+    width: auto;
+    margin: 0;
+}
+.app-layout.sidebar-collapsed .sidebar-link.active {
+    box-shadow: none;
+    background: var(--primary-light);
+    color: var(--primary);
+}
+
+.app-layout.sidebar-collapsed .sidebar-footer {
+    padding: 0.75rem 0;
+    align-items: center;
+    gap: 0.65rem;
+}
+.app-layout.sidebar-collapsed .sidebar-user-card {
+    justify-content: center;
+    width: 100%;
+    gap: 0;
+}
+.app-layout.sidebar-collapsed .sidebar-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+    width: 100%;
+}
+.app-layout.sidebar-collapsed .sidebar-action-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    font-size: 1.1rem;
+}
+.app-layout.sidebar-collapsed .sidebar-action-btn .sidebar-label {
+    display: none !important;
+}
+.app-layout.sidebar-collapsed .sidebar-action-form {
+    margin: 0;
+    display: flex;
+    justify-content: center;
+}
+
+/* Quick-start shortcuts */
 .sidebar-quick-form {
     margin: 0;
 }
@@ -3211,14 +3363,19 @@ select::-ms-expand {
 
 /* Responsive Queries */
 @media (max-width: 900px) {
-    /* The sidebar becomes a slide-over rather than `display: none`. It used to be removed
-       outright on small screens, which took the entire primary navigation with it and left no
-       way to reach Projects/Templates/Settings at all. It now uses the same collapse mechanism
-       as desktop (SIDEBAR_TOGGLE_JS defaults it closed below this width), so the toggle button
-       is a real mobile nav control. */
-    .app-main { margin-left: 0; padding: var(--space-4); }
-    .app-sidebar { box-shadow: var(--shadow-lg); }
+    /* On mobile the sidebar becomes a full-width slide-over overlay.
+       The icon-rail pattern only applies on desktop (> 900px). */
+    .app-main { margin-left: 0 !important; padding: var(--space-4); }
+    .app-sidebar {
+        width: 260px !important;
+        box-shadow: var(--shadow-lg);
+        transform: translateX(-260px);
+        transition: transform 0.22s var(--ease-out-cubic);
+    }
     .app-layout:not(.sidebar-collapsed) .app-sidebar { transform: translateX(0); }
+    /* Collapsed toggle: bottom-left corner pill */
+    .sidebar-toggle { left: 12px !important; top: 14px; }
+    .app-layout:not(.sidebar-collapsed) .sidebar-toggle { left: 234px !important; }
     .page-header { flex-direction: column; align-items: flex-start; gap: var(--space-4); }
     .header-actions { width: 100%; flex-wrap: wrap; }
     .editor-studio-grid { grid-template-columns: 1fr; }
@@ -3229,6 +3386,31 @@ select::-ms-expand {
     /* Comfortable touch targets. */
     .btn { min-height: 40px; }
     .sidebar-link { padding: 0.7rem; }
+    /* Restore hidden elements on mobile full sidebar */
+    .app-layout:not(.sidebar-collapsed) .sidebar-label,
+    .app-layout:not(.sidebar-collapsed) .sidebar-heading,
+    .app-layout:not(.sidebar-collapsed) .brand-title,
+    .app-layout:not(.sidebar-collapsed) .brand-badge-full,
+    .app-layout:not(.sidebar-collapsed) .sidebar-user-info,
+    .app-layout:not(.sidebar-collapsed) .sidebar-badge {
+        display: block !important;
+    }
+    .app-layout:not(.sidebar-collapsed) .brand-badge-mini {
+        display: none !important;
+    }
+    .app-layout:not(.sidebar-collapsed) .sidebar-link {
+        width: 100% !important;
+        justify-content: flex-start !important;
+        padding: 0.7rem !important;
+        gap: 0.75rem !important;
+    }
+    .app-layout:not(.sidebar-collapsed) .sidebar-actions {
+        display: flex !important;
+        flex-direction: row !important;
+    }
+    .app-layout:not(.sidebar-collapsed) .sidebar-action-btn .sidebar-label {
+        display: inline !important;
+    }
 }
 
 /* User autocomplete dropdown in sharing dialogs */

@@ -112,31 +112,33 @@ pub fn QuickStartMenuIsland(
             .map(|(k, icon, label)| {
                 let (k, icon, label) = (*k, *icon, *label);
                 view! {
-                    <button type="button" class="sidebar-link sidebar-quick-btn" on:click=move |_| choose(k, label, None)>
+                    <button
+                        type="button"
+                        class="sidebar-link sidebar-quick-btn"
+                        title=label
+                        on:click=move |_| choose(k, label, None)
+                    >
                         <span class="sidebar-icon">{icon}</span>
-                        <span>{label}</span>
+                        <span class="sidebar-label">{label}</span>
                     </button>
                 }
             })
             .collect::<Vec<_>>();
 
+        let script_title = if zh { "新建脚本 (Python / R / Rust)" } else { "New Script (Python / R / Rust)" };
         view! {
             <div class="sidebar-section">
                 <span class="sidebar-heading">{if zh { "新建" } else { "New" }}</span>
                 {doc_triggers}
                 <button
                     type="button"
-                    class="sidebar-link sidebar-quick-btn"
-                    style="display:flex; align-items:center; justify-content:space-between;"
+                    class="sidebar-link sidebar-quick-btn sidebar-script-btn"
+                    title=script_title
                     on:click=move |_| choose("script", script_label, Some("python"))
                 >
-                    <div style="display:flex; align-items:center; gap:0.5rem;">
-                        <span class="sidebar-icon">"💻"</span>
-                        <span>{script_label}</span>
-                    </div>
-                    <span style="font-size:0.65rem; font-weight:600; color:var(--text-sub); background:var(--bg-muted); padding:1px 6px; border-radius:4px; border:1px solid var(--border-subtle); letter-spacing:0.3px;">
-                        "R · Py · Rs"
-                    </span>
+                    <span class="sidebar-icon">"💻"</span>
+                    <span class="sidebar-label">{script_label}</span>
+                    <span class="sidebar-badge">"R · Py · Rs"</span>
                 </button>
             </div>
         }

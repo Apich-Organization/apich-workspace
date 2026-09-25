@@ -237,7 +237,8 @@ impl MailerService {
             let tls_config = Self::build_tls_config(settings, host, port)?;
             let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
                 .port(port)
-                .tls(tls_config);
+                .tls(tls_config)
+                .timeout(Some(std::time::Duration::from_secs(10)));
 
             if let (Some(user), Some(pwd)) = (&settings.smtp_username, &settings.smtp_password) {
                 if !user.is_empty() && !pwd.is_empty() {

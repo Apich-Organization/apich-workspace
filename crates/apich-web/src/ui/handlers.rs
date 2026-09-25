@@ -16,6 +16,7 @@ use crate::services::KnowledgeSyncService;
 use crate::services::SqliteTableService;
 use crate::state::AppState;
 use apich_db::CreateProjectDto;
+use apich_db::CreateSharedLinkDto;
 use apich_db::CreateUserDto;
 use apich_db::IdentityPermissionResolver;
 use apich_db::Project;
@@ -417,6 +418,32 @@ pub fn build_ui_router() -> Router<AppState> {
         .route(
             "/api/projects/:id/files/comments/:comment_id",
             delete(delete_file_comment_action),
+        )
+        // Opaque Temporary / Managed Share Links (/s/:token)
+        .route("/s/:token", get(shared_link_redirect_action))
+        .route("/s/:token/", get(shared_link_dispatcher_action))
+        .route("/s/:token/deck.json", get(shared_link_deck_json_action))
+        .route("/s/:token/pdf-raw", get(shared_link_pdf_raw_action))
+        .route("/s/:token/assets/*asset", get(shared_link_asset_action))
+        .route("/s/:token/bootstrap.js", get(slide_presentation_bootstrap_js_action))
+        .route("/s/:token/style.css", get(slide_presentation_style_css_action))
+        .route("/s/:token/slide_web.js", get(slide_presentation_slide_web_js_action))
+        .route("/s/:token/slide_web_bg.wasm", get(slide_presentation_slide_web_wasm_action))
+        .route("/s/:token/comments", get(shared_link_get_comments_action).post(shared_link_post_comment_action))
+        .route("/s/:token/comments/:comment_id", delete(shared_link_delete_comment_action))
+        .route("/s/:token/email", post(shared_link_email_action))
+        // Shared links management endpoints
+        .route(
+            "/api/projects/:id/shared-links",
+            get(list_shared_links_action).post(create_shared_link_action),
+        )
+        .route(
+            "/api/projects/:id/shared-links/:token/revoke",
+            post(revoke_shared_link_action),
+        )
+        .route(
+            "/api/projects/:id/shared-links/:token",
+            delete(revoke_shared_link_action),
         )
         .route("/projects/:id/delete", post(delete_project_action))
         .route("/projects/:id/rename", post(rename_project_action))
@@ -1178,16 +1205,27 @@ async fn register_form(
                 let _ = repo.mark_invitation_used(&invite.token).await;
             }
 
-            let _ = state
-                .mailer
-                .send_welcome_email(
-                    &settings,
-                    &u.email,
-                    &u.username,
-                    &u.display_name,
-                    &state.base_url,
-                )
-                .await;
+            let mailer = std::sync::Arc::clone(&state.mailer);
+            let to_email = u.email.clone();
+            let to_username = u.username.clone();
+            let to_display = u.display_name.clone();
+            let base_url = state.base_url.clone();
+            let settings_clone = settings.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = mailer
+                    .send_welcome_email(
+                        &settings_clone,
+                        &to_email,
+                        &to_username,
+                        &to_display,
+                        &base_url,
+                    )
+                    .await
+                {
+                    tracing::error!("Failed to dispatch welcome email in background to {}: {}", to_email, e);
+                }
+            });
 
             if payload.create_org.as_deref() == Some("1")
                 || payload.create_org.as_deref() == Some("on")
@@ -4067,15 +4105,57 @@ async fn slide_presentation_page_action(
             } else {
                 a.0.display_name.clone()
             }
-        })
-        .unwrap_or_default();
+        });
+    let is_zh = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|l| l.to_str().ok())
+        .is_some_and(|l| l.contains("zh"));
+
+    let (opaque_share_url, allow_comments, expiry_days) = if let Ok(links) = state
+        .db
+        .repository()
+        .list_shared_links(project.id, Some(&file_param))
+        .await
+    {
+        if let Some(active) = links.into_iter().find(|l| l.is_active() && l.target_type == "slide") {
+            let days = active.expires_at.map(|exp| {
+                let rem = exp - chrono::Utc::now();
+                rem.num_days().max(1)
+            }).unwrap_or(30);
+            (Some(format!("/s/{}", active.token)), active.allow_comments, days)
+        } else {
+            let dto = apich_db::CreateSharedLinkDto {
+                token: None,
+                project_id: project.id,
+                file_path: file_param.clone(),
+                target_type: "slide".to_string(),
+                created_by_user_id: auth.as_ref().map(|a| a.0.id),
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(30)),
+                allow_comments: true,
+            };
+            let link = state
+                .db
+                .repository()
+                .create_shared_link(dto)
+                .await
+                .ok();
+            (link.as_ref().map(|l| format!("/s/{}", l.token)), true, 30)
+        }
+    } else {
+        (None, true, 30)
+    };
+
     let comments_html = crate::ui::comments_ui::render_comments_drawer_component(
         &project.id.to_string(),
         &file_param,
         token_param.as_deref(),
-        &user_name,
+        user_name.as_deref().unwrap_or("Reviewer"),
         true, // is_slide
         true, // show_fab
+        opaque_share_url.as_deref(),
+        is_zh,
+        allow_comments,
+        expiry_days,
     );
 
     let final_html = SLIDE_INDEX_HTML.replace("</body>", &format!("{comments_html}</body>"));
@@ -4322,10 +4402,13 @@ pub struct PdfViewerQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ShareFileEmailForm {
+    #[serde(alias = "file_path")]
     pub file: String,
     pub to_email: String,
     pub note: Option<String>,
     pub redirect_to: Option<String>,
+    pub expires_in_days: Option<i64>,
+    pub allow_comments: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4405,6 +4488,40 @@ async fn pdf_viewer_page_action(
         .and_then(|l| l.to_str().ok())
         .is_some_and(|l| l.contains("zh"));
 
+    let (opaque_share_url, allow_comments, expiry_days) = if let Ok(links) = state
+        .db
+        .repository()
+        .list_shared_links(project.id, Some(file))
+        .await
+    {
+        if let Some(active) = links.into_iter().find(|l| l.is_active() && l.target_type == "pdf") {
+            let days = active.expires_at.map(|exp| {
+                let rem = exp - chrono::Utc::now();
+                rem.num_days().max(1)
+            }).unwrap_or(30);
+            (Some(format!("/s/{}", active.token)), active.allow_comments, days)
+        } else {
+            let dto = apich_db::CreateSharedLinkDto {
+                token: None,
+                project_id: project.id,
+                file_path: file.to_string(),
+                target_type: "pdf".to_string(),
+                created_by_user_id: auth.as_ref().map(|a| a.0.id),
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(30)),
+                allow_comments: true,
+            };
+            let link = state
+                .db
+                .repository()
+                .create_shared_link(dto)
+                .await
+                .ok();
+            (link.as_ref().map(|l| format!("/s/{}", l.token)), true, 30)
+        }
+    } else {
+        (None, true, 30)
+    };
+
     let html = crate::ui::comments_ui::render_pdf_viewer_page(
         &project.id.to_string(),
         &project.name,
@@ -4413,6 +4530,10 @@ async fn pdf_viewer_page_action(
         is_authenticated,
         &user_name,
         is_zh,
+        None,
+        opaque_share_url.as_deref(),
+        allow_comments,
+        expiry_days,
     );
 
     let mut resp_headers = HeaderMap::new();
@@ -4431,33 +4552,18 @@ async fn pdf_viewer_page_action(
     (resp_headers, Html(html)).into_response()
 }
 
-/// Raw PDF binary stream for the in-browser viewer or direct download.
-async fn pdf_raw_action(
-    auth: Option<AuthUser>,
-    headers: HeaderMap,
-    Path(id_or_slug): Path<String>,
-    Query(query): Query<PdfViewerQuery>,
-    State(state): State<AppState>,
+/// Helper to compile or stream PDF bytes for Typst, LaTeX, or static PDF files.
+async fn serve_pdf_bytes_for_file(
+    state: &AppState,
+    project: &Project,
+    file: &str,
+    user_id: uuid::Uuid,
+    is_download: bool,
 ) -> Response {
-    let Some(project) = resolve_project(&state, &id_or_slug).await else {
-        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
-    };
-
-    let Some(ref file) = query.file else {
-        return (StatusCode::BAD_REQUEST, Html("Missing ?file=")).into_response();
-    };
-
-    let token = extract_token_from_request(&headers, query.token.as_deref());
-    let can_access = check_file_access(&state, auth.as_ref(), &project, file, token.as_deref()).await;
-    if !can_access {
-        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
-    }
-
     let download_stem = std::path::Path::new(file)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("document");
-    let is_download = query.download.as_deref() == Some("1");
     let disposition = if is_download {
         format!("attachment; filename=\"{download_stem}.pdf\"")
     } else {
@@ -4490,7 +4596,6 @@ async fn pdf_raw_action(
                 .into_response(),
         }
     } else if file.ends_with(".tex") {
-        let user_id = auth.as_ref().map(|a| a.0.id).unwrap_or(project.owner_id);
         match state
             .project_manager
             .compile_latex_in_sandbox(project.id, user_id, file, "xelatex")
@@ -4542,6 +4647,33 @@ async fn pdf_raw_action(
                 .into_response(),
         }
     }
+}
+
+/// Raw PDF binary stream for the in-browser viewer or direct download.
+async fn pdf_raw_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<PdfViewerQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
+    };
+
+    let Some(ref file) = query.file else {
+        return (StatusCode::BAD_REQUEST, Html("Missing ?file=")).into_response();
+    };
+
+    let token = extract_token_from_request(&headers, query.token.as_deref());
+    let can_access = check_file_access(&state, auth.as_ref(), &project, file, token.as_deref()).await;
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
+    }
+
+    let is_download = query.download.as_deref() == Some("1");
+    let user_id = auth.as_ref().map(|a| a.0.id).unwrap_or(project.owner_id);
+    serve_pdf_bytes_for_file(&state, &project, file, user_id, is_download).await
 }
 
 /// Send file share link via email.
@@ -4635,24 +4767,51 @@ async fn share_file_email_action(
     };
     let base_url = format!("{scheme}://{host}");
 
+    let allow_comments = payload.allow_comments.unwrap_or(true);
+    let expires_at = payload
+        .expires_in_days
+        .filter(|d| *d > 0)
+        .map(|d| chrono::Utc::now() + chrono::Duration::days(d));
+
     let is_slide = payload.file.ends_with(".typ") || payload.file.ends_with(".md");
-    let slide_url = if is_slide {
-        Some(format!(
-            "{base_url}/projects/{}/presentation/?file={}&token={}",
-            project.id,
-            urlencoding::encode(&payload.file),
-            share_info.token
-        ))
+    let slide_link = if is_slide {
+        state
+            .db
+            .repository()
+            .create_shared_link(CreateSharedLinkDto {
+                token: None,
+                project_id: project.id,
+                file_path: payload.file.clone(),
+                target_type: "slide".to_string(),
+                created_by_user_id: Some(user.id),
+                expires_at,
+                allow_comments,
+            })
+            .await
+            .ok()
     } else {
         None
     };
 
-    let pdf_url = format!(
-        "{base_url}/projects/{}/pdf-view/?file={}&token={}",
-        project.id,
-        urlencoding::encode(&payload.file),
-        share_info.token
-    );
+    let pdf_link = state
+        .db
+        .repository()
+        .create_shared_link(CreateSharedLinkDto {
+            token: None,
+            project_id: project.id,
+            file_path: payload.file.clone(),
+            target_type: "pdf".to_string(),
+            created_by_user_id: Some(user.id),
+            expires_at,
+            allow_comments,
+        })
+        .await
+        .ok();
+
+    let slide_url = slide_link.map(|l| format!("{base_url}/s/{}", l.token));
+    let pdf_url = pdf_link
+        .map(|l| format!("{base_url}/s/{}", l.token))
+        .unwrap_or_else(|| format!("{base_url}/s/{}", share_info.token));
 
     let sender_name = if user.display_name.trim().is_empty() {
         &user.username
@@ -4912,6 +5071,823 @@ async fn delete_file_comment_action(
 
     let _ = state.db.repository().delete_file_comment(comment_id).await;
     Json(json!({ "success": true })).into_response()
+}
+
+/// Styled 404 / 410 page for expired or revoked shared links.
+fn shared_link_expired_page(is_zh: bool) -> Response {
+    let title = if is_zh {
+        "链接已失效或已被撤销 - APICH"
+    } else {
+        "Link Expired or Revoked - APICH"
+    };
+    let heading = if is_zh {
+        "此分享链接已失效或已被撤销"
+    } else {
+        "This share link has expired or been revoked"
+    };
+    let desc = if is_zh {
+        "此临时安全访问链接已超过有效期，或已被文档所有者手动撤销。如需继续查看，请联系分享者获取最新链接。"
+    } else {
+        "This temporary access link has expired or was revoked by the document owner. Please contact the sender to request an active link."
+    };
+    let home_btn = if is_zh { "返回 APICH 首页" } else { "Back to Home" };
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title}</title>
+</head>
+<body style="background:#0f172a; color:#f8fafc; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; margin:0; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; box-sizing:border-box;">
+  <div style="background:#1e293b; border:1px solid #334155; border-radius:16px; padding:40px 32px; max-width:480px; width:100%; text-align:center; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+    <div style="font-size:48px; line-height:1; margin-bottom:16px;">🔒</div>
+    <h2 style="font-size:20px; font-weight:700; margin:0 0 12px 0; color:#ffffff;">{heading}</h2>
+    <p style="font-size:14px; color:#94a3b8; line-height:1.6; margin:0 0 24px 0;">{desc}</p>
+    <a href="/" style="display:inline-flex; align-items:center; justify-content:center; background:#6366f1; color:#ffffff; text-decoration:none; padding:10px 24px; border-radius:8px; font-size:14px; font-weight:600; transition:background 0.15s ease;">
+      {home_btn}
+    </a>
+  </div>
+</body>
+</html>"#
+    );
+
+    (
+        StatusCode::NOT_FOUND,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())],
+        Html(html),
+    )
+        .into_response()
+}
+
+/// Redirects `/s/:token` without trailing slash to `/s/:token/` for relative assets.
+async fn shared_link_redirect_action(Path(token): Path<String>) -> Response {
+    axum::response::Redirect::to(&format!("/s/{token}/")).into_response()
+}
+
+/// Unified public dispatcher for opaque managed share links `/s/:token/`.
+async fn shared_link_dispatcher_action(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let is_zh = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|l| l.to_str().ok())
+        .is_some_and(|l| l.contains("zh"));
+
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return shared_link_expired_page(is_zh);
+    };
+
+    if !link.is_active() {
+        return shared_link_expired_page(is_zh);
+    }
+
+    let _ = state
+        .db
+        .repository()
+        .increment_shared_link_view_count(&token)
+        .await;
+
+    let Some(project) = state
+        .db
+        .repository()
+        .get_project_by_id(link.project_id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return shared_link_expired_page(is_zh);
+    };
+
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost:3000");
+    let scheme = if headers
+        .get("x-forwarded-proto")
+        .and_then(|p| p.to_str().ok())
+        == Some("https")
+    {
+        "https"
+    } else {
+        "http"
+    };
+    let share_full_url = format!("{scheme}://{host}/s/{token}");
+    let expiry_days = link
+        .expires_at
+        .map(|exp| {
+            let rem = exp - chrono::Utc::now();
+            rem.num_days().max(1)
+        })
+        .unwrap_or(30);
+
+    if link.target_type == "slide" {
+        let comments_html = crate::ui::comments_ui::render_comments_drawer_component(
+            &project.id.to_string(),
+            &link.file_path,
+            Some(&token),
+            "Guest",
+            true, // is_slide
+            true, // show_fab
+            Some(&share_full_url),
+            is_zh,
+            link.allow_comments,
+            expiry_days,
+        );
+        let final_html = SLIDE_INDEX_HTML.replace("</body>", &format!("{comments_html}</body>"));
+        let mut resp_headers = HeaderMap::new();
+        resp_headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
+        let cookie_val = format!(
+            "apich_slide_file={}; Path=/s/{}/; SameSite=Lax",
+            urlencoding::encode(&link.file_path),
+            token
+        );
+        if let Ok(c) = cookie_val.parse() {
+            resp_headers.append(header::SET_COOKIE, c);
+        }
+        (resp_headers, Html(final_html)).into_response()
+    } else {
+        let raw_pdf_url = format!("/s/{token}/pdf-raw");
+        let html = crate::ui::comments_ui::render_pdf_viewer_page(
+            &project.id.to_string(),
+            &project.name,
+            &link.file_path,
+            Some(&token),
+            false,
+            "Guest",
+            is_zh,
+            Some(&raw_pdf_url),
+            Some(&share_full_url),
+            link.allow_comments,
+            expiry_days,
+        );
+        (
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())],
+            Html(html),
+        )
+            .into_response()
+    }
+}
+
+/// Deck JSON compiler for `/s/:token/deck.json`.
+async fn shared_link_deck_json_action(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Response {
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Link not found"}))).into_response();
+    };
+    if !link.is_active() {
+        return (
+            StatusCode::GONE,
+            Json(json!({"error": "Link expired or revoked"})),
+        )
+            .into_response();
+    }
+    let Some(project) = state
+        .db
+        .repository()
+        .get_project_by_id(link.project_id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Project not found"}))).into_response();
+    };
+
+    let user_id = link.created_by_user_id.unwrap_or(project.owner_id);
+    match state
+        .project_manager
+        .get_slide_deck_json(project.id, user_id, &link.file_path)
+        .await
+    {
+        Ok(json_content) => (
+            StatusCode::OK,
+            [(
+                header::CONTENT_TYPE,
+                "application/json; charset=utf-8".to_string(),
+            )],
+            json_content,
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to compile slide for shared link");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Compilation error: {e}")})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Stream PDF bytes for `/s/:token/pdf-raw`.
+async fn shared_link_pdf_raw_action(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    Query(query): Query<PdfViewerQuery>,
+) -> Response {
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Html("Link not found")).into_response();
+    };
+    if !link.is_active() {
+        return (StatusCode::GONE, Html("Link expired or revoked")).into_response();
+    }
+    let Some(project) = state
+        .db
+        .repository()
+        .get_project_by_id(link.project_id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
+    };
+
+    let user_id = link.created_by_user_id.unwrap_or(project.owner_id);
+    let is_download = query.download.as_deref() == Some("1");
+    serve_pdf_bytes_for_file(&state, &project, &link.file_path, user_id, is_download).await
+}
+
+/// Stream static asset for `/s/:token/assets/*asset`.
+async fn shared_link_asset_action(
+    State(state): State<AppState>,
+    Path((token, asset_path)): Path<(String, String)>,
+) -> Response {
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, "Link not found").into_response();
+    };
+    if !link.is_active() {
+        return (StatusCode::GONE, "Link expired or revoked").into_response();
+    }
+    let Some(project) = state
+        .db
+        .repository()
+        .get_project_by_id(link.project_id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, "Project not found").into_response();
+    };
+
+    let clean_asset = asset_path.trim_start_matches('/');
+    let storage_dir = std::path::Path::new(&project.storage_path);
+    let target = storage_dir.join("assets").join(clean_asset);
+    let path_to_read = if target.exists() {
+        target
+    } else {
+        storage_dir.join(clean_asset)
+    };
+
+    if !path_to_read.starts_with(storage_dir) || !path_to_read.exists() || !path_to_read.is_file() {
+        return (StatusCode::NOT_FOUND, "Asset not found").into_response();
+    }
+
+    let Ok(bytes) = tokio::fs::read(&path_to_read).await else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read asset").into_response();
+    };
+
+    let content_type = mime_type_for_path(path_to_read.to_str().unwrap_or(""));
+    let mut resp_headers = HeaderMap::new();
+    if let Ok(ct) = content_type.parse() {
+        resp_headers.insert(header::CONTENT_TYPE, ct);
+    }
+    (resp_headers, bytes).into_response()
+}
+
+/// Get comments for `/s/:token/comments`.
+async fn shared_link_get_comments_action(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    auth: Option<AuthUser>,
+) -> Response {
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Link not found"}))).into_response();
+    };
+    if !link.is_active() {
+        return (
+            StatusCode::GONE,
+            Json(json!({"error": "Link expired or revoked"})),
+        )
+            .into_response();
+    }
+
+    let comments = state
+        .db
+        .repository()
+        .list_file_comments(link.project_id, &link.file_path)
+        .await
+        .unwrap_or_default();
+    let current_user_id = auth.as_ref().map(|a| a.0.id);
+    let items: Vec<serde_json::Value> = comments
+        .into_iter()
+        .map(|c| {
+            let is_author = current_user_id.is_some() && current_user_id == c.user_id;
+            json!({
+                "id": c.id.to_string(),
+                "author_name": c.author_name,
+                "content": c.content,
+                "slide_or_page": c.slide_or_page,
+                "created_at": c.created_at.to_rfc3339(),
+                "is_author": is_author,
+            })
+        })
+        .collect();
+    Json(json!({ "comments": items })).into_response()
+}
+
+/// Post a comment for `/s/:token/comments`.
+async fn shared_link_post_comment_action(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Link not found"}))).into_response();
+    };
+    if !link.is_active() {
+        return (
+            StatusCode::GONE,
+            Json(json!({"error": "Link expired or revoked"})),
+        )
+            .into_response();
+    }
+    if !link.allow_comments {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Comments are disabled for this shared link"})),
+        )
+            .into_response();
+    }
+
+    let payload: CreateFileCommentPayload = match parse_payload(&headers, &body) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Bad request: {e}")})),
+            )
+                .into_response()
+        }
+    };
+
+    let clean_content = payload.content.trim();
+    if clean_content.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Comment content cannot be empty"})),
+        )
+            .into_response();
+    }
+
+    let author_name = if let Some(ref a) = auth {
+        if a.0.display_name.trim().is_empty() {
+            a.0.username.clone()
+        } else {
+            a.0.display_name.clone()
+        }
+    } else {
+        payload
+            .author_name
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let final_author = if author_name.is_empty() {
+        "Reviewer".to_string()
+    } else {
+        author_name
+    };
+
+    let user_id = auth.as_ref().map(|a| a.0.id);
+    match state
+        .db
+        .repository()
+        .create_file_comment(
+            link.project_id,
+            user_id,
+            &final_author,
+            &link.file_path,
+            clean_content,
+            payload.slide_or_page,
+        )
+        .await
+    {
+        Ok(comment) => Json(json!({
+            "success": true,
+            "comment": {
+                "id": comment.id.to_string(),
+                "author_name": comment.author_name,
+                "content": comment.content,
+                "slide_or_page": comment.slide_or_page,
+                "created_at": comment.created_at.to_rfc3339(),
+                "is_author": true,
+            }
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+/// Delete a comment for `/s/:token/comments/:comment_id`.
+async fn shared_link_delete_comment_action(
+    State(state): State<AppState>,
+    Path((token, comment_id_str)): Path<(String, String)>,
+) -> Response {
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Link not found"}))).into_response();
+    };
+    if !link.is_active() {
+        return (
+            StatusCode::GONE,
+            Json(json!({"error": "Link expired or revoked"})),
+        )
+            .into_response();
+    }
+    let Ok(comment_id) = uuid::Uuid::parse_str(&comment_id_str) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid comment ID"})),
+        )
+            .into_response();
+    };
+    let _ = state.db.repository().delete_file_comment(comment_id).await;
+    Json(json!({ "success": true })).into_response()
+}
+
+/// Send share link email for `/s/:token/email`.
+async fn shared_link_email_action(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(link) = state
+        .db
+        .repository()
+        .get_shared_link_by_token(&token)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Shared link not found"}))).into_response();
+    };
+    if !link.is_active() {
+        return (
+            StatusCode::GONE,
+            Json(json!({"error": "Link expired or revoked"})),
+        )
+            .into_response();
+    }
+    let Some(project) = state
+        .db
+        .repository()
+        .get_project_by_id(link.project_id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return (StatusCode::NOT_FOUND, Json(json!({"error": "Project not found"}))).into_response();
+    };
+
+    let payload: ShareFileEmailForm = match parse_payload(&headers, &body) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Bad request: {e}")})),
+            )
+                .into_response()
+        }
+    };
+    let clean_email = payload.to_email.trim();
+    if clean_email.is_empty() || !clean_email.contains('@') {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid recipient email address"})),
+        )
+            .into_response();
+    }
+
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost:3000");
+    let scheme = if headers
+        .get("x-forwarded-proto")
+        .and_then(|p| p.to_str().ok())
+        == Some("https")
+    {
+        "https"
+    } else {
+        "http"
+    };
+    let share_url = format!("{scheme}://{host}/s/{token}");
+
+    let (slide_url, pdf_url) = if link.target_type == "slide" {
+        (Some(share_url.clone()), share_url)
+    } else {
+        (None, share_url)
+    };
+
+    let settings = state
+        .db
+        .repository()
+        .get_system_settings()
+        .await
+        .unwrap_or_default();
+    let sender_name = "APICH Collaborator";
+    if let Err(e) = state
+        .mailer
+        .send_file_share_email(
+            &settings,
+            clean_email,
+            sender_name,
+            &project.name,
+            &link.file_path,
+            slide_url.as_deref(),
+            Some(&pdf_url),
+            payload.note.as_deref(),
+        )
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("Failed to send email: {e}")})),
+        )
+            .into_response();
+    }
+
+    Json(json!({
+        "success": true,
+        "message": format!("Share link emailed to {clean_email}")
+    }))
+    .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSharedLinkRequest {
+    pub file_path: String,
+    pub target_type: Option<String>,
+    #[serde(alias = "expiry_days")]
+    pub expires_in_days: Option<i64>,
+    pub allow_comments: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListSharedLinksQuery {
+    pub file: Option<String>,
+}
+
+/// List all shared links for a project (optionally filtered by file).
+async fn list_shared_links_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    Query(query): Query<ListSharedLinksQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let origin = state.base_url.clone();
+
+    let raw_links = state
+        .db
+        .repository()
+        .list_shared_links(project.id, query.file.as_deref())
+        .await
+        .unwrap_or_default();
+
+    let shared_links: Vec<serde_json::Value> = raw_links
+        .iter()
+        .map(|l| {
+            let share_url = format!("{}/s/{}", origin, l.token);
+            let mut v = serde_json::to_value(l).unwrap_or_default();
+            if let serde_json::Value::Object(ref mut m) = v {
+                m.insert("url".to_string(), serde_json::Value::String(share_url));
+            }
+            v
+        })
+        .collect();
+
+    Json(json!({
+        "status": "ok",
+        "shared_links": shared_links
+    }))
+    .into_response()
+}
+
+/// Create a new managed temporary share link.
+async fn create_shared_link_action(
+    auth: Option<AuthUser>,
+    Path(id_or_slug): Path<String>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    let req: CreateSharedLinkRequest = match parse_payload(&headers, &body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Bad request: {e}")})),
+            )
+                .into_response()
+        }
+    };
+
+    let expires_at = req
+        .expires_in_days
+        .filter(|d| *d > 0)
+        .map(|d| Utc::now() + chrono::Duration::days(d));
+
+    let target_type = req.target_type.unwrap_or_else(|| {
+        if req.file_path.ends_with(".typ") && req.file_path.contains("slide") {
+            "slide".to_string()
+        } else {
+            "pdf".to_string()
+        }
+    });
+
+    let dto = CreateSharedLinkDto {
+        token: None,
+        project_id: project.id,
+        file_path: req.file_path,
+        target_type,
+        created_by_user_id: Some(user.id),
+        expires_at,
+        allow_comments: req.allow_comments.unwrap_or(true),
+    };
+
+    match state.db.repository().create_shared_link(dto).await {
+        Ok(link) => {
+            let origin = state.base_url.clone();
+            let share_url = format!("{}/s/{}", origin, link.token);
+            let mut link_val = serde_json::to_value(&link).unwrap_or_default();
+            if let serde_json::Value::Object(ref mut m) = link_val {
+                m.insert("url".to_string(), serde_json::Value::String(share_url.clone()));
+            }
+            Json(json!({
+                "status": "ok",
+                "shared_link": link_val,
+                "share_url": share_url,
+            }))
+            .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+/// Revoke a shared link so it immediately ceases to function.
+async fn revoke_shared_link_action(
+    auth: Option<AuthUser>,
+    Path((id_or_slug, token)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+    let Some(project) = resolve_project(&state, &id_or_slug).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Project not found"})),
+        )
+            .into_response();
+    };
+    let can_access =
+        IdentityPermissionResolver::can_access_project(state.db.pool(), user.id, project.id)
+            .await
+            .unwrap_or(false);
+    if !can_access {
+        return (StatusCode::FORBIDDEN, Json(json!({"error": "Forbidden"}))).into_response();
+    }
+
+    match state
+        .db
+        .repository()
+        .revoke_shared_link(project.id, &token)
+        .await
+    {
+        Ok(revoked) => Json(json!({
+            "status": "ok",
+            "revoked": revoked
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+            .into_response(),
+    }
 }
 
 /// apich-vcs's own remote protocol -- "clone"/"pull": download a full history bundle. Accepts
@@ -7125,21 +8101,40 @@ async fn create_user_form(
             let send_mail = payload.send_welcome_email.as_deref() == Some("true")
                 || payload.send_welcome_email.as_deref() == Some("on");
             if send_mail {
-                if let Ok(settings) = repo.get_system_settings().await {
-                    let base_url = std::env::var("BASE_URL")
-                        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-                    let _ = state
-                        .mailer
-                        .send_account_created_email(
-                            &settings,
-                            &new_user.email,
-                            &new_user.username,
-                            &new_user.display_name,
-                            &plain_password,
-                            &base_url,
-                        )
-                        .await;
-                }
+                let mailer = std::sync::Arc::clone(&state.mailer);
+                let db = std::sync::Arc::clone(&state.db);
+                let email = new_user.email.clone();
+                let username_str = new_user.username.clone();
+                let display_name_str = new_user.display_name.clone();
+                let password_str = plain_password.clone();
+                let base_url = std::env::var("BASE_URL")
+                    .unwrap_or_else(|_| state.base_url.clone());
+
+                tokio::spawn(async move {
+                    let repo = db.repository();
+                    match repo.get_system_settings().await {
+                        Ok(settings) => {
+                            if let Err(e) = mailer
+                                .send_account_created_email(
+                                    &settings,
+                                    &email,
+                                    &username_str,
+                                    &display_name_str,
+                                    &password_str,
+                                    &base_url,
+                                )
+                                .await
+                            {
+                                tracing::error!("Failed to dispatch welcome email in background to {}: {}", email, e);
+                            } else {
+                                tracing::info!("Welcome email dispatched in background to {}", email);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to read system settings for background welcome email: {}", e);
+                        }
+                    }
+                });
             }
 
             let notice = if is_generated {
@@ -7233,20 +8228,31 @@ async fn reset_user_password_form(
         .execute(state.db.pool())
         .await;
 
-    // Send email via MailerService
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
-    if let Ok(settings) = repo.get_system_settings().await {
-        let _ = state
-            .mailer
-            .send_password_reset_email(
-                &settings,
-                &target_user.email,
-                &target_user.username,
-                &temp_password,
-                &base_url,
-            )
-            .await;
-    }
+    // Send email via MailerService in background
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| state.base_url.clone());
+    let mailer = std::sync::Arc::clone(&state.mailer);
+    let db = std::sync::Arc::clone(&state.db);
+    let target_email = target_user.email.clone();
+    let target_username = target_user.username.clone();
+    let temp_pwd = temp_password.clone();
+
+    tokio::spawn(async move {
+        let repo = db.repository();
+        if let Ok(settings) = repo.get_system_settings().await {
+            if let Err(e) = mailer
+                .send_password_reset_email(
+                    &settings,
+                    &target_email,
+                    &target_username,
+                    &temp_pwd,
+                    &base_url,
+                )
+                .await
+            {
+                tracing::error!("Failed to send password reset email in background to {}: {}", target_email, e);
+            }
+        }
+    });
 
     let msg = format!(
         "Password reset for @{}. Temporary password sent to {}. Temporary password: {}",
