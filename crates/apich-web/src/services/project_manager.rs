@@ -140,7 +140,7 @@ impl ProjectManager {
         // lighter image (e.g. bare alpine has no typst/rust/agents but starts instantly).
         let image = std::env::var("APICH_SANDBOX_IMAGE")
             .unwrap_or_else(|_| "localhost/apich-sandbox:latest".to_string());
-        SandboxConfig::builder(user_id.to_string(), &proj.storage_path)
+        let mut builder = SandboxConfig::builder(user_id.to_string(), &proj.storage_path)
             .container_name(&container_name)
             .image(image)
             .memory_limit("2048m")
@@ -157,8 +157,36 @@ impl ProjectManager {
             // UID 1000 instead, so ownership lines up and writes succeed. Caught live: building
             // the LaTeX preview feature, `pdflatex` failed with `I can't write on file
             // 'report.log'` even though nothing about that feature touches permissions itself.
-            .keep_id(true)
-            .build()
+            .keep_id(true);
+
+        // Bind-mount host font directories if present so Typst & LaTeX can access all host CJK and emoji fonts
+        let host_fonts = std::path::Path::new("/usr/share/fonts");
+        if host_fonts.is_dir() {
+            builder = builder.add_mount(apich_sandbox::MountSpec {
+                host_path: host_fonts.to_path_buf(),
+                container_path: std::path::PathBuf::from("/usr/share/fonts"),
+                read_only: true,
+                selinux_label: None,
+            });
+        }
+        let host_local_fonts = std::path::Path::new("/usr/local/share/fonts");
+        if host_local_fonts.is_dir() {
+            builder = builder.add_mount(apich_sandbox::MountSpec {
+                host_path: host_local_fonts.to_path_buf(),
+                container_path: std::path::PathBuf::from("/usr/local/share/fonts"),
+                read_only: true,
+                selinux_label: None,
+            });
+        }
+
+        builder = builder
+            .env("OSFONTDIR", ".:./fonts:./assets/fonts:/workspace:/workspace/fonts:/workspace/assets/fonts:/usr/share/fonts:/usr/local/share/fonts:")
+            .env("TEXINPUTS", ".:./fonts:./assets/fonts::")
+            .env("TTFONTS", ".:./fonts:./assets/fonts::")
+            .env("OPENTYPEFONTS", ".:./fonts:./assets/fonts::")
+            .env("TYPST_FONT_PATHS", "/workspace:/workspace/fonts:/workspace/assets/fonts:/usr/share/fonts:/usr/local/share/fonts");
+
+        builder.build()
     }
 
     /// Launch a dedicated container sandbox for a specific (Project + User) pair
@@ -527,8 +555,19 @@ impl ProjectManager {
         // Two passes: the first resolves the document structure, the second resolves any
         // references/citations that depend on it (real LaTeX behavior -- a single pass leaves
         // `??` in place of forward references on any document that has any).
-        let _ = container.exec(cmd.clone()).await?;
-        let result = container.exec(cmd).await?;
+        let mut opts = apich_sandbox::ExecOptions::new(cmd);
+        opts.env.insert(
+            "OSFONTDIR".to_string(),
+            ".:./fonts:./assets/fonts:/workspace:/workspace/fonts:/workspace/assets/fonts:/usr/share/fonts:/usr/local/share/fonts:".to_string(),
+        );
+        opts.env.insert("TEXINPUTS".to_string(), ".:./fonts:./assets/fonts::".to_string());
+        opts.env.insert("TTFONTS".to_string(), ".:./fonts:./assets/fonts::".to_string());
+        opts.env.insert("OPENTYPEFONTS".to_string(), ".:./fonts:./assets/fonts::".to_string());
+        if !parent.is_empty() {
+            opts.working_dir = Some(std::path::PathBuf::from(format!("/workspace/{parent}")));
+        }
+        let _ = container.exec_with_options(opts.clone()).await?;
+        let result = container.exec_with_options(opts).await?;
 
         let _ = self
             .db
@@ -621,8 +660,16 @@ impl ProjectManager {
             master_tex_name.clone(),
         ];
 
-        let _ = container.exec(cmd.clone()).await?;
-        let result = container.exec(cmd).await?;
+        let mut opts = apich_sandbox::ExecOptions::new(cmd);
+        opts.env.insert(
+            "OSFONTDIR".to_string(),
+            ".:./fonts:./assets/fonts:/workspace:/workspace/fonts:/workspace/assets/fonts:/usr/share/fonts:/usr/local/share/fonts:".to_string(),
+        );
+        opts.env.insert("TEXINPUTS".to_string(), ".:./fonts:./assets/fonts::".to_string());
+        opts.env.insert("TTFONTS".to_string(), ".:./fonts:./assets/fonts::".to_string());
+        opts.env.insert("OPENTYPEFONTS".to_string(), ".:./fonts:./assets/fonts::".to_string());
+        let _ = container.exec_with_options(opts.clone()).await?;
+        let result = container.exec_with_options(opts).await?;
 
         // Cleanup temporary master .tex and auxiliary files
         let _ = tokio::fs::remove_file(&master_full_path).await;
@@ -1050,7 +1097,9 @@ impl ProjectManager {
             "-o".to_string(),
             tmp_dir.clone(),
         ];
-        let opts = apich_sandbox::ExecOptions::new(cmd).timeout(std::time::Duration::from_secs(60));
+        let opts = apich_sandbox::ExecOptions::new(cmd)
+            .env("TYPST_FONT_PATHS", "/usr/share/fonts:/usr/local/share/fonts")
+            .timeout(std::time::Duration::from_secs(60));
         let res = container.exec_with_options(opts).await?;
         if res.exit_code != 0 {
             let _ = container.exec(["rm", "-rf", &tmp_dir]).await;

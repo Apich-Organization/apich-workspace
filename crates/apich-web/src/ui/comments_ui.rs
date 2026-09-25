@@ -1486,3 +1486,399 @@ pub fn render_pdf_viewer_page(
 </html>"##
     )
 }
+
+/// Render the lightweight, ultra-fast SVG presentation page (zero WASM, instant DOM paint).
+#[allow(clippy::too_many_arguments)]
+pub fn render_fast_presentation_page(
+    project_id: &str,
+    project_name: &str,
+    file_path: &str,
+    token: Option<&str>,
+    is_authenticated: bool,
+    current_user_name: &str,
+    is_zh: bool,
+    pages_svg: &[String],
+    allow_comments: bool,
+    expiry_days: i64,
+    error_message: Option<&str>,
+) -> String {
+    let esc_project_id = html_escape(project_id);
+    let esc_project_name = html_escape(project_name);
+    let esc_file_path = html_escape(file_path);
+
+    let comments_component = if allow_comments {
+        render_comments_drawer_component(
+            project_id,
+            file_path,
+            token,
+            current_user_name,
+            true,  // is_slide
+            false, // no built-in floating bar; triggered by HUD button
+            None,
+            is_zh,
+            allow_comments,
+            expiry_days,
+        )
+    } else {
+        String::new()
+    };
+
+    let comments_btn = if allow_comments {
+        let label = if is_zh { "💬 评审评论" } else { "💬 Comments" };
+        format!(
+            r#"<button type="button" class="hud-btn" onclick="window.apichOpenComments && window.apichOpenComments()" title="{label}">{label}</button>"#
+        )
+    } else {
+        String::new()
+    };
+
+    let back_btn = if is_authenticated {
+        let label = if is_zh { "← 返回工作台" } else { "← Back to Workspace" };
+        format!(
+            r#"<a href="/projects/{esc_project_id}?tab=files" class="hud-btn" style="text-decoration:none;">{label}</a>"#
+        )
+    } else {
+        String::new()
+    };
+
+    let fullscreen_label = if is_zh { "⛶ 全屏" } else { "⛶ Fullscreen" };
+    let prev_label = if is_zh { "← 上一页" } else { "← Prev" };
+    let next_label = if is_zh { "下一页 →" } else { "Next →" };
+
+    let total = pages_svg.len();
+    let slides_html = if total == 0 {
+        let err = error_message.unwrap_or(if is_zh {
+            "演示文稿暂无内容或编译失败"
+        } else {
+            "Presentation has no pages or failed to compile"
+        });
+        format!(
+            r#"<div class="slide-wrapper active" style="display:flex; flex-direction:column; gap:1rem; align-items:center; justify-content:center; color:#ef4444; padding:2rem; text-align:center;">
+                <div style="font-size:2rem;">⚠️</div>
+                <div style="font-weight:600; font-size:1.1rem;">{err}</div>
+            </div>"#
+        )
+    } else {
+        pages_svg
+            .iter()
+            .enumerate()
+            .map(|(i, svg)| {
+                let active = if i == 0 { " active" } else { "" };
+                format!(r#"<div class="slide-wrapper{active}" data-index="{i}">{svg}</div>"#)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r##"<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>{esc_project_name} - {esc_file_path}</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    html, body {{
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }}
+    .pres-container {{
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      background: #000000;
+    }}
+    .slide-wrapper {{
+      position: absolute;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      max-width: 100vw;
+      max-height: 100vh;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      padding: 0;
+      margin: 0;
+      background: transparent;
+    }}
+    .slide-wrapper.active {{
+      display: flex;
+    }}
+    .slide-wrapper svg {{
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 100vw !important;
+      max-height: 100vh !important;
+      object-fit: contain !important;
+      display: block !important;
+      margin: auto !important;
+      background: transparent !important;
+    }}
+    .hud-top {{
+      position: fixed;
+      top: 1.25rem;
+      right: 1.5rem;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 0.4rem 0.75rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      opacity: 0.85;
+      transition: opacity 0.25s ease, transform 0.2s ease;
+    }}
+    .hud-top:hover {{
+      opacity: 1;
+      transform: scale(1.02);
+    }}
+    .hud-btn {{
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }}
+    .hud-btn:hover {{
+      background: rgba(255, 255, 255, 0.25);
+    }}
+    .hud-bottom {{
+      position: fixed;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 0.4rem 0.9rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      color: #f1f5f9;
+      font-size: 0.85rem;
+      font-weight: 500;
+      opacity: 0.85;
+      transition: opacity 0.25s ease, transform 0.2s ease;
+    }}
+    .hud-bottom:hover {{
+      opacity: 1;
+      transform: translateX(-50%) scale(1.02);
+    }}
+    .hud-bottom button {{
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }}
+    .hud-bottom button:hover {{
+      background: rgba(255, 255, 255, 0.25);
+    }}
+    .hud-bottom button:disabled {{
+      opacity: 0.35;
+      cursor: not-allowed;
+    }}
+    .edge-nav {{
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      width: 72px;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s ease, background 0.2s ease;
+      outline: none;
+    }}
+    .edge-nav:hover {{
+      opacity: 1;
+    }}
+    .edge-prev {{
+      left: 0;
+      justify-content: flex-start;
+      padding-left: 1rem;
+      background: linear-gradient(to right, rgba(255, 255, 255, 0.1), transparent);
+    }}
+    .edge-next {{
+      right: 0;
+      justify-content: flex-end;
+      padding-right: 1rem;
+      background: linear-gradient(to left, rgba(255, 255, 255, 0.1), transparent);
+    }}
+    .edge-arrow {{
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(30, 41, 59, 0.85);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      line-height: 1;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      transition: transform 0.2s ease, background 0.2s ease;
+    }}
+    .edge-nav:hover .edge-arrow {{
+      transform: scale(1.1);
+      background: #635bff;
+    }}
+    .edge-nav.disabled {{
+      display: none;
+    }}
+  </style>
+</head>
+<body>
+  <div class="pres-container">
+    {slides_html}
+  </div>
+
+  <button type="button" id="edge-prev" class="edge-nav edge-prev" aria-label="Previous slide">
+    <span class="edge-arrow">‹</span>
+  </button>
+  <button type="button" id="edge-next" class="edge-nav edge-next" aria-label="Next slide">
+    <span class="edge-arrow">›</span>
+  </button>
+
+  <div class="hud-top">
+    {back_btn}
+    {comments_btn}
+    <button type="button" class="hud-btn" onclick="toggleFullscreen()">{fullscreen_label}</button>
+  </div>
+
+  <div class="hud-bottom">
+    <button type="button" id="prev-btn" onclick="showSlide(currentIndex - 1)">{prev_label}</button>
+    <span id="slide-counter">1 / {total}</span>
+    <button type="button" id="next-btn" onclick="showSlide(currentIndex + 1)">{next_label}</button>
+  </div>
+
+  {comments_component}
+
+  <script>
+    (function() {{
+      var currentIndex = 0;
+      var slides = document.querySelectorAll('.slide-wrapper');
+      var total = slides.length;
+      var counter = document.getElementById('slide-counter');
+      var prevBtn = document.getElementById('prev-btn');
+      var nextBtn = document.getElementById('next-btn');
+      var edgePrev = document.getElementById('edge-prev');
+      var edgeNext = document.getElementById('edge-next');
+
+      window.showSlide = function(idx) {{
+        if (total === 0) return;
+        if (idx < 0) idx = 0;
+        if (idx >= total) idx = total - 1;
+        currentIndex = idx;
+        for (var i = 0; i < slides.length; i++) {{
+          slides[i].classList.toggle('active', i === currentIndex);
+        }}
+        if (counter) {{
+          counter.textContent = (currentIndex + 1) + ' / ' + total;
+        }}
+        if (edgePrev) edgePrev.classList.toggle('disabled', currentIndex <= 0);
+        if (edgeNext) edgeNext.classList.toggle('disabled', currentIndex >= total - 1);
+        if (prevBtn) prevBtn.disabled = currentIndex <= 0;
+        if (nextBtn) nextBtn.disabled = currentIndex >= total - 1;
+        history.replaceState(null, '', '#' + (currentIndex + 1));
+      }};
+
+      var hash = parseInt(window.location.hash.replace('#', ''), 10);
+      if (!isNaN(hash) && hash >= 1 && hash <= total) {{
+        showSlide(hash - 1);
+      }} else {{
+        showSlide(0);
+      }}
+
+      window.addEventListener('keydown', function(e) {{
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown' || e.key === 'ArrowDown' || e.key === 'Enter') {{
+          e.preventDefault();
+          showSlide(currentIndex + 1);
+        }} else if (e.key === 'ArrowLeft' || e.key === 'Backspace' || e.key === 'PageUp' || e.key === 'ArrowUp') {{
+          e.preventDefault();
+          showSlide(currentIndex - 1);
+        }} else if (e.key === 'Home') {{
+          showSlide(0);
+        }} else if (e.key === 'End') {{
+          showSlide(total - 1);
+        }} else if (e.key === 'f' || e.key === 'F11') {{
+          e.preventDefault();
+          toggleFullscreen();
+        }}
+      }});
+
+      var lastWheel = 0;
+      window.addEventListener('wheel', function(e) {{
+        var now = Date.now();
+        if (now - lastWheel < 250) return;
+        if (Math.abs(e.deltaY) < 15) return;
+        lastWheel = now;
+        if (e.deltaY > 0) showSlide(currentIndex + 1);
+        else showSlide(currentIndex - 1);
+      }}, {{ passive: true }});
+
+      var touchStartX = 0;
+      window.addEventListener('touchstart', function(e) {{
+        if (e.touches.length === 1) touchStartX = e.touches[0].clientX;
+      }}, {{ passive: true }});
+      window.addEventListener('touchend', function(e) {{
+        if (e.changedTouches.length === 1) {{
+          var diff = e.changedTouches[0].clientX - touchStartX;
+          if (diff < -50) showSlide(currentIndex + 1);
+          else if (diff > 50) showSlide(currentIndex - 1);
+        }}
+      }}, {{ passive: true }});
+
+      window.toggleFullscreen = function() {{
+        if (!document.fullscreenElement) {{
+          document.documentElement.requestFullscreen().catch(function() {{}});
+        }} else {{
+          document.exitFullscreen().catch(function() {{}});
+        }}
+      }};
+    }})();
+  </script>
+</body>
+</html>"##,
+        lang = if is_zh { "zh-CN" } else { "en" },
+    )
+}

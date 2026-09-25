@@ -5341,6 +5341,31 @@ async fn shared_link_dispatcher_action(
             resp_headers.append(header::SET_COOKIE, c);
         }
         (resp_headers, Html(SLIDE_INDEX_HTML)).into_response()
+    } else if link.target_type == "present" {
+        let typst_res = crate::services::document_renderer::DocumentRenderer::compile_typst(
+            &project.storage_path,
+            &link.file_path,
+            false,
+        )
+        .await;
+        let html = crate::ui::comments_ui::render_fast_presentation_page(
+            &project.id.to_string(),
+            &project.name,
+            &link.file_path,
+            Some(&token),
+            false,
+            "Guest",
+            is_zh,
+            &typst_res.pages_svg,
+            link.allow_comments,
+            expiry_days,
+            typst_res.error_message.as_deref(),
+        );
+        (
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())],
+            Html(html),
+        )
+            .into_response()
     } else {
         let raw_pdf_url = format!("/s/{token}/pdf-raw");
         let html = crate::ui::comments_ui::render_pdf_viewer_page(
@@ -5783,7 +5808,7 @@ async fn shared_link_email_action(
     };
     let share_url = format!("{scheme}://{host}/s/{token}");
 
-    let (slide_url, pdf_url) = if link.target_type == "slide" {
+    let (slide_url, pdf_url) = if link.target_type == "slide" || link.target_type == "present" {
         (Some(share_url.clone()), share_url)
     } else {
         (None, share_url)

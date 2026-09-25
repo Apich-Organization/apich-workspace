@@ -47,6 +47,8 @@
 
   let default-fonts = (
     "Noto Sans",
+    "Roboto",
+    "Inter",
     "Segoe UI",
     "SF Pro Display",
     "SF Pro Text",
@@ -58,8 +60,26 @@
     "Noto Sans CJK SC",
     "Source Han Sans SC",
     "WenQuanYi Micro Hei",
+    "WenQuanYi Zen Hei",
+    "PingFang TC",
+    "Microsoft JhengHei",
+    "Noto Sans CJK TC",
+    "Noto Sans CJK HK",
+    "Source Han Sans TC",
+    "Hiragino Sans",
+    "Meiryo",
+    "Noto Sans CJK JP",
+    "Source Han Sans JP",
+    "Malgun Gothic",
+    "NanumGothic",
+    "Noto Sans CJK KR",
+    "Source Han Sans KR",
+    "Droid Sans Fallback",
     "Liberation Sans",
     "DejaVu Sans",
+    "Noto Color Emoji",
+    "Apple Color Emoji",
+    "Segoe UI Emoji",
   )
 
   let active-fonts = if font != none {

@@ -246,6 +246,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         sqlite3 \
         procps \
         sudo \
+        fonts-noto-cjk \
+        fonts-noto-cjk-extra \
+        fonts-noto-color-emoji \
+        fonts-wqy-microhei \
+        fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
 # ------------------------------------------------------------------------------

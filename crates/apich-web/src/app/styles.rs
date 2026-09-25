@@ -1519,7 +1519,7 @@ select::-ms-expand {
     -webkit-backdrop-filter: blur(4px);
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 10005;
 }
 .modal-card {
     background: var(--bg-surface);
@@ -1985,15 +1985,34 @@ select::-ms-expand {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--space-3);
     flex-wrap: wrap;
+    row-gap: var(--space-2);
 }
-.editor-top-left,
-.editor-top-right {
+.editor-top-left {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     min-width: 0;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+.editor-top-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    min-width: 0;
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+    margin-left: auto;
+}
+.editor-top-right .btn,
+.editor-top-right .btn-sm,
+.editor-top-right .form-control,
+.editor-top-right label {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
 }
 /* Back button reads as navigation, not another tool: it keeps the secondary button chrome but
    picks up the accent on hover, and its arrow nudges left to reinforce the direction. */
@@ -3209,6 +3228,121 @@ select::-ms-expand {
 }
 .svg-page-nav-edge:active .svg-page-nav-arrow {
     transform: scale(0.92);
+}
+
+/* Full-Screen Presentation Mode Stage & Canvas */
+.presentation-stage-container {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #000000;
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    user-select: none;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.presentation-slide-canvas {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+}
+
+.presentation-slide-canvas svg {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    display: block !important;
+    margin: auto !important;
+    background: transparent !important;
+    object-fit: contain !important;
+}
+
+.presentation-hud-top {
+    position: absolute;
+    top: 1.25rem;
+    right: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    z-index: 50;
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 0.4rem 0.75rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    opacity: 0.85;
+    transition: opacity 0.25s ease, transform 0.2s ease;
+}
+
+.presentation-hud-top:hover {
+    opacity: 1;
+    transform: scale(1.02);
+}
+
+.presentation-hud-bottom {
+    position: absolute;
+    bottom: 1.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    z-index: 50;
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 0.4rem 0.9rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    color: #f1f5f9;
+    font-size: 0.875rem;
+    font-weight: 500;
+    opacity: 0.85;
+    transition: opacity 0.25s ease, transform 0.2s ease;
+}
+
+.presentation-hud-bottom:hover {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.02);
+}
+
+.presentation-close-btn {
+    background: transparent;
+    border: none;
+    color: #e2e8f0;
+    font-size: 1.25rem;
+    cursor: pointer;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.presentation-close-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
+    color: #f87171;
 }
 .svg-page-box {
     background: #ffffff;

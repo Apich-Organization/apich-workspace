@@ -104,15 +104,23 @@ pub fn FileShareModalIsland(
         pid_for_listener,
         shared_links,
         is_links_loading,
+        new_link_target,
     );
 
     let primary_opaque_link = Memo::new({
         move |_| {
             let links = shared_links.get();
-            let fp = file_path.get();
-            let is_slide = fp.ends_with(".typ") || fp.ends_with(".slide");
-            let target = if is_slide { "slide" } else { "pdf" };
-            links.into_iter().find(|l| !l.is_revoked && l.target_type == target)
+            let cur_target = new_link_target.get();
+            links.into_iter().find(|l| !l.is_revoked && l.target_type == cur_target)
+                .or_else(|| {
+                    let fp = file_path.get();
+                    let is_slide = fp.ends_with(".typ") || fp.ends_with(".slide");
+                    if is_slide {
+                        shared_links.get().into_iter().find(|l| !l.is_revoked && (l.target_type == "present" || l.target_type == "slide"))
+                    } else {
+                        shared_links.get().into_iter().find(|l| !l.is_revoked && l.target_type == "pdf")
+                    }
+                })
                 .or_else(|| shared_links.get().into_iter().find(|l| !l.is_revoked))
         }
     });
@@ -291,28 +299,51 @@ pub fn FileShareModalIsland(
                                     let full_url = lnk.url.clone();
                                     let full_url_copy = full_url.clone();
                                     let full_url_play = full_url.clone();
-                                    let is_slide = lnk.target_type == "slide";
+                                    let target_type = lnk.target_type.as_str();
+                                    let is_present = target_type == "present";
+                                    let is_slide = target_type == "slide" || is_present;
 
                                     view! {
                                         <div style="background:linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(168,85,247,0.06) 100%); border:2px solid var(--primary, #635bff); border-radius:10px; padding:1.15rem; margin-bottom:1.15rem; box-shadow: 0 4px 12px rgba(99,102,241,0.08);">
                                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem; flex-wrap:wrap; gap:0.4rem;">
                                                 <div style="font-weight:700; font-size:0.95rem; color:var(--text-main); display:flex; align-items:center; gap:0.4rem;">
-                                                    <span>{if is_slide { "🖥️" } else { "📄" }}</span>
-                                                    <span>{if is_slide {
-                                                        if zh { "当前文件专属安全播放链接" } else { "Secure Presentation Share Link" }
+                                                    <span>{if is_present { "⚡" } else if is_slide { "🖥️" } else { "📄" }}</span>
+                                                    <span>{if is_present {
+                                                        if zh { "当前文件专属极速全屏演示链接" } else { "Fast Presentation Share Link (Instant SVG)" }
+                                                    } else if is_slide {
+                                                        if zh { "当前文件专属交互式播放链接" } else { "Interactive Slide Player Share Link" }
                                                     } else {
                                                         if zh { "当前文件专属安全预览链接" } else { "Secure Document Share Link" }
                                                     }}</span>
                                                 </div>
-                                                <span style="font-size:0.75rem; background:#ecfdf5; color:#059669; padding:2px 8px; border-radius:12px; font-weight:700; border:1px solid #a7f3d0;">
-                                                    "✓ " {if zh { "防篡改 · 隐藏文件名" } else { "Tamper-Proof · Opaque" }}
+                                                <span style=format!(
+                                                    "font-size:0.75rem; padding:2px 8px; border-radius:12px; font-weight:700; border:1px solid {}; background:{}; color:{};",
+                                                    if is_present { "#fde68a" } else { "#a7f3d0" },
+                                                    if is_present { "#fef3c7" } else { "#ecfdf5" },
+                                                    if is_present { "#b45309" } else { "#059669" },
+                                                )>
+                                                    "✓ " {if is_present { if zh { "极速加载 · 免WASM" } else { "Fast · Zero WASM" } } else { if zh { "防篡改 · 隐藏文件名" } else { "Tamper-Proof · Opaque" } }}
                                                 </span>
                                             </div>
                                             <p style="font-size:0.78rem; color:var(--text-sub); margin-bottom:0.75rem; line-height:1.4;">
-                                                {if zh {
-                                                    "外部访客通过此链接可直接在浏览器中全屏放映与评审，URL 完全混淆，无法探知项目路径与文件名称。"
+                                                {if is_present {
+                                                    if zh {
+                                                        "访客通过此链接可立即以极速全屏模式播放演示文稿，无需加载庞大 WASM 引擎，毫秒级响应并支持键盘滚轮切换。"
+                                                    } else {
+                                                        "Instant full-screen presentation playback without loading heavy WASM engines, with millisecond response and keyboard/wheel navigation."
+                                                    }
+                                                } else if is_slide {
+                                                    if zh {
+                                                        "外部访客通过此链接可在浏览器中以完整过渡动画、白板画笔和激光笔进行交互式放映与评审。"
+                                                    } else {
+                                                        "Interactive player with transitions, whiteboard ink, laser pointer, and audio support."
+                                                    }
                                                 } else {
-                                                    "Viewers can play fullscreen and review directly. The URL is fully opaque without revealing internal paths or filenames."
+                                                    if zh {
+                                                        "外部访客通过此链接可直接在线浏览 PDF 文档并参与行级批注与评论评审。"
+                                                    } else {
+                                                        "Viewers can read the PDF document online and participate in line-level review comments."
+                                                    }
                                                 }}
                                             </p>
                                             <div style="display:flex; gap:0.5rem; align-items:center;">
@@ -342,8 +373,10 @@ pub fn FileShareModalIsland(
                                                     class="btn btn-secondary"
                                                     style="height:38px; white-space:nowrap; padding:0 0.85rem; display:inline-flex; align-items:center; gap:0.35rem; font-weight:600;"
                                                 >
-                                                    {if is_slide { "▶ " } else { "↗ " }}
-                                                    {if is_slide {
+                                                    {if is_present { "⚡ " } else if is_slide { "▶ " } else { "↗ " }}
+                                                    {if is_present {
+                                                        if zh { "极速演示" } else { "Present" }
+                                                    } else if is_slide {
                                                         if zh { "立即播放" } else { "Play" }
                                                     } else {
                                                         if zh { "在线预览" } else { "View" }
@@ -365,8 +398,9 @@ pub fn FileShareModalIsland(
                                         prop:value=move || new_link_target.get()
                                         on:change=move |ev| new_link_target.set(event_target_value(&ev))
                                     >
-                                        <option value="slide">{if zh { "🖥️ 幻灯片放映" } else { "🖥️ Slide Player" }}</option>
-                                        <option value="pdf">{if zh { "📄 PDF 预览" } else { "📄 PDF Viewer" }}</option>
+                                        <option value="present">{if zh { "⚡ 极速全屏演示 (Present)" } else { "⚡ Fast Presentation (Present)" }}</option>
+                                        <option value="slide">{if zh { "🖥️ 交互式放映 (Slide Player)" } else { "🖥️ Interactive Player (WASM)" }}</option>
+                                        <option value="pdf">{if zh { "📄 PDF 预览 (Viewer)" } else { "📄 PDF Viewer" }}</option>
                                     </select>
                                 </div>
 
@@ -454,18 +488,19 @@ pub fn FileShareModalIsland(
                                                 let full_url_open = full_url.clone();
                                                 let tok = lnk.token.clone();
                                                 let pid_this = pid_rev.clone();
-                                            let is_slide = lnk.target_type == "slide";
+                                                let is_present = lnk.target_type == "present";
+                                                let is_slide = lnk.target_type == "slide";
 
-                                            view! {
-                                                <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; background:var(--bg-surface, #fff); border:1px solid var(--border-subtle, #e2e8f0); border-radius:8px; padding:0.6rem 0.85rem; font-size:0.82rem;">
-                                                    <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden; flex:1;">
-                                                        <span style=format!(
-                                                            "font-size:0.75rem; padding:2px 6px; border-radius:4px; font-weight:700; white-space:nowrap; background:{}; color:{};",
-                                                            if is_slide { "#ecfdf5" } else { "#eff6ff" },
-                                                            if is_slide { "#059669" } else { "#2563eb" },
-                                                        )>
-                                                            {if is_slide { "🖥️ Slide" } else { "📄 PDF" }}
-                                                        </span>
+                                                view! {
+                                                    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; background:var(--bg-surface, #fff); border:1px solid var(--border-subtle, #e2e8f0); border-radius:8px; padding:0.6rem 0.85rem; font-size:0.82rem;">
+                                                        <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden; flex:1;">
+                                                            <span style=format!(
+                                                                "font-size:0.75rem; padding:2px 6px; border-radius:4px; font-weight:700; white-space:nowrap; background:{}; color:{};",
+                                                                if is_present { "#fef3c7" } else if is_slide { "#ecfdf5" } else { "#eff6ff" },
+                                                                if is_present { "#d97706" } else if is_slide { "#059669" } else { "#2563eb" },
+                                                            )>
+                                                                {if is_present { "⚡ Present" } else if is_slide { "🖥️ Slide" } else { "📄 PDF" }}
+                                                            </span>
                                                         <input
                                                             type="text"
                                                             readonly
@@ -1070,6 +1105,7 @@ pub fn FileShareModalIsland(
                                         let full_url_copy = full_url.clone();
                                         let tok = lnk.token.clone();
                                         let pid_rev = pid_for_form.clone();
+                                        let is_present = lnk.target_type == "present";
                                         let is_slide = lnk.target_type == "slide";
                                         let is_revoked = lnk.is_revoked;
 
@@ -1081,10 +1117,10 @@ pub fn FileShareModalIsland(
                                                 <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden; flex:1; min-width:0;">
                                                     <span style=format!(
                                                         "font-size:0.7rem; padding:2px 5px; border-radius:4px; font-weight:700; white-space:nowrap; flex-shrink:0; background:{}; color:{};",
-                                                        if is_slide { "#ecfdf5" } else { "#eff6ff" },
-                                                        if is_slide { "#059669" } else { "#2563eb" },
+                                                        if is_present { "#fef3c7" } else if is_slide { "#ecfdf5" } else { "#eff6ff" },
+                                                        if is_present { "#d97706" } else if is_slide { "#059669" } else { "#2563eb" },
                                                     )>
-                                                        {if is_slide { "🖥️" } else { "📄" }}
+                                                        {if is_present { "⚡" } else if is_slide { "🖥️" } else { "📄" }}
                                                     </span>
                                                     <input
                                                         type="text"
@@ -1314,13 +1350,22 @@ fn wire_open_listener(
     project_id: String,
     shared_links: RwSignal<Vec<ManagedSharedLink>>,
     is_links_loading: RwSignal<bool>,
+    new_link_target: RwSignal<String>,
 ) {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
 
     let pid_closure = project_id.clone();
     let closure = Closure::<dyn Fn(web_sys::CustomEvent)>::new(move |ev: web_sys::CustomEvent| {
-        let detail = ev.detail();
+        let raw_detail = ev.detail();
+        let detail = if raw_detail.is_string() {
+            raw_detail
+                .as_string()
+                .and_then(|s| js_sys::JSON::parse(&s).ok())
+                .unwrap_or(raw_detail)
+        } else {
+            raw_detail
+        };
         let get_str = |key: &str| -> String {
             js_sys::Reflect::get(&detail, &key.into())
                 .ok()
@@ -1329,6 +1374,15 @@ fn wire_open_listener(
         };
         let p = get_str("path");
         file_path.set(p.clone());
+        let raw_target = get_str("target");
+        let initial_target = if !raw_target.is_empty() {
+            raw_target
+        } else if p.ends_with(".typ") || p.ends_with(".slide") {
+            "present".to_string()
+        } else {
+            "pdf".to_string()
+        };
+        new_link_target.set(initial_target);
         token.set(get_str("token"));
         let m = get_str("mode");
         mode.set(if m.is_empty() {
@@ -1384,6 +1438,7 @@ fn wire_open_listener(
     _project_id: String,
     _shared_links: RwSignal<Vec<ManagedSharedLink>>,
     _is_links_loading: RwSignal<bool>,
+    _new_link_target: RwSignal<String>,
 ) {
 }
 
@@ -1414,7 +1469,7 @@ fn fetch_shared_links(
                         .collect();
                     if items.is_empty() && !file_path.is_empty() {
                         let is_slide = file_path.ends_with(".typ") || file_path.ends_with(".slide");
-                        let target_type = if is_slide { "slide" } else { "pdf" };
+                        let target_type = if is_slide { "present" } else { "pdf" };
                         let post_url = format!("/api/projects/{}/shared-links", project_id);
                         let post_body = serde_json::json!({
                             "file_path": file_path,

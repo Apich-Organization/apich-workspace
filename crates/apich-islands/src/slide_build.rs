@@ -135,11 +135,11 @@ pub fn SlideBuildIsland(
     };
 
     view! {
-        <div style="display:flex; flex-direction:column; gap:0.5rem;">
-            <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+        <div style="display:inline-flex; flex-direction:column; gap:0.25rem; flex-shrink:0;">
+            <div style="display:inline-flex; gap:0.35rem; align-items:center; flex-wrap:nowrap; flex-shrink:0;">
                 <select
                     class="form-control"
-                    style="width:auto; max-width:210px; font-size:0.8rem; padding:0.3rem 0.5rem;"
+                    style="width:auto; max-width:165px; font-size:0.8rem; padding:0.25rem 0.4rem; height:31px; white-space:nowrap; flex-shrink:0;"
                     title="Choose target platform binary or packaging format"
                     disabled=move || is_running.get()
                     prop:value=move || target.get()
@@ -161,6 +161,7 @@ pub fn SlideBuildIsland(
                 <button
                     type="button"
                     class="btn btn-secondary btn-sm"
+                    style="white-space:nowrap; flex-shrink:0; height:31px;"
                     disabled=move || is_running.get()
                     on:click=start_build
                     title=build_btn_title
@@ -168,7 +169,7 @@ pub fn SlideBuildIsland(
                     {build_btn_label}
                 </button>
                 {move || download_href().map(|href| view! {
-                    <a href=href class="btn btn-primary btn-sm">{download_btn_label()}</a>
+                    <a href=href class="btn btn-primary btn-sm" style="white-space:nowrap; flex-shrink:0; height:31px;">{download_btn_label()}</a>
                 })}
             </div>
             {move || is_running.get().then(|| view! {

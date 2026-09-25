@@ -154,6 +154,7 @@ impl SlideCompiler {
         preprocess_charts(typ_file, &root_dir);
 
         // Auto-detect project font directories and TYPST_FONT_PATHS for cross-platform deterministic rendering
+        cmd.arg("--font-path").arg(&root_dir);
         let fonts_dir = root_dir.join("fonts");
         if fonts_dir.is_dir() {
             cmd.arg("--font-path").arg(&fonts_dir);
@@ -278,6 +279,7 @@ impl SlideCompiler {
                 std::path::Path::to_path_buf,
             );
 
+        cmd.arg("--font-path").arg(&root_dir);
         let fonts_dir = root_dir.join("fonts");
         if fonts_dir.is_dir() {
             cmd.arg("--font-path").arg(&fonts_dir);

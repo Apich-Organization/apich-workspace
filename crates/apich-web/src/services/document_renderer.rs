@@ -56,6 +56,32 @@ impl DocumentRenderer {
         )
     }
 
+    /// Appends project font directories and host system font paths to the `typst compile` command.
+    /// This enables Typst to detect any user-uploaded `.ttf`, `.otf`, `.woff`, `.woff2` files located
+    /// anywhere in the project directory (root, `fonts/`, `assets/fonts/`) as well as system CJK/emoji fonts.
+    fn append_font_paths(cmd: &mut tokio::process::Command, root: &Path) {
+        cmd.arg("--font-path").arg(root);
+        let fonts_dir = root.join("fonts");
+        if fonts_dir.is_dir() {
+            cmd.arg("--font-path").arg(&fonts_dir);
+        }
+        let assets_fonts = root.join("assets").join("fonts");
+        if assets_fonts.is_dir() {
+            cmd.arg("--font-path").arg(&assets_fonts);
+        }
+        if Path::new("/usr/share/fonts").is_dir() {
+            cmd.arg("--font-path").arg("/usr/share/fonts");
+        }
+        if Path::new("/usr/local/share/fonts").is_dir() {
+            cmd.arg("--font-path").arg("/usr/local/share/fonts");
+        }
+        if let Ok(extra) = std::env::var("TYPST_FONT_PATHS") {
+            for p in std::env::split_paths(&extra) {
+                cmd.arg("--font-path").arg(p);
+            }
+        }
+    }
+
     /// Compile Typst or cargo-slide presentation to SVGs with line-level reverse search hyperlinks
     pub async fn compile_typst<P: AsRef<Path>>(
         project_root: P,
@@ -134,8 +160,9 @@ impl DocumentRenderer {
             .arg("--format")
             .arg("svg")
             .arg("--root")
-            .arg(root)
-            .arg(&input_to_compile)
+            .arg(root);
+        Self::append_font_paths(&mut cmd, root);
+        cmd.arg(&input_to_compile)
             .arg(&out_pattern);
 
         let output = match cmd.output().await {
@@ -164,7 +191,9 @@ impl DocumentRenderer {
                     .arg("--format")
                     .arg("svg")
                     .arg("--root")
-                    .arg(root)
+                    .arg(root);
+                Self::append_font_paths(&mut fallback_cmd, root);
+                fallback_cmd
                     .arg(&target_file)
                     .arg(&out_pattern);
 
@@ -258,8 +287,9 @@ impl DocumentRenderer {
             .arg("--format")
             .arg("pdf")
             .arg("--root")
-            .arg(root)
-            .arg(&target_file)
+            .arg(root);
+        Self::append_font_paths(&mut cmd, root);
+        cmd.arg(&target_file)
             .arg(&out_path);
 
         let output = cmd
@@ -330,8 +360,9 @@ impl DocumentRenderer {
             .arg("--format")
             .arg("pdf")
             .arg("--root")
-            .arg(root)
-            .arg(&master_file_path)
+            .arg(root);
+        Self::append_font_paths(&mut cmd, root);
+        cmd.arg(&master_file_path)
             .arg(&out_pdf_path);
 
         let output_res = cmd.output().await;

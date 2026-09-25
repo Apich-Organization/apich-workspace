@@ -134,7 +134,17 @@ pub fn DocumentEditorPage(
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("typ"));
 
-    let pdf_view_browser_btn = is_typst_preview.then(|| {
+    let is_latex_preview = !is_script
+        && !is_typst_preview
+        && std::path::Path::new(&file_path)
+            .extension()
+            .is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("tex") || ext.eq_ignore_ascii_case("latex")
+            });
+
+    let can_pdf_view = is_typst_preview || is_latex_preview;
+
+    let pdf_view_browser_btn = can_pdf_view.then(|| {
         let pdf_href = format!(
             "/projects/{}/pdf-view?file={}",
             project_id,
@@ -155,13 +165,6 @@ pub fn DocumentEditorPage(
         }
     });
 
-    let is_latex_preview = !is_script
-        && !is_typst_preview
-        && std::path::Path::new(&file_path)
-            .extension()
-            .is_some_and(|ext| {
-                ext.eq_ignore_ascii_case("tex") || ext.eq_ignore_ascii_case("latex")
-            });
     let preview_kind = if is_slide {
         DocumentPreviewKind::Slide
     } else if is_typst_preview {
@@ -172,15 +175,21 @@ pub fn DocumentEditorPage(
         DocumentPreviewKind::None
     };
 
-    // LaTeX has its own "Download PDF" link inside `DocumentEditorIsland`'s preview toolbar (it
-    // needs to stay in sync with the reactive engine selector there); only Typst gets one here.
-    let download_pdf_href = is_typst_preview.then(|| {
-        format!(
+    let download_pdf_href = if is_typst_preview {
+        Some(format!(
             "/projects/{}/editor/typst-pdf?file={}",
             project_id,
             urlencoding::encode(&file_path)
-        )
-    });
+        ))
+    } else if is_latex_preview {
+        Some(format!(
+            "/projects/{}/editor/latex-pdf?file={}",
+            project_id,
+            urlencoding::encode(&file_path)
+        ))
+    } else {
+        None
+    };
     let download_pdf_name = std::path::Path::new(&file_path)
         .file_stem()
         .and_then(|s| s.to_str())

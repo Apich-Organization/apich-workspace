@@ -322,11 +322,21 @@ pub fn DocumentEditorIsland(
                             <option value="lualatex">"lualatex"</option>
                         </select>
                     </div>
-                    <a
-                        href=move || format!("/projects/{}/editor/latex-pdf?file={}&engine={}", project_id_for_dl, urlencoding::encode(&file_path_for_dl), latex_engine.get())
-                        download=format!("{}.pdf", download_name)
-                        class="btn btn-secondary btn-sm"
-                    >{if zh { "⬇️ 下载 PDF" } else { "⬇️ Download PDF" }}</a>
+                    <div style="display:flex; align-items:center; gap:0.4rem;">
+                        <a
+                            href=format!("/projects/{}/pdf-view?file={}", project_id_for_dl, urlencoding::encode(&file_path_for_dl))
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="btn btn-secondary btn-sm"
+                            title=if zh { "在独立浏览器标签页中查看渲染的 PDF 并支持添加页面评审意见" } else { "View rendered PDF in dedicated browser tab with page review comments" }
+                            style="display:inline-flex; align-items:center; gap:0.25rem;"
+                        >{if zh { "📄 浏览器预览" } else { "📄 View in Browser" }}</a>
+                        <a
+                            href=move || format!("/projects/{}/editor/latex-pdf?file={}&engine={}", project_id_for_dl, urlencoding::encode(&file_path_for_dl), latex_engine.get())
+                            download=format!("{}.pdf", download_name)
+                            class="btn btn-secondary btn-sm"
+                        >{if zh { "⬇️ 下载 PDF" } else { "⬇️ Download PDF" }}</a>
+                    </div>
                 </div>
                 <div style="position:relative; width:100%; flex:1;">
                     {move || latex_error.get().map(|err| view! {
@@ -385,8 +395,8 @@ pub fn DocumentEditorIsland(
         view! {
             <div
                 node_ref=stage_ref
+                class="presentation-stage-container"
                 style:display=move || if presenting.get() { "flex" } else { "none" }
-                style="position:fixed; inset:0; background:#0f172a; z-index:9999; flex-direction:column; justify-content:center; align-items:center; padding:2rem;"
                 on:wheel=move |ev| {
                     let total = pages.with(|p| p.len().max(1));
                     handle_wheel_page_scroll(ev, total, current_slide, presentation_last_wheel_time);
@@ -402,7 +412,22 @@ pub fn DocumentEditorIsland(
                 >
                     <span class="svg-page-nav-arrow">"‹"</span>
                 </button>
-                <div style="position:absolute; top:1.5rem; right:2rem; display:flex; align-items:center; gap:0.5rem; z-index:30;">
+                <div class="presentation-hud-top">
+                    <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        title=if zh { "配置并分享演示文稿链接" } else { "Share presentation & get public link" }
+                        style="text-decoration:none; display:inline-flex; align-items:center; gap:0.3rem;"
+                        on:click={
+                            let fp = file_path_pres.clone();
+                            move |_| {
+                                exit_fullscreen_if_active(is_fullscreen);
+                                dispatch_share_event(&fp, "present");
+                            }
+                        }
+                    >
+                        {if zh { "🔗 分享" } else { "🔗 Share" }}
+                    </button>
                     <a
                         href=play_browser_href
                         target="_blank"
@@ -421,14 +446,19 @@ pub fn DocumentEditorIsland(
                     >
                         {move || if is_fullscreen.get() { if zh { "⤢ 退出全屏" } else { "⤢ Exit full screen" } } else { if zh { "⛶ 全屏播放" } else { "⛶ Full screen" } }}
                     </button>
-                    <button type="button" on:click=move |_| { exit_fullscreen_if_active(is_fullscreen); presenting.set(false); } style="background:none; border:none; color:#fff; font-size:1.75rem; cursor:pointer; line-height:1;" title=if zh { "关闭演示" } else { "Close presentation" }>"×"</button>
+                    <button
+                        type="button"
+                        class="presentation-close-btn"
+                        on:click=move |_| { exit_fullscreen_if_active(is_fullscreen); presenting.set(false); }
+                        title=if zh { "关闭演示" } else { "Close presentation" }
+                    >
+                        "✕"
+                    </button>
                 </div>
-                <div style="background:#ffffff; width:90%; max-width:1100px; aspect-ratio:16/9; border-radius:16px; padding:2.5rem; display:flex; flex-direction:column; justify-content:center; overflow:hidden; box-shadow:0 25px 60px -15px rgba(0,0,0,0.5);">
-                    <div
-                        style="width:100%; height:100%; display:flex; justify-content:center; align-items:center;"
-                        inner_html=move || pages.with(|p| p.get(current_slide.get().saturating_sub(1)).cloned().unwrap_or_default())
-                    ></div>
-                </div>
+                <div
+                    class="presentation-slide-canvas"
+                    inner_html=move || pages.with(|p| p.get(current_slide.get().saturating_sub(1)).cloned().unwrap_or_default())
+                ></div>
                 <button
                     type="button"
                     class="svg-page-nav-edge svg-page-nav-next presentation-nav-edge"
@@ -445,7 +475,7 @@ pub fn DocumentEditorIsland(
                 >
                     <span class="svg-page-nav-arrow">"›"</span>
                 </button>
-                <div style="display:flex; gap:1rem; align-items:center; margin-top:1.5rem; color:#94a3b8; font-size:0.9rem; z-index:30;">
+                <div class="presentation-hud-bottom">
                     <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| current_slide.update(|s| if *s > 1 { *s = s.saturating_sub(1); })>{if zh { "← 上一页" } else { "← Prev" }}</button>
                     <span>{move || if zh { format!("第 {} / {} 页", current_slide.get(), pages.with(|p| p.len().max(1))) } else { format!("Slide {} of {}", current_slide.get(), pages.with(|p| p.len().max(1))) }}</span>
                     <button type="button" class="btn btn-secondary btn-sm" on:click=move |_| { let n = pages.with(|p| p.len().max(1)); current_slide.update(|s| if *s < n { *s = s.saturating_add(1); }) }>{if zh { "下一页 →" } else { "Next →" }}</button>
@@ -536,6 +566,29 @@ fn exit_fullscreen_if_active(is_fullscreen: RwSignal<bool>) {
 }
 #[cfg(not(feature = "hydrate"))]
 const fn exit_fullscreen_if_active(_is_fullscreen: RwSignal<bool>) {}
+
+/// Dispatches the custom event to open the per-file share modal for the presentation slide.
+#[cfg(feature = "hydrate")]
+fn dispatch_share_event(path: &str, target: &str) {
+    if let Some(win) = web_sys::window() {
+        let detail_str = serde_json::json!({
+            "path": path,
+            "target": target,
+            "mode": "private",
+            "role": "read",
+            "users": "",
+        }).to_string();
+        if let Ok(js_detail) = js_sys::JSON::parse(&detail_str) {
+            let init = web_sys::CustomEventInit::new();
+            init.set_detail(&js_detail);
+            if let Ok(ev) = web_sys::CustomEvent::new_with_event_init_dict("apich-open-share-modal", &init) {
+                let _ = win.dispatch_event(&ev);
+            }
+        }
+    }
+}
+#[cfg(not(feature = "hydrate"))]
+const fn dispatch_share_event(_path: &str, _target: &str) {}
 
 /// Keeps the button's label honest when fullscreen is left by a route this component didn't
 /// drive -- pressing Esc, or the browser's own exit affordance -- which fires
