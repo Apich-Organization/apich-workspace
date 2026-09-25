@@ -3441,17 +3441,51 @@ async fn check_file_access(
     file_path: &str,
     token_param: Option<&str>,
 ) -> bool {
-    // 1. If project-level access passes for logged-in user
-    if let Some(auth_user) = auth {
-        if IdentityPermissionResolver::can_access_project(state.db.pool(), auth_user.0.id, project.id)
-            .await
-            .unwrap_or(false)
-        {
-            return true;
+    let Some(auth_user) = auth else {
+        return false;
+    };
+
+    // 1. If project-level access passes for logged-in user (owner, team member, org member)
+    if IdentityPermissionResolver::can_access_project(state.db.pool(), auth_user.0.id, project.id)
+        .await
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    // 2. Check file-level share configuration first
+    if let Ok(Some(share_info)) = state.project_manager.get_file_share(project.id, file_path).await {
+        match share_info.mode.as_str() {
+            // "private": Strictly limited to project members.
+            // If the user reached here, they are not a project member.
+            "private" => {
+                return false;
+            }
+            // "specific": Only designated users can access. User MUST be logged in.
+            "specific" => {
+                if share_info.allowed_users.iter().any(|u| u == &auth_user.0.username) {
+                    return true;
+                }
+                return false;
+            }
+            // "public": Anyone with the valid token or public access can view.
+            "public" => {
+                if !share_info.token.is_empty() {
+                    if let Some(tok) = token_param {
+                        if !tok.trim().is_empty() && tok.trim() == share_info.token.trim() {
+                            return true;
+                        }
+                    }
+                }
+                return true;
+            }
+            _ => {
+                return false;
+            }
         }
     }
 
-    // 2. If project itself is public
+    // 3. If file has no explicit share configuration, fallback to project-level visibility
     let is_project_public = project
         .settings
         .get("share_mode")
@@ -3459,25 +3493,6 @@ async fn check_file_access(
         .is_some_and(|m| m == "public");
     if is_project_public {
         return true;
-    }
-
-    // 3. Check file-level share configuration
-    if let Ok(Some(share_info)) = state.project_manager.get_file_share(project.id, file_path).await {
-        if share_info.mode == "public" {
-            return true;
-        }
-        if let Some(tok) = token_param {
-            if !tok.trim().is_empty() && tok.trim() == share_info.token.trim() {
-                return true;
-            }
-        }
-        if let Some(auth_user) = auth {
-            if share_info.mode == "specific"
-                && share_info.allowed_users.iter().any(|u| u == &auth_user.0.username)
-            {
-                return true;
-            }
-        }
     }
 
     false
@@ -3492,6 +3507,20 @@ async fn typst_pdf_action(
     Query(query): Query<EditorQuery>,
     State(state): State<AppState>,
 ) -> Response {
+    let file_param = query.file.as_deref().unwrap_or("");
+    let target = if file_param.is_empty() {
+        format!("/projects/{id_or_slug}/editor/typst-pdf")
+    } else {
+        format!(
+            "/projects/{id_or_slug}/editor/typst-pdf?file={}",
+            urlencoding::encode(file_param)
+        )
+    };
+
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, &target);
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
@@ -3500,7 +3529,7 @@ async fn typst_pdf_action(
     };
 
     let token = extract_token_from_request(&headers, query.token.as_deref());
-    let can_access = check_file_access(&state, auth.as_ref(), &project, &file, token.as_deref()).await;
+    let can_access = check_file_access(&state, Some(&AuthUser(user)), &project, &file, token.as_deref()).await;
     if !can_access {
         return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
     }
@@ -4006,6 +4035,8 @@ pub struct SlidePresentationQuery {
 /// so that relative paths in the Leptos CSR bundle (`./bootstrap.js`, `./style.css`, `deck.json`)
 /// resolve correctly within the presentation namespace.
 async fn slide_presentation_redirect_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
     Path(id_or_slug): Path<String>,
     Query(query): Query<SlidePresentationQuery>,
 ) -> Response {
@@ -4022,6 +4053,9 @@ async fn slide_presentation_redirect_action(
         format!("?{}", params.join("&"))
     };
     let target = format!("/projects/{id_or_slug}/presentation/{query_str}");
+    if auth.is_none() {
+        return redirect_to_login(&headers, &target);
+    }
     axum::response::Redirect::to(&target).into_response()
 }
 
@@ -4033,16 +4067,25 @@ async fn slide_presentation_page_action(
     Query(query): Query<SlidePresentationQuery>,
     State(state): State<AppState>,
 ) -> Response {
+    let file_param = query.file.clone().unwrap_or_else(|| "slides.typ".to_string());
+    let target = format!(
+        "/projects/{id_or_slug}/presentation/?file={}",
+        urlencoding::encode(&file_param)
+    );
+
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, &target);
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
 
-    let file_param = query.file.unwrap_or_else(|| "slides.typ".to_string());
     let token_param = extract_token_from_request(&headers, query.token.as_deref());
 
     let can_access = check_file_access(
         &state,
-        auth.as_ref(),
+        Some(&AuthUser(user.clone())),
         &project,
         &file_param,
         token_param.as_deref(),
@@ -4051,7 +4094,7 @@ async fn slide_presentation_page_action(
     if !can_access {
         return (
             StatusCode::FORBIDDEN,
-            Html("<html><body style=\"background:#0f172a;color:#fff;font-family:system-ui;padding:3rem;text-align:center;\"><h2>🔒 Private Presentation</h2><p>This presentation is private. Please sign in or use a valid share link.</p><a href=\"/login\" style=\"color:#635bff;\">Sign In to APICH</a></body></html>"),
+            Html("<html><body style=\"background:#0f172a;color:#fff;font-family:system-ui;padding:3rem;text-align:center;\"><h2>🔒 Private Presentation</h2><p>This presentation is private or you do not have permission to view it.</p><a href=\"/\" style=\"color:#635bff;\">Back to Projects</a></body></html>"),
         ).into_response();
     }
 
@@ -4097,15 +4140,11 @@ async fn slide_presentation_page_action(
         }
     }
 
-    let user_name = auth
-        .as_ref()
-        .map(|a| {
-            if a.0.display_name.trim().is_empty() {
-                a.0.username.clone()
-            } else {
-                a.0.display_name.clone()
-            }
-        });
+    let user_name = if user.display_name.trim().is_empty() {
+        user.username.clone()
+    } else {
+        user.display_name.clone()
+    };
     let is_zh = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|l| l.to_str().ok())
@@ -4124,22 +4163,7 @@ async fn slide_presentation_page_action(
             }).unwrap_or(30);
             (Some(format!("/s/{}", active.token)), active.allow_comments, days)
         } else {
-            let dto = apich_db::CreateSharedLinkDto {
-                token: None,
-                project_id: project.id,
-                file_path: file_param.clone(),
-                target_type: "slide".to_string(),
-                created_by_user_id: auth.as_ref().map(|a| a.0.id),
-                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(30)),
-                allow_comments: true,
-            };
-            let link = state
-                .db
-                .repository()
-                .create_shared_link(dto)
-                .await
-                .ok();
-            (link.as_ref().map(|l| format!("/s/{}", l.token)), true, 30)
+            (None, true, 30)
         }
     } else {
         (None, true, 30)
@@ -4149,7 +4173,7 @@ async fn slide_presentation_page_action(
         &project.id.to_string(),
         &file_param,
         token_param.as_deref(),
-        user_name.as_deref().unwrap_or("Reviewer"),
+        &user_name,
         true, // is_slide
         true, // show_fab
         opaque_share_url.as_deref(),
@@ -4208,6 +4232,14 @@ async fn slide_presentation_deck_json_action(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,
@@ -4256,7 +4288,7 @@ async fn slide_presentation_deck_json_action(
     let token = extract_token_from_request(&headers, query.token.as_deref());
     let can_access = check_file_access(
         &state,
-        auth.as_ref(),
+        Some(&AuthUser(user.clone())),
         &project,
         &file_to_build,
         token.as_deref(),
@@ -4270,7 +4302,7 @@ async fn slide_presentation_deck_json_action(
             .into_response();
     }
 
-    let effective_user_id = auth.as_ref().map(|a| a.0.id).unwrap_or(project.owner_id);
+    let effective_user_id = user.id;
     match state
         .project_manager
         .get_slide_deck_json(project.id, effective_user_id, &file_to_build)
@@ -4333,6 +4365,10 @@ async fn slide_presentation_project_asset_action(
     Path((id_or_slug, asset_path)): Path<(String, String)>,
     State(state): State<AppState>,
 ) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, "Project not found").into_response();
     };
@@ -4357,7 +4393,7 @@ async fn slide_presentation_project_asset_action(
     let token = extract_token_from_request(&headers, None);
     let can_access = check_file_access(
         &state,
-        auth.as_ref(),
+        Some(&AuthUser(user)),
         &project,
         &cookie_file,
         token.as_deref(),
@@ -4428,6 +4464,8 @@ pub struct CreateFileCommentPayload {
 
 /// Redirects `/projects/:id/pdf-view` to `/projects/:id/pdf-view/`
 async fn pdf_viewer_redirect_action(
+    auth: Option<AuthUser>,
+    headers: HeaderMap,
     Path(id_or_slug): Path<String>,
     Query(query): Query<PdfViewerQuery>,
 ) -> Response {
@@ -4444,6 +4482,9 @@ async fn pdf_viewer_redirect_action(
         format!("?{}", params.join("&"))
     };
     let target = format!("/projects/{id_or_slug}/pdf-view/{query_str}");
+    if auth.is_none() {
+        return redirect_to_login(&headers, &target);
+    }
     axum::response::Redirect::to(&target).into_response()
 }
 
@@ -4455,6 +4496,20 @@ async fn pdf_viewer_page_action(
     Query(query): Query<PdfViewerQuery>,
     State(state): State<AppState>,
 ) -> Response {
+    let file_param = query.file.as_deref().unwrap_or("");
+    let target = if file_param.is_empty() {
+        format!("/projects/{id_or_slug}/pdf-view/")
+    } else {
+        format!(
+            "/projects/{id_or_slug}/pdf-view/?file={}",
+            urlencoding::encode(file_param)
+        )
+    };
+
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, &target);
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
@@ -4464,25 +4519,20 @@ async fn pdf_viewer_page_action(
     };
 
     let token = extract_token_from_request(&headers, query.token.as_deref());
-    let can_access = check_file_access(&state, auth.as_ref(), &project, file, token.as_deref()).await;
+    let can_access = check_file_access(&state, Some(&AuthUser(user.clone())), &project, file, token.as_deref()).await;
     if !can_access {
         return (
             StatusCode::FORBIDDEN,
-            Html("<html><body style=\"background:#0f172a;color:#fff;font-family:system-ui;padding:3rem;text-align:center;\"><h2>🔒 Private Document</h2><p>This document is private. Please sign in or use a valid share link.</p><a href=\"/login\" style=\"color:#635bff;\">Sign In to APICH</a></body></html>"),
+            Html("<html><body style=\"background:#0f172a;color:#fff;font-family:system-ui;padding:3rem;text-align:center;\"><h2>🔒 Private Document</h2><p>This document is private or you do not have permission to view it.</p><a href=\"/\" style=\"color:#635bff;\">Back to Projects</a></body></html>"),
         ).into_response();
     }
 
-    let is_authenticated = auth.is_some();
-    let user_name = auth
-        .as_ref()
-        .map(|a| {
-            if a.0.display_name.trim().is_empty() {
-                a.0.username.clone()
-            } else {
-                a.0.display_name.clone()
-            }
-        })
-        .unwrap_or_default();
+    let is_authenticated = true;
+    let user_name = if user.display_name.trim().is_empty() {
+        user.username.clone()
+    } else {
+        user.display_name.clone()
+    };
     let is_zh = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|l| l.to_str().ok())
@@ -4501,22 +4551,7 @@ async fn pdf_viewer_page_action(
             }).unwrap_or(30);
             (Some(format!("/s/{}", active.token)), active.allow_comments, days)
         } else {
-            let dto = apich_db::CreateSharedLinkDto {
-                token: None,
-                project_id: project.id,
-                file_path: file.to_string(),
-                target_type: "pdf".to_string(),
-                created_by_user_id: auth.as_ref().map(|a| a.0.id),
-                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(30)),
-                allow_comments: true,
-            };
-            let link = state
-                .db
-                .repository()
-                .create_shared_link(dto)
-                .await
-                .ok();
-            (link.as_ref().map(|l| format!("/s/{}", l.token)), true, 30)
+            (None, true, 30)
         }
     } else {
         (None, true, 30)
@@ -4538,7 +4573,26 @@ async fn pdf_viewer_page_action(
 
     let mut resp_headers = HeaderMap::new();
     resp_headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
-    if let Some(ref tok) = token {
+    if let Ok(Some(share_info)) = state.project_manager.get_file_share(project.id, file).await {
+        if share_info.mode == "private" {
+            let clear_cookie = format!(
+                "apich_file_token=; Path=/projects/{}/; Max-Age=0; SameSite=Lax",
+                id_or_slug
+            );
+            if let Ok(val) = clear_cookie.parse() {
+                resp_headers.append(header::SET_COOKIE, val);
+            }
+        } else if let Some(ref tok) = token {
+            let cookie_tok = format!(
+                "apich_file_token={}; Path=/projects/{}/; SameSite=Lax",
+                urlencoding::encode(tok),
+                id_or_slug
+            );
+            if let Ok(val) = cookie_tok.parse() {
+                resp_headers.append(header::SET_COOKIE, val);
+            }
+        }
+    } else if let Some(ref tok) = token {
         let cookie_tok = format!(
             "apich_file_token={}; Path=/projects/{}/; SameSite=Lax",
             urlencoding::encode(tok),
@@ -4657,6 +4711,20 @@ async fn pdf_raw_action(
     Query(query): Query<PdfViewerQuery>,
     State(state): State<AppState>,
 ) -> Response {
+    let file_param = query.file.as_deref().unwrap_or("");
+    let target = if file_param.is_empty() {
+        format!("/projects/{id_or_slug}/pdf-raw")
+    } else {
+        format!(
+            "/projects/{id_or_slug}/pdf-raw?file={}",
+            urlencoding::encode(file_param)
+        )
+    };
+
+    let Some(AuthUser(user)) = auth else {
+        return redirect_to_login(&headers, &target);
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (StatusCode::NOT_FOUND, Html("Project not found")).into_response();
     };
@@ -4666,14 +4734,69 @@ async fn pdf_raw_action(
     };
 
     let token = extract_token_from_request(&headers, query.token.as_deref());
-    let can_access = check_file_access(&state, auth.as_ref(), &project, file, token.as_deref()).await;
+    let can_access = check_file_access(&state, Some(&AuthUser(user.clone())), &project, file, token.as_deref()).await;
     if !can_access {
         return (StatusCode::FORBIDDEN, Html("Forbidden")).into_response();
     }
 
     let is_download = query.download.as_deref() == Some("1");
-    let user_id = auth.as_ref().map(|a| a.0.id).unwrap_or(project.owner_id);
-    serve_pdf_bytes_for_file(&state, &project, file, user_id, is_download).await
+    serve_pdf_bytes_for_file(&state, &project, file, user.id, is_download).await
+}
+
+/// Helper to obtain an active shared link for a file, updating its expiration and comments options
+/// if one already exists, rather than spawning duplicate active tokens.
+async fn get_or_create_active_shared_link(
+    state: &AppState,
+    project_id: Uuid,
+    file_path: &str,
+    target_type: &str,
+    user_id: Uuid,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    allow_comments: bool,
+) -> Result<apich_db::SharedLink, String> {
+    let repo = state.db.repository();
+    let existing_active = if let Ok(links) = repo.list_shared_links(project_id, Some(file_path)).await {
+        links.into_iter().find(|l| l.is_active() && l.target_type == target_type)
+    } else {
+        None
+    };
+
+    if let Some(existing) = existing_active {
+        // Update expiration and allow_comments on existing active link
+        if let Ok(updated) = sqlx::query_as::<_, apich_db::SharedLink>(
+            r#"
+            UPDATE shared_links
+            SET expires_at = $1, allow_comments = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE token = $3
+            RETURNING *
+            "#,
+        )
+        .bind(expires_at)
+        .bind(allow_comments)
+        .bind(&existing.token)
+        .fetch_one(state.db.pool())
+        .await
+        {
+            return Ok(updated);
+        }
+        return Ok(existing);
+    }
+
+    let dto = apich_db::CreateSharedLinkDto {
+        token: None,
+        project_id,
+        file_path: file_path.to_string(),
+        target_type: target_type.to_string(),
+        created_by_user_id: Some(user_id),
+        expires_at,
+        allow_comments,
+    };
+    state
+        .db
+        .repository()
+        .create_shared_link(dto)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Send file share link via email.
@@ -4775,38 +4898,32 @@ async fn share_file_email_action(
 
     let is_slide = payload.file.ends_with(".typ") || payload.file.ends_with(".md");
     let slide_link = if is_slide {
-        state
-            .db
-            .repository()
-            .create_shared_link(CreateSharedLinkDto {
-                token: None,
-                project_id: project.id,
-                file_path: payload.file.clone(),
-                target_type: "slide".to_string(),
-                created_by_user_id: Some(user.id),
-                expires_at,
-                allow_comments,
-            })
-            .await
-            .ok()
+        get_or_create_active_shared_link(
+            &state,
+            project.id,
+            &payload.file,
+            "slide",
+            user.id,
+            expires_at,
+            allow_comments,
+        )
+        .await
+        .ok()
     } else {
         None
     };
 
-    let pdf_link = state
-        .db
-        .repository()
-        .create_shared_link(CreateSharedLinkDto {
-            token: None,
-            project_id: project.id,
-            file_path: payload.file.clone(),
-            target_type: "pdf".to_string(),
-            created_by_user_id: Some(user.id),
-            expires_at,
-            allow_comments,
-        })
-        .await
-        .ok();
+    let pdf_link = get_or_create_active_shared_link(
+        &state,
+        project.id,
+        &payload.file,
+        "pdf",
+        user.id,
+        expires_at,
+        allow_comments,
+    )
+    .await
+    .ok();
 
     let slide_url = slide_link.map(|l| format!("{base_url}/s/{}", l.token));
     let pdf_url = pdf_link
@@ -4880,6 +4997,14 @@ async fn get_file_comments_action(
     Path(id_or_slug): Path<String>,
     Query(query): Query<FileCommentQuery>,
 ) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,
@@ -4890,7 +5015,7 @@ async fn get_file_comments_action(
 
     let token = extract_token_from_request(&headers, query.token.as_deref());
     let can_access =
-        check_file_access(&state, auth.as_ref(), &project, &query.file, token.as_deref()).await;
+        check_file_access(&state, Some(&AuthUser(user.clone())), &project, &query.file, token.as_deref()).await;
     if !can_access {
         return (
             StatusCode::FORBIDDEN,
@@ -4905,12 +5030,12 @@ async fn get_file_comments_action(
         .list_file_comments(project.id, &query.file)
         .await
         .unwrap_or_default();
-    let current_user_id = auth.as_ref().map(|a| a.0.id);
+    let current_user_id = Some(user.id);
 
     let items: Vec<serde_json::Value> = comments
         .into_iter()
         .map(|c| {
-            let is_author = current_user_id.is_some() && current_user_id == c.user_id;
+            let is_author = current_user_id == c.user_id;
             json!({
                 "id": c.id.to_string(),
                 "author_name": c.author_name,
@@ -4933,6 +5058,14 @@ async fn post_file_comment_action(
     Path(id_or_slug): Path<String>,
     body: axum::body::Bytes,
 ) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,
@@ -4955,7 +5088,7 @@ async fn post_file_comment_action(
     let token = extract_token_from_request(&headers, payload.token.as_deref());
     let can_access = check_file_access(
         &state,
-        auth.as_ref(),
+        Some(&AuthUser(user.clone())),
         &project,
         &payload.file,
         token.as_deref(),
@@ -4978,19 +5111,10 @@ async fn post_file_comment_action(
             .into_response();
     }
 
-    let author_name = if let Some(ref a) = auth {
-        if a.0.display_name.trim().is_empty() {
-            a.0.username.clone()
-        } else {
-            a.0.display_name.clone()
-        }
+    let author_name = if user.display_name.trim().is_empty() {
+        user.username.clone()
     } else {
-        payload
-            .author_name
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .to_string()
+        user.display_name.clone()
     };
 
     let final_author = if author_name.is_empty() {
@@ -4999,7 +5123,7 @@ async fn post_file_comment_action(
         author_name
     };
 
-    let user_id = auth.as_ref().map(|a| a.0.id);
+    let user_id = Some(user.id);
 
     match state
         .db
@@ -5042,6 +5166,14 @@ async fn delete_file_comment_action(
     Path((id_or_slug, comment_id_str)): Path<(String, String)>,
     Query(query): Query<FileCommentQuery>,
 ) -> Response {
+    let Some(AuthUser(user)) = auth else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unauthorized"})),
+        )
+            .into_response();
+    };
+
     let Some(project) = resolve_project(&state, &id_or_slug).await else {
         return (
             StatusCode::NOT_FOUND,
@@ -5052,7 +5184,7 @@ async fn delete_file_comment_action(
 
     let token = extract_token_from_request(&headers, query.token.as_deref());
     let can_access =
-        check_file_access(&state, auth.as_ref(), &project, &query.file, token.as_deref()).await;
+        check_file_access(&state, Some(&AuthUser(user)), &project, &query.file, token.as_deref()).await;
     if !can_access {
         return (
             StatusCode::FORBIDDEN,
@@ -5152,6 +5284,12 @@ async fn shared_link_dispatcher_action(
         return shared_link_expired_page(is_zh);
     }
 
+    if let Ok(Some(share_info)) = state.project_manager.get_file_share(link.project_id, &link.file_path).await {
+        if share_info.mode == "private" {
+            return shared_link_expired_page(is_zh);
+        }
+    }
+
     let _ = state
         .db
         .repository()
@@ -5192,19 +5330,6 @@ async fn shared_link_dispatcher_action(
         .unwrap_or(30);
 
     if link.target_type == "slide" {
-        let comments_html = crate::ui::comments_ui::render_comments_drawer_component(
-            &project.id.to_string(),
-            &link.file_path,
-            Some(&token),
-            "Guest",
-            true, // is_slide
-            true, // show_fab
-            Some(&share_full_url),
-            is_zh,
-            link.allow_comments,
-            expiry_days,
-        );
-        let final_html = SLIDE_INDEX_HTML.replace("</body>", &format!("{comments_html}</body>"));
         let mut resp_headers = HeaderMap::new();
         resp_headers.insert(header::CONTENT_TYPE, "text/html; charset=utf-8".parse().unwrap());
         let cookie_val = format!(
@@ -5215,7 +5340,7 @@ async fn shared_link_dispatcher_action(
         if let Ok(c) = cookie_val.parse() {
             resp_headers.append(header::SET_COOKIE, c);
         }
-        (resp_headers, Html(final_html)).into_response()
+        (resp_headers, Html(SLIDE_INDEX_HTML)).into_response()
     } else {
         let raw_pdf_url = format!("/s/{token}/pdf-raw");
         let html = crate::ui::comments_ui::render_pdf_viewer_page(
@@ -5260,6 +5385,15 @@ async fn shared_link_deck_json_action(
             Json(json!({"error": "Link expired or revoked"})),
         )
             .into_response();
+    }
+    if let Ok(Some(share_info)) = state.project_manager.get_file_share(link.project_id, &link.file_path).await {
+        if share_info.mode == "private" {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"error": "Forbidden: file is private"})),
+            )
+                .into_response();
+        }
     }
     let Some(project) = state
         .db
@@ -5316,6 +5450,11 @@ async fn shared_link_pdf_raw_action(
     };
     if !link.is_active() {
         return (StatusCode::GONE, Html("Link expired or revoked")).into_response();
+    }
+    if let Ok(Some(share_info)) = state.project_manager.get_file_share(link.project_id, &link.file_path).await {
+        if share_info.mode == "private" {
+            return (StatusCode::FORBIDDEN, Html("Forbidden: file is private")).into_response();
+        }
     }
     let Some(project) = state
         .db
@@ -5810,17 +5949,19 @@ async fn create_shared_link_action(
         }
     });
 
-    let dto = CreateSharedLinkDto {
-        token: None,
-        project_id: project.id,
-        file_path: req.file_path,
-        target_type,
-        created_by_user_id: Some(user.id),
-        expires_at,
-        allow_comments: req.allow_comments.unwrap_or(true),
-    };
+    let allow_comments = req.allow_comments.unwrap_or(true);
 
-    match state.db.repository().create_shared_link(dto).await {
+    match get_or_create_active_shared_link(
+        &state,
+        project.id,
+        &req.file_path,
+        &target_type,
+        user.id,
+        expires_at,
+        allow_comments,
+    )
+    .await
+    {
         Ok(link) => {
             let origin = state.base_url.clone();
             let share_url = format!("{}/s/{}", origin, link.token);
@@ -5837,7 +5978,7 @@ async fn create_shared_link_action(
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
+            Json(json!({"error": e})),
         )
             .into_response(),
     }

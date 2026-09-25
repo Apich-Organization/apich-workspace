@@ -290,7 +290,7 @@ pub fn DocumentEditorPage(
                         "📎 " {i18n.attach()}
                     </button>
                     <a href=format!("/projects/{}?tab=vcs&file={}", project_id, urlencoding::encode(&file_path)) class="btn btn-secondary btn-sm" title=if i18n.is_zh() { "查看版本控制时间线和文件历史" } else { "View version control timeline and file history" }>"🌿 " {i18n.history()}</a>
-                    <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick title=share_label>"🔗 " {i18n.share()}</button>
                     <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 " {i18n.ai_copilot()}</label>
                     <apich_islands::SearchReplaceModalIsland
                         project_id=project_id.to_string()

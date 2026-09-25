@@ -2537,15 +2537,15 @@ impl I18n {
 
     pub const fn folders_view(&self) -> &'static str {
         match self.lang {
-            | Lang::En => "📂 Folders",
-            | Lang::Zh => "📂 文件夹模式",
+            | Lang::En => "Folders",
+            | Lang::Zh => "文件夹模式",
         }
     }
 
     pub const fn all_files_view(&self) -> &'static str {
         match self.lang {
-            | Lang::En => "☰ All files",
-            | Lang::Zh => "☰ 所有文件",
+            | Lang::En => "All files",
+            | Lang::Zh => "所有文件",
         }
     }
 

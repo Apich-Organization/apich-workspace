@@ -556,7 +556,7 @@ pub fn render_comments_drawer_component(
             id="apich-share-comments-toggle"
             {comments_checked_attr}
             style="width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer;"
-            onchange="window.apichUpdateShareOptions(false)"
+            onchange="window.apichToggleCommentsBadge(this.checked)"
           />
           <span style="font-size: 13px; font-weight: 500; color: #e2e8f0;">{share_comments_label}</span>
         </label>
@@ -575,7 +575,6 @@ pub fn render_comments_drawer_component(
           id="apich-share-expiry-select"
           class="apich-form-input"
           style="width: auto; padding: 4px 10px; font-size: 12.5px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f8fafc; cursor: pointer;"
-          onchange="window.apichUpdateShareOptions(false)"
         >
           <option value="1" {sel_1}>{opt_1_day}</option>
           <option value="7" {sel_7}>{opt_7_days}</option>
@@ -585,6 +584,20 @@ pub fn render_comments_drawer_component(
           <option value="0" {sel_0}>{opt_never}</option>
         </select>
       </div>
+
+      <!-- Action Button: Explicitly generate / update share link -->
+      <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+        <button
+          type="button"
+          id="apich-share-generate-btn"
+          class="apich-btn-submit"
+          onclick="window.apichGenerateShareLink()"
+          style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 6px 14px;"
+        >
+          <span>⚡</span>
+          <span id="apich-share-generate-btn-text">{generate_link_btn_label}</span>
+        </button>
+      </div>
     </div>
 
     <div style="display: flex; gap: 8px; margin-bottom: 6px;">
@@ -593,6 +606,7 @@ pub fn render_comments_drawer_component(
         id="apich-share-link-input"
         class="apich-form-input"
         readonly
+        placeholder="{share_link_placeholder}"
         style="flex: 1; font-family: monospace; font-size: 12.5px; background: #0f172a;"
         onclick="this.select()"
       />
@@ -678,20 +692,10 @@ pub fn render_comments_drawer_component(
 
   let activeOpaqueUrl = configuredShareUrl ? (configuredShareUrl.startsWith("http") ? configuredShareUrl : window.location.origin + configuredShareUrl) : "";
 
-  window.apichUpdateShareOptions = async function(silent) {{
-    const commentsToggle = document.getElementById("apich-share-comments-toggle");
+  window.apichToggleCommentsBadge = function(checked) {{
     const commentsBadge = document.getElementById("apich-share-comments-badge");
-    const expirySelect = document.getElementById("apich-share-expiry-select");
-    const statusEl = document.getElementById("apich-share-options-status");
-    const linkInput = document.getElementById("apich-share-link-input");
-
-    if (!commentsToggle || !expirySelect) return activeOpaqueUrl;
-
-    const allowComments = commentsToggle.checked;
-    const expiryDays = parseInt(expirySelect.value, 10);
-
     if (commentsBadge) {{
-      if (allowComments) {{
+      if (checked) {{
         commentsBadge.textContent = isZh ? "评论已开启" : "Comments Enabled";
         commentsBadge.style.background = "rgba(16, 185, 129, 0.15)";
         commentsBadge.style.color = "#34d399";
@@ -701,6 +705,17 @@ pub fn render_comments_drawer_component(
         commentsBadge.style.color = "#f87171";
       }}
     }}
+  }};
+
+  window.apichGenerateShareLink = async function() {{
+    const commentsToggle = document.getElementById("apich-share-comments-toggle");
+    const expirySelect = document.getElementById("apich-share-expiry-select");
+    const statusEl = document.getElementById("apich-share-options-status");
+    const linkInput = document.getElementById("apich-share-link-input");
+    const btn = document.getElementById("apich-share-generate-btn");
+    const btnText = document.getElementById("apich-share-generate-btn-text");
+
+    if (!commentsToggle || !expirySelect) return activeOpaqueUrl;
 
     if (isGuestShare) {{
       if (statusEl) {{
@@ -710,8 +725,13 @@ pub fn render_comments_drawer_component(
       return activeOpaqueUrl;
     }}
 
-    if (statusEl && !silent) {{
-      statusEl.textContent = isZh ? "⏳ 正在更新安全分享链接..." : "⏳ Updating secure share link...";
+    const allowComments = commentsToggle.checked;
+    const expiryDays = parseInt(expirySelect.value, 10);
+
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.textContent = isZh ? "生成中..." : "Generating...";
+    if (statusEl) {{
+      statusEl.textContent = isZh ? "⏳ 正在生成/更新安全分享链接..." : "⏳ Generating secure share link...";
       statusEl.style.color = "#818cf8";
     }}
 
@@ -730,21 +750,21 @@ pub fn render_comments_drawer_component(
 
       if (resp.ok) {{
         const data = await resp.json();
-        const shareUrl = data.share_url || (data.link && data.link.token ? `/s/${{data.link.token}}` : "");
+        const shareUrl = data.share_url || (data.shared_link && data.shared_link.url) || "";
         if (shareUrl) {{
           activeOpaqueUrl = shareUrl.startsWith("http") ? shareUrl : `${{window.location.origin}}${{shareUrl}}`;
           if (linkInput) linkInput.value = activeOpaqueUrl;
-          if (statusEl && !silent) {{
-            statusEl.textContent = isZh ? "✓ 分享链接已根据设置更新就绪" : "✓ Share link updated with selected options";
+          if (statusEl) {{
+            statusEl.textContent = isZh ? "✓ 分享链接已生成就绪，可直接复制或发送" : "✓ Share link generated and ready to copy or send";
             statusEl.style.color = "#34d399";
-            setTimeout(() => {{ if (statusEl && statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }}, 3000);
+            setTimeout(() => {{ if (statusEl && statusEl.textContent.startsWith("✓")) statusEl.textContent = ""; }}, 4000);
           }}
           return activeOpaqueUrl;
         }}
       }} else {{
         const err = await resp.json().catch(() => ({{}}));
         if (statusEl) {{
-          statusEl.textContent = err.error || (isZh ? "更新链接失败，请重试" : "Failed to update link");
+          statusEl.textContent = err.error || (isZh ? "生成链接失败，请重试" : "Failed to generate link");
           statusEl.style.color = "#f87171";
         }}
       }}
@@ -754,9 +774,14 @@ pub fn render_comments_drawer_component(
         statusEl.textContent = String(e);
         statusEl.style.color = "#f87171";
       }}
+    }} finally {{
+      if (btn) btn.disabled = false;
+      if (btnText) btnText.textContent = isZh ? "生成分享链接" : "Generate Share Link";
     }}
     return activeOpaqueUrl;
   }};
+
+  window.apichUpdateShareOptions = window.apichGenerateShareLink;
 
   async function ensureOpaqueShareUrl() {{
     if (activeOpaqueUrl) return activeOpaqueUrl;
@@ -767,7 +792,7 @@ pub fn render_comments_drawer_component(
         return activeOpaqueUrl;
       }}
     }}
-    return await window.apichUpdateShareOptions(true);
+    return await window.apichGenerateShareLink();
   }}
 
   window.apichToggleComments = function() {{
@@ -815,10 +840,7 @@ pub fn render_comments_drawer_component(
         if (activeOpaqueUrl) {{
           input.value = activeOpaqueUrl;
         }} else {{
-          input.value = isZh ? "正在生成安全临时分享链接..." : "Generating secure share link...";
-          window.apichUpdateShareOptions(false).then(url => {{
-            if (input && url) input.value = url;
-          }});
+          input.value = "";
         }}
       }}
     }}
@@ -852,7 +874,7 @@ pub fn render_comments_drawer_component(
     }}
   }};
 
-  window.apichCopyShareModalLink = function() {{
+  window.apichCopyShareModalLink = async function() {{
     const input = document.getElementById("apich-share-link-input");
     const btn = document.getElementById("apich-share-copy-btn");
     if (!input) return;
@@ -863,13 +885,12 @@ pub fn render_comments_drawer_component(
         setTimeout(() => {{ btn.textContent = orig; }}, 2500);
       }});
     }};
-    if (input.value && !input.value.startsWith("正在") && !input.value.startsWith("Generating")) {{
+    if (input.value && input.value.startsWith("http")) {{
       copyVal(input.value);
     }} else {{
-      window.apichUpdateShareOptions(false).then(url => {{
-        if (input && url) input.value = url;
-        if (url) copyVal(url);
-      }});
+      const url = await window.apichGenerateShareLink();
+      if (input && url) input.value = url;
+      if (url && url.startsWith("http")) copyVal(url);
     }}
   }};
 
@@ -1193,6 +1214,8 @@ pub fn render_comments_drawer_component(
             "Comments are disabled for this shared link by the owner"
         },
         copy_btn_label = if is_zh { "复制链接" } else { "Copy Link" },
+        generate_link_btn_label = if is_zh { "生成分享链接" } else { "Generate Share Link" },
+        share_link_placeholder = if is_zh { "请选择有效期限后点击“生成分享链接”" } else { "Select expiration and click 'Generate Share Link'" },
         share_token_tip = if is_zh {
             "安全保障：链接通过受控临时令牌访问，不会暴露项目内部真实路径，您可随时在项目分享管理中撤销。"
         } else {
@@ -1224,18 +1247,22 @@ pub fn render_pdf_viewer_page(
     let esc_project_name = html_escape(project_name);
     let esc_file_path = html_escape(file_path);
 
-    let comments_component = render_comments_drawer_component(
-        project_id,
-        file_path,
-        token,
-        current_user_name,
-        false, // PDF document mode
-        false, // Nav button triggers it
-        custom_share_url,
-        is_zh,
-        allow_comments,
-        expiry_days,
-    );
+    let comments_component = if is_authenticated {
+        render_comments_drawer_component(
+            project_id,
+            file_path,
+            token,
+            current_user_name,
+            false, // PDF document mode
+            false, // Nav button triggers it
+            custom_share_url,
+            is_zh,
+            allow_comments,
+            expiry_days,
+        )
+    } else {
+        String::new()
+    };
 
     let raw_pdf_url = if let Some(custom) = custom_raw_pdf_url {
         custom.to_string()
@@ -1277,6 +1304,26 @@ pub fn render_pdf_viewer_page(
     let share_label = if is_zh { "分享" } else { "Share" };
     let download_label = if is_zh { "下载 PDF" } else { "Download PDF" };
     let comments_label = if is_zh { "评论" } else { "Comments" };
+
+    let (share_btn_html, comments_btn_html) = if is_authenticated {
+        (
+            format!(
+                r#"<button type="button" class="apich-nav-btn" onclick="window.apichToggleShareModal()">
+        <span>🔗</span>
+        <span>{share_label}</span>
+      </button>"#
+            ),
+            format!(
+                r#"<button type="button" class="apich-nav-btn primary" onclick="window.apichToggleComments()">
+        <span>💬</span>
+        <span>{comments_label}</span>
+        <span id="apich-viewer-comments-count" class="apich-nav-badge">0</span>
+      </button>"#
+            ),
+        )
+    } else {
+        (String::new(), String::new())
+    };
 
     format!(
         r##"<!DOCTYPE html>
@@ -1418,21 +1465,14 @@ pub fn render_pdf_viewer_page(
     </div>
 
     <div class="apich-nav-right">
-      <button type="button" class="apich-nav-btn" onclick="window.apichToggleShareModal()">
-        <span>🔗</span>
-        <span>{share_label}</span>
-      </button>
+      {share_btn_html}
 
       <a href="{download_url}" class="apich-nav-btn" download style="text-decoration:none;">
         <span>⬇️</span>
         <span>{download_label}</span>
       </a>
 
-      <button type="button" class="apich-nav-btn primary" onclick="window.apichToggleComments()">
-        <span>💬</span>
-        <span>{comments_label}</span>
-        <span id="apich-viewer-comments-count" class="apich-nav-badge">0</span>
-      </button>
+      {comments_btn_html}
     </div>
   </header>
 

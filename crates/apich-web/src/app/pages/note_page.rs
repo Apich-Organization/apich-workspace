@@ -162,7 +162,7 @@ pub fn NotePage(
             >
                 "📎 " {i18n.attach()}
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick>{format!("🔗 {share_label}")}</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick=share_onclick title=share_label>"🔗 " {i18n.share()}</button>
             <label for="ai-drawer-toggle-cb" class="btn btn-secondary btn-sm">"🤖 " {i18n.ai_copilot()}</label>
             <a href=format!("/projects/{}?tab=vcs", project_id) class="btn btn-secondary btn-sm">"🌿 " {i18n.history()}</a>
             {if project.settings.get("is_single_file").and_then(|v| v.as_bool()).unwrap_or(false) {
