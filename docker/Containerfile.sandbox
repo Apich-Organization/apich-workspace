@@ -112,7 +112,22 @@ RUN set -eux; \
     curl -fsSL -o /tmp/llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-${ARCH}.tar.xz"; \
     tar xf /tmp/llvm-mingw.tar.xz -C /opt; \
     mv /opt/llvm-mingw-* /opt/llvm-mingw; \
-    rm /tmp/llvm-mingw.tar.xz
+    rm /tmp/llvm-mingw.tar.xz; \
+    CLANG_VER="$(ls /opt/llvm-mingw/lib/clang | head -n 1)"; \
+    BUILTINS_X86_64="/opt/llvm-mingw/lib/clang/${CLANG_VER}/lib/windows/libclang_rt.builtins-x86_64.a"; \
+    if [ -f "$BUILTINS_X86_64" ]; then \
+        ln -sf "$BUILTINS_X86_64" /opt/llvm-mingw/x86_64-w64-mingw32/lib/libgcc.a; \
+    fi; \
+    if [ -f /opt/llvm-mingw/x86_64-w64-mingw32/lib/libunwind.a ]; then \
+        ln -sf /opt/llvm-mingw/x86_64-w64-mingw32/lib/libunwind.a /opt/llvm-mingw/x86_64-w64-mingw32/lib/libgcc_eh.a; \
+    fi; \
+    BUILTINS_AARCH64="/opt/llvm-mingw/lib/clang/${CLANG_VER}/lib/windows/libclang_rt.builtins-aarch64.a"; \
+    if [ -f "$BUILTINS_AARCH64" ]; then \
+        ln -sf "$BUILTINS_AARCH64" /opt/llvm-mingw/aarch64-w64-mingw32/lib/libgcc.a; \
+    fi; \
+    if [ -f /opt/llvm-mingw/aarch64-w64-mingw32/lib/libunwind.a ]; then \
+        ln -sf /opt/llvm-mingw/aarch64-w64-mingw32/lib/libunwind.a /opt/llvm-mingw/aarch64-w64-mingw32/lib/libgcc_eh.a; \
+    fi
 ENV PATH=/opt/llvm-mingw/bin:$PATH
 
 RUN mkdir -p /usr/local/cargo && { \
@@ -135,6 +150,9 @@ RUN mkdir -p /usr/local/cargo && { \
     } > /usr/local/cargo/config.toml
 
 ENV PKG_CONFIG_ALLOW_CROSS=1 \
+    PKG_CONFIG_ALLOW_CROSS_x86_64_pc_windows_gnu=0 \
+    PKG_CONFIG_ALLOW_CROSS_aarch64_pc_windows_gnullvm=0 \
+    LIBLZMA_NO_PKG_CONFIG=1 \
     PKG_CONFIG_PATH_x86_64_unknown_linux_musl=/opt/alsa-musl-x86_64/lib/pkgconfig \
     PKG_CONFIG_PATH_aarch64_unknown_linux_musl=/opt/alsa-musl-aarch64/lib/pkgconfig \
     PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
@@ -209,7 +227,7 @@ RUN npm install -g opencode-ai || echo "apich-agent-install-failed: opencode"
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_TOOL_DIR=/opt/uv-tools \
     UV_TOOL_BIN_DIR=/usr/local/bin
-RUN curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh \
+RUN curl -LsSf --retry 5 --retry-delay 3 --retry-all-errors https://astral.sh/uv/install.sh -o /tmp/uv-install.sh \
     && UV_INSTALL_DIR=/usr/local/bin sh /tmp/uv-install.sh \
     && rm /tmp/uv-install.sh \
     && uv python install 3.12 \
@@ -217,12 +235,30 @@ RUN curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh \
     && chmod -R a+rX /opt/uv-python /opt/uv-tools \
     || echo "apich-agent-install-failed: aider"
 
-RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash \
+RUN curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash \
     && mv /root/.local/bin/goose /usr/local/bin/goose \
     || echo "apich-agent-install-failed: goose"
 
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
-    && (command -v agy || mv "$HOME/.local/bin/agy" /usr/local/bin/agy) \
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then \
+        AGY_PLATFORM="linux_amd64"; \
+        FALLBACK_URL="https://storage.googleapis.com/antigravity-public/antigravity-cli/1.2.11-6016716732497920/linux-x64/cli_linux_x64.tar.gz"; \
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+        AGY_PLATFORM="linux_arm64"; \
+        FALLBACK_URL="https://storage.googleapis.com/antigravity-public/antigravity-cli/1.2.11-6016716732497920/linux-arm/cli_linux_arm64.tar.gz"; \
+    fi; \
+    MANIFEST_URL="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/${AGY_PLATFORM}.json"; \
+    AGY_URL="$(curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors "$MANIFEST_URL" 2>/dev/null | grep -o 'https://[^"]*tar\.gz' || true)"; \
+    if [ -z "$AGY_URL" ]; then \
+        AGY_URL="$FALLBACK_URL"; \
+    fi; \
+    curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors "$AGY_URL" -o /tmp/agy.tar.gz \
+    && tar -xzf /tmp/agy.tar.gz -C /usr/local/bin antigravity \
+    && mv /usr/local/bin/antigravity /usr/local/bin/agy \
+    && chmod +x /usr/local/bin/agy \
+    && ln -sf /usr/local/bin/agy /usr/local/bin/antigravity \
+    && rm -f /tmp/agy.tar.gz \
     || echo "apich-agent-install-failed: agy"
 
 RUN printf '#!/bin/sh\nexit 0\n' > /usr/bin/xdg-open && chmod +x /usr/bin/xdg-open
