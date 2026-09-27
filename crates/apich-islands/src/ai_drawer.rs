@@ -90,7 +90,12 @@ pub fn AiDrawerIsland(
     let login_code_visible = RwSignal::new(false);
     let login_code = RwSignal::new(String::new());
 
-    wire_load_saved_key(api_key);
+    let chat_body_ref = NodeRef::<leptos::html::Div>::new();
+    let agent_output_ref = NodeRef::<leptos::html::Pre>::new();
+
+    wire_load_saved_settings(provider, api_key);
+    wire_auto_scroll(chat_body_ref, messages);
+    wire_agent_auto_scroll(agent_output_ref, agent_output);
 
     let selected_login_support = move || {
         let sel = selected_agent.get();
@@ -161,15 +166,21 @@ pub fn AiDrawerIsland(
             agent_busy.set(true);
             agent_output.set(format!("Running {agent}..."));
             let key = agent_api_key.get_untracked();
+            let effective_key = if !key.trim().is_empty() {
+                Some(key)
+            } else {
+                let chat_k = api_key.get_untracked();
+                if !chat_k.trim().is_empty() {
+                    Some(chat_k)
+                } else {
+                    None
+                }
+            };
             run_agent_request(
                 project_id.clone(),
                 agent,
                 text,
-                if key.trim().is_empty() {
-                    None
-                } else {
-                    Some(key)
-                },
+                effective_key,
                 agent_output,
                 agent_busy,
             );
@@ -240,35 +251,69 @@ pub fn AiDrawerIsland(
                 <label for="ai-drawer-toggle-cb" class="btn btn-ghost btn-sm" style="font-size:1.25rem; line-height:1;">"×"</label>
             </div>
 
-            <div style="padding:0.5rem 1.25rem 0; display:flex; gap:0.4rem; border-bottom:1px solid var(--border-subtle);">
+            <div style="padding:0.5rem 1.25rem 0; display:flex; gap:0.4rem; border-bottom:1px solid var(--border-subtle); flex-shrink:0;">
                 <button type="button" class="btn btn-sm" class:btn-primary=move || mode.get() == "chat" class:btn-secondary=move || mode.get() != "chat" style="font-size:0.75rem;" on:click={let f = on_tab_click.clone(); move |_| f("chat")}>{if zh { "💬 对话" } else { "💬 Chat" }}</button>
                 <button type="button" class="btn btn-sm" class:btn-primary=move || mode.get() == "agent" class:btn-secondary=move || mode.get() != "agent" style="font-size:0.75rem;" on:click={let f = on_tab_click.clone(); move |_| f("agent")}>{if zh { "🧑‍💻 运行智能体" } else { "🧑‍💻 Run Agent" }}</button>
             </div>
 
-            <div style:display=move || if mode.get() == "chat" { "block" } else { "none" }>
-                <div style="background:var(--bg-muted); padding:0.6rem 1.25rem; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.4rem; font-size:0.75rem;">
+            <div class="ai-drawer-tab-pane" class:active=move || mode.get() == "chat">
+                <div style="background:var(--bg-muted); padding:0.6rem 1.25rem; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.4rem; font-size:0.75rem; flex-shrink:0;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <span style="font-weight:600; color:var(--text-sub);">{if zh { "模型服务商：" } else { "Provider:" }}</span>
-                        <select class="form-control" style="width:auto; height:26px; padding:0 6px; font-size:0.75rem;" prop:value=move || provider.get() on:change=move |ev| provider.set(event_target_value(&ev))>
-                            <option value="builtin">{if zh { "内置服务" } else { "Built-in" }}</option>
+                        <select
+                            class="form-control"
+                            style="width:auto; height:26px; padding:0 6px; font-size:0.75rem;"
+                            prop:value=move || provider.get()
+                            on:change=move |ev| {
+                                let v = event_target_value(&ev);
+                                provider.set(v.clone());
+                                save_provider_to_storage(&v);
+                            }
+                        >
+                            <option value="builtin">{if zh { "内置服务 (免密)" } else { "Built-in (No key needed)" }}</option>
                             <option value="gemini">"Google Gemini (API key)"</option>
                             <option value="openai">"OpenAI (API key)"</option>
                             <option value="ollama">"Ollama (local)"</option>
                         </select>
                     </div>
-                    <div style:display=move || if provider.get() == "gemini" || provider.get() == "openai" { "block" } else { "none" }>
+
+                    <div
+                        class="ai-drawer-key-field"
+                        class:active=move || provider.get() == "gemini" || provider.get() == "openai"
+                    >
+                        <div style="font-size:0.7rem; font-weight:600; color:var(--text-sub);">
+                            "🔑 " {if zh { "API 密钥（已保存在本地浏览器）：" } else { "API Key (saved in browser):" }}
+                        </div>
                         <input
                             type="password"
-                            placeholder=if zh { "粘贴你的 API 密钥（保存在本地存储）" } else { "Paste your API key (stored in local storage)" }
+                            placeholder=if zh { "粘贴你的 API 密钥..." } else { "Paste your API key..." }
                             class="form-control"
                             style="font-size:0.75rem; height:28px;"
                             prop:value=move || api_key.get()
-                            on:change=move |ev| { let v = event_target_value(&ev); api_key.set(v.clone()); save_key_to_storage(&v); }
+                            on:input=move |ev| {
+                                let v = event_target_value(&ev);
+                                api_key.set(v.clone());
+                                save_key_to_storage(&v);
+                            }
                         />
+                    </div>
+
+                    <div
+                        class="ai-drawer-hint"
+                        class:active=move || provider.get() == "builtin"
+                    >
+                        {if zh { "💡 内置服务使用系统预置配额。如需使用自己的 API 密钥，请在上方选择 Gemini 或 OpenAI。" } else { "💡 Built-in uses server-configured quota. Select Gemini or OpenAI above to enter your personal API key." }}
+                    </div>
+
+                    <div
+                        class="ai-drawer-hint"
+                        class:active=move || provider.get() == "ollama"
+                    >
+                        {if zh { "💡 本地 Ollama 需确保本地正在运行 ollama 并在默认端口提供服务。" } else { "💡 Local Ollama requires a local Ollama server running on default port." }}
                     </div>
                 </div>
 
-                <div class="ai-drawer-body">
+                <div node_ref=chat_body_ref class="ai-drawer-body">
                     {move || messages.get().into_iter().map(|m| {
                         let code = m.suggested_code.clone();
                         let insert = insert_at_cursor;
@@ -276,7 +321,7 @@ pub fn AiDrawerIsland(
                         view! {
                             <div class="ai-msg" class:ai-msg-user=m.is_user class:ai-msg-assistant=!m.is_user>
                                 {m.provider_label.map(|p| view! { <div style="font-size:0.7rem; color:var(--text-sub); margin-bottom:4px;">{p}</div> })}
-                                <div style="white-space:pre-wrap;">{m.text}</div>
+                                <div style="white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere;">{m.text}</div>
                                 {code.map(|c| {
                                     let c1 = c.clone();
                                     let c2 = c;
@@ -292,7 +337,7 @@ pub fn AiDrawerIsland(
                     }).collect::<Vec<_>>()}
                 </div>
 
-                <div style="padding:0.5rem 1.25rem; background:var(--bg-surface); border-top:1px solid var(--border-subtle); display:flex; flex-wrap:wrap; gap:0.35rem;">
+                <div style="padding:0.5rem 1.25rem; background:var(--bg-surface); border-top:1px solid var(--border-subtle); display:flex; flex-wrap:wrap; gap:0.35rem; flex-shrink:0;">
                     <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set(if zh { "在此文档中添加公式".to_string() } else { "Add a formula in this document format".to_string() })>"🔬 " {if zh { "公式" } else { "Formula" }}</button>
                     <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set(if zh { "编写 Python 脚本分析并绘制数据".to_string() } else { "Write a python script to analyze and plot this data".to_string() })>"🐍 " {if zh { "Python 绘图" } else { "Python plot" }}</button>
                     <button type="button" class="btn btn-secondary btn-sm" style="font-size:0.7rem; padding:2px 7px;" on:click=move |_| prompt.set(if zh { "为此文件建议后续任务".to_string() } else { "Suggest next tasks for this file".to_string() })>"📋 " {if zh { "建议任务" } else { "Suggest tasks" }}</button>
@@ -304,17 +349,26 @@ pub fn AiDrawerIsland(
                             rows="2"
                             class="form-control"
                             style="font-size:0.85rem; resize:none;"
-                            placeholder=if zh { "向 APICH 助手提问..." } else { "Ask APICH Copilot..." }
+                            placeholder=if zh { "向 APICH 助手提问... (按 Ctrl+Enter 发送)" } else { "Ask APICH Copilot... (Ctrl+Enter to send)" }
                             prop:value=move || prompt.get()
                             on:input=move |ev| prompt.set(event_target_value(&ev))
+                            on:keydown={
+                                let send = send_chat.clone();
+                                move |ev| {
+                                    if ev.key() == "Enter" && (ev.ctrl_key() || ev.meta_key()) {
+                                        ev.prevent_default();
+                                        send();
+                                    }
+                                }
+                            }
                         ></textarea>
                         <button type="submit" class="btn btn-primary" style="padding:0 1rem;" disabled=move || chat_busy.get()>{if zh { "发送" } else { "Send" }}</button>
                     </form>
                 </div>
             </div>
 
-            <div style:display=move || if mode.get() == "agent" { "flex" } else { "none" } style="flex-direction:column; flex:1; min-height:0;">
-                <div style="background:var(--bg-muted); padding:0.6rem 1.25rem; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.4rem; font-size:0.75rem;">
+            <div class="ai-drawer-tab-pane" class:active=move || mode.get() == "agent">
+                <div style="background:var(--bg-muted); padding:0.6rem 1.25rem; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:0.4rem; font-size:0.75rem; flex-shrink:0;">
                     <div style="font-size:0.7rem; color:var(--text-sub);">
                         {if zh {
                             "运行具有完整项目文件读写权限的真实 CLI 智能体 —— 而非简单的对话调用。"
@@ -339,27 +393,48 @@ pub fn AiDrawerIsland(
                         </select>
                         <button
                             type="button"
-                            class="btn btn-secondary btn-sm"
-                            style:display=move || if selected_login_support() == "none" { "none" } else { "" }
-                            style="font-size:0.7rem; white-space:nowrap;"
+                            class="btn btn-secondary btn-sm ai-drawer-login-btn"
+                            class:hidden=move || selected_login_support() == "none"
                             on:click=move |_| start_login()
                         >
                             "🔐 " {if zh { "登录" } else { "Login" }}
                         </button>
                     </div>
-                    <input
-                        type="password"
-                        placeholder=if zh { "或粘贴 API 密钥（仅用于本次运行，服务端不保存）" } else { "Or paste an API key (sent only for this run, never stored server-side)" }
-                        class="form-control"
-                        style="font-size:0.75rem; height:28px;"
-                        prop:value=move || agent_api_key.get()
-                        on:input=move |ev| agent_api_key.set(event_target_value(&ev))
-                    />
-                    <div style:display=move || if login_visible.get() { "block" } else { "none" } style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:6px; padding:0.5rem;">
+                    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.7rem; color:var(--text-sub);">
+                            <span>"🔑 " {if zh { "API 密钥（留空则自动复用对话密钥）：" } else { "API Key (blank to reuse Chat key):" }}</span>
+                            {move || {
+                                let has_chat_key = !api_key.get().trim().is_empty();
+                                has_chat_key.then(|| view! {
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-sm"
+                                        style="padding:0 4px; font-size:0.68rem; color:var(--primary); height:18px; line-height:1;"
+                                        on:click=move |_| agent_api_key.set(api_key.get())
+                                    >
+                                        "⚡ " {if zh { "填入对话密钥" } else { "Use Chat Key" }}
+                                    </button>
+                                })
+                            }}
+                        </div>
+                        <input
+                            type="password"
+                            placeholder=move || if !api_key.get().trim().is_empty() {
+                                if zh { "已绑定对话密钥（直接留空即可复用，或粘贴新密钥覆盖）" } else { "Chat key available (leave blank to reuse, or paste to override)" }
+                            } else {
+                                if zh { "粘贴 API 密钥（仅用于本次运行，服务端不保存）" } else { "Paste API key (used for this run, never stored server-side)" }
+                            }
+                            class="form-control"
+                            style="font-size:0.75rem; height:28px;"
+                            prop:value=move || agent_api_key.get()
+                            on:input=move |ev| agent_api_key.set(event_target_value(&ev))
+                        />
+                    </div>
+                    <div class="ai-drawer-login-box" class:active=move || login_visible.get()>
                         <div style="font-size:0.7rem; font-weight:600; color:var(--text-sub); margin-bottom:0.3rem;">{if zh { "账号登录" } else { "Account login" }}</div>
                         <div
-                            style:display=move || if login_visible.get() && selected_agent.get() == "agy" { "block" } else { "none" }
-                            style="font-size:0.7rem; color:var(--text-sub); background:var(--bg-muted); border-radius:4px; padding:0.4rem 0.5rem; margin-bottom:0.4rem; line-height:1.4;"
+                            class="ai-drawer-agy-notice"
+                            class:active=move || login_visible.get() && selected_agent.get() == "agy"
                         >
                             {if zh {
                                 "⏱️ 登录链接将在约一分钟后过期 —— 请在下方出现链接后尽快在浏览器中打开、登录并复制验证码粘贴回此处。如果超时，请重新点击“登录”。"
@@ -368,7 +443,7 @@ pub fn AiDrawerIsland(
                             }}
                         </div>
                         <pre style="margin:0; font-size:0.7rem; white-space:pre-wrap; max-height:140px; overflow-y:auto;" inner_html=move || login_output.get()></pre>
-                        <div style:display=move || if login_code_visible.get() { "flex" } else { "none" } style="gap:0.4rem; margin-top:0.4rem;">
+                        <div class="ai-drawer-login-code-row" class:active=move || login_code_visible.get()>
                             <input
                                 type="text"
                                 placeholder=if zh { "粘贴来自浏览器的验证码" } else { "Paste the code from your browser" }
@@ -381,16 +456,25 @@ pub fn AiDrawerIsland(
                         </div>
                     </div>
                 </div>
-                <pre class="agent-output" style="flex:1; margin:0; padding:0.75rem 1.25rem; overflow-y:auto; font-size:0.8rem; white-space:pre-wrap; background:var(--bg-surface); color:var(--text-main);">{move || agent_output.get()}</pre>
+                <pre node_ref=agent_output_ref class="agent-output" style="flex:1; min-height:0; margin:0; padding:0.75rem 1.25rem; overflow-y:auto; font-size:0.8rem; white-space:pre-wrap; word-break:break-word; background:var(--bg-surface); color:var(--text-main);">{move || agent_output.get()}</pre>
                 <div class="ai-drawer-footer">
                     <form on:submit=move |ev| { ev.prevent_default(); run_agent(); } style="display:flex; gap:0.5rem;">
                         <textarea
                             rows="2"
                             class="form-control"
                             style="font-size:0.85rem; resize:none;"
-                            placeholder=if zh { "例如：总结 results.csv 中的数据并建议绘制图表" } else { "e.g. Summarize the data in results.csv and suggest a plot" }
+                            placeholder=if zh { "例如：总结 results.csv 中的数据并建议绘制图表 (Ctrl+Enter 运行)" } else { "e.g. Summarize data and suggest plot (Ctrl+Enter to run)" }
                             prop:value=move || agent_prompt.get()
                             on:input=move |ev| agent_prompt.set(event_target_value(&ev))
+                            on:keydown={
+                                let run = run_agent.clone();
+                                move |ev| {
+                                    if ev.key() == "Enter" && (ev.ctrl_key() || ev.meta_key()) {
+                                        ev.prevent_default();
+                                        run();
+                                    }
+                                }
+                            }
                         ></textarea>
                         <button type="submit" class="btn btn-primary" style="padding:0 1rem;" disabled=move || agent_busy.get()>{if zh { "运行" } else { "Run" }}</button>
                     </form>
@@ -401,15 +485,71 @@ pub fn AiDrawerIsland(
 }
 
 #[cfg(feature = "hydrate")]
-fn wire_load_saved_key(api_key: RwSignal<String>) {
-    if let Some(Ok(Some(storage))) = web_sys::window().map(|w| w.local_storage()) {
-        if let Ok(Some(saved)) = storage.get_item("apich_ai_key") {
-            api_key.set(saved);
+fn wire_load_saved_settings(provider: RwSignal<String>, api_key: RwSignal<String>) {
+    Effect::new(move |_| {
+        if let Some(Ok(Some(storage))) = web_sys::window().map(|w| w.local_storage()) {
+            if let Ok(Some(saved_key)) = storage.get_item("apich_ai_key") {
+                if !saved_key.is_empty() {
+                    api_key.set(saved_key);
+                }
+            }
+            if let Ok(Some(saved_prov)) = storage.get_item("apich_ai_provider") {
+                if !saved_prov.is_empty() {
+                    provider.set(saved_prov);
+                }
+            } else if !api_key.get_untracked().is_empty() {
+                provider.set("gemini".to_string());
+            }
         }
+    });
+}
+#[cfg(not(feature = "hydrate"))]
+const fn wire_load_saved_settings(_provider: RwSignal<String>, _api_key: RwSignal<String>) {}
+
+#[cfg(feature = "hydrate")]
+fn save_provider_to_storage(val: &str) {
+    if let Some(Ok(Some(storage))) = web_sys::window().map(|w| w.local_storage()) {
+        let _ = storage.set_item("apich_ai_provider", val);
     }
 }
 #[cfg(not(feature = "hydrate"))]
-const fn wire_load_saved_key(_api_key: RwSignal<String>) {}
+const fn save_provider_to_storage(_val: &str) {}
+
+#[cfg(feature = "hydrate")]
+fn wire_auto_scroll(body_ref: NodeRef<leptos::html::Div>, messages: RwSignal<Vec<ChatMessage>>) {
+    Effect::new(move |_| {
+        messages.track();
+        if let Some(el) = body_ref.get() {
+            wasm_bindgen_futures::spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(50).await;
+                el.set_scroll_top(el.scroll_height());
+            });
+        }
+    });
+}
+#[cfg(not(feature = "hydrate"))]
+const fn wire_auto_scroll(
+    _body_ref: NodeRef<leptos::html::Div>,
+    _messages: RwSignal<Vec<ChatMessage>>,
+) {}
+
+#[cfg(feature = "hydrate")]
+fn wire_agent_auto_scroll(output_ref: NodeRef<leptos::html::Pre>, output: RwSignal<String>) {
+    Effect::new(move |_| {
+        output.track();
+        if let Some(el) = output_ref.get() {
+            wasm_bindgen_futures::spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(50).await;
+                el.set_scroll_top(el.scroll_height());
+            });
+        }
+    });
+}
+#[cfg(not(feature = "hydrate"))]
+const fn wire_agent_auto_scroll(
+    _output_ref: NodeRef<leptos::html::Pre>,
+    _output: RwSignal<String>,
+) {}
 
 #[cfg(feature = "hydrate")]
 fn save_key_to_storage(val: &str) {

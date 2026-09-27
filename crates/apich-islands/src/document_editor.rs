@@ -496,6 +496,45 @@ pub fn DocumentEditorIsland(
             <div class="code-panel">
                 <form node_ref=form_ref id="editor-form" method="post" action=format!("/projects/{}/editor/save", project_id) style="display:flex; flex-direction:column; height:100%;">
                     <input type="hidden" name="file" value=file_path />
+                    {is_slide.then(|| view! {
+                        <div style="padding:0.35rem 0.85rem; background:var(--bg-muted); border-bottom:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.75rem;">
+                            <div style="display:flex; align-items:center; gap:0.4rem;">
+                                <span style="font-weight:600; color:var(--text-sub); display:inline-flex; align-items:center; gap:0.25rem;">
+                                    <span>"🎬"</span>
+                                    <span>{if zh { "转场动效：" } else { "Transition:" }}</span>
+                                </span>
+                                <select
+                                    id="slide-transition-select"
+                                    class="form-control"
+                                    style="width:auto; height:24px; padding:0 6px; font-size:0.75rem; background:var(--bg-surface); cursor:pointer;"
+                                    on:change=move |ev| {
+                                        let val = event_target_value(&ev);
+                                        if !val.is_empty() {
+                                            insert_transition_to_editor(code_ref, &val);
+                                        }
+                                    }
+                                >
+                                    <option value="">{if zh { "-- 选择过渡模式插入/替换 --" } else { "-- Choose transition to insert --" }}</option>
+                                    <option value="fade">{if zh { "淡入淡出 (fade)" } else { "Cross Fade (fade)" }}</option>
+                                    <option value="slide-left">{if zh { "向左滑入 (slide-left)" } else { "Slide Left (slide-left)" }}</option>
+                                    <option value="slide-right">{if zh { "向右滑入 (slide-right)" } else { "Slide Right (slide-right)" }}</option>
+                                    <option value="slide-up">{if zh { "向上滑入 (slide-up)" } else { "Slide Up (slide-up)" }}</option>
+                                    <option value="slide-down">{if zh { "向下滑入 (slide-down)" } else { "Slide Down (slide-down)" }}</option>
+                                    <option value="zoom">{if zh { "缩放切换 (zoom)" } else { "Zoom Wipe (zoom)" }}</option>
+                                    <option value="wipe-left">{if zh { "左侧擦除 (wipe-left)" } else { "Wipe Left (wipe-left)" }}</option>
+                                    <option value="wipe-right">{if zh { "右侧擦除 (wipe-right)" } else { "Wipe Right (wipe-right)" }}</option>
+                                    <option value="iris">{if zh { "光圈缩放 (iris)" } else { "Iris Wipe (iris)" }}</option>
+                                    <option value="glitch">{if zh { "故障艺术 (glitch)" } else { "Cyber Glitch (glitch)" }}</option>
+                                    <option value="cube">{if zh { "3D 立方体 (cube)" } else { "3D Cube (cube)" }}</option>
+                                    <option value="dissolve">{if zh { "粒子溶解 (dissolve)" } else { "Particle Dissolve (dissolve)" }}</option>
+                                    <option value="instant">{if zh { "直接切换 (instant)" } else { "Instant Cut (instant)" }}</option>
+                                </select>
+                            </div>
+                            <span style="font-size:0.7rem; color:var(--text-sub);">
+                                {if zh { "选择后自动插入或替换当前页面的 transition 属性" } else { "Auto-inserts or updates slide transition" }}
+                            </span>
+                        </div>
+                    })}
                     <div class="code-editor-wrap" data-lang=prism_lang>
                         <pre class="code-highlight-overlay" aria-hidden="true"><code></code></pre>
                         <textarea node_ref=code_ref id="code-editor-input" name="content" class="code-textarea" spellcheck="false" wrap="off" on:input=on_code_input>{content}</textarea>
@@ -1528,4 +1567,82 @@ fn debounced_markdown_preview(
     _markdown_html: RwSignal<String>,
     _headings: RwSignal<Vec<HeadingItem>>,
 ) {
+}
+
+#[cfg(feature = "hydrate")]
+fn insert_transition_to_editor(code_ref: NodeRef<leptos::html::Textarea>, mode: &str) {
+    use wasm_bindgen::JsCast;
+    let Some(el) = code_ref.get() else { return };
+    let Ok(ta) = el.dyn_into::<web_sys::HtmlTextAreaElement>() else { return };
+    let start = ta.selection_start().ok().flatten().unwrap_or(0) as usize;
+    let end = ta.selection_end().ok().flatten().unwrap_or(0) as usize;
+    let val = ta.value();
+    let (new_val, new_pos) = replace_or_insert_transition(&val, start, end, mode);
+    ta.set_value(&new_val);
+    let _ = ta.focus();
+    let _ = ta.set_selection_range(new_pos as u32, new_pos as u32);
+    if let Ok(event) = web_sys::Event::new("input") {
+        let _ = ta.dispatch_event(&event);
+    }
+    if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+        if let Some(sel) = doc.get_element_by_id("slide-transition-select") {
+            if let Ok(sel_el) = sel.dyn_into::<web_sys::HtmlSelectElement>() {
+                sel_el.set_value("");
+            }
+        }
+    }
+}
+#[cfg(not(feature = "hydrate"))]
+const fn insert_transition_to_editor(_code_ref: NodeRef<leptos::html::Textarea>, _mode: &str) {}
+
+fn replace_or_insert_transition(val: &str, start: usize, end: usize, mode: &str) -> (String, usize) {
+    let chars: Vec<char> = val.chars().collect();
+    let start = start.min(chars.len());
+    let end = end.min(chars.len());
+    let mut line_start = start;
+    while line_start > 0 && chars[line_start - 1] != '\n' {
+        line_start -= 1;
+    }
+    let mut line_end = end;
+    while line_end < chars.len() && chars[line_end] != '\n' {
+        line_end += 1;
+    }
+    let line: String = chars[line_start..line_end].iter().collect();
+    if let Some(pos) = line.find("transition:") {
+        let rest = &line[pos + "transition:".len()..];
+        if let Some(quote_pos) = rest.find('"') {
+            let val_start = pos + "transition:".len() + quote_pos + 1;
+            if let Some(end_quote) = rest[quote_pos + 1..].find('"') {
+                let val_end = val_start + end_quote;
+                let mut new_line = String::new();
+                new_line.push_str(&line[..val_start]);
+                new_line.push_str(mode);
+                new_line.push_str(&line[val_end..]);
+                let mut result = chars[..line_start].iter().collect::<String>();
+                result.push_str(&new_line);
+                result.extend(chars[line_end..].iter());
+                let new_cursor = line_start + val_start + mode.chars().count() + 1;
+                return (result, new_cursor);
+            }
+        }
+    }
+    if let Some(pos) = line.find("slide(") {
+        let insert_idx = pos + "slide(".len();
+        let snippet = format!("transition: \"{}\", ", mode);
+        let mut new_line = String::new();
+        new_line.push_str(&line[..insert_idx]);
+        new_line.push_str(&snippet);
+        new_line.push_str(&line[insert_idx..]);
+        let mut result = chars[..line_start].iter().collect::<String>();
+        result.push_str(&new_line);
+        result.extend(chars[line_end..].iter());
+        let new_cursor = line_start + insert_idx + snippet.chars().count();
+        return (result, new_cursor);
+    }
+    let snippet = format!("transition: \"{}\"", mode);
+    let mut result = chars[..start].iter().collect::<String>();
+    result.push_str(&snippet);
+    result.extend(chars[end..].iter());
+    let new_cursor = start + snippet.chars().count();
+    (result, new_cursor)
 }

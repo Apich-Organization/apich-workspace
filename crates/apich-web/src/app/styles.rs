@@ -97,6 +97,15 @@ pub const EMBEDDED_CSS: &str = r#"
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+::selection {
+    background: rgba(180, 213, 254, 0.75);
+    color: inherit;
+}
+[data-theme="dark"] ::selection,
+html.dark ::selection {
+    background: rgba(59, 130, 246, 0.4);
+    color: inherit;
+}
 
 /* Every `#[island]` component's real output is wrapped in a `<leptos-island data-component="...">`
    custom element in the actual DOM (not just in the server-rendered HTML -- this persists after
@@ -2103,6 +2112,10 @@ select::-ms-expand {
     background: #ffffff;
     resize: none;
 }
+.code-textarea::selection {
+    background: rgba(147, 197, 253, 0.7);
+    color: inherit;
+}
 
 /* Syntax-highlighted code editor: a `.code-editor-wrap` holds two exactly-overlapping layers --
    the real `<textarea>` on top with its own glyphs made invisible (only its caret shows), and a
@@ -2144,17 +2157,29 @@ select::-ms-expand {
     inset: 0;
     background: transparent;
     color: transparent;
-    caret-color: #0f172a;
+    caret-color: var(--primary);
     -webkit-text-fill-color: transparent;
     z-index: 2;
 }
 .code-editor-wrap .code-textarea::selection {
-    background: rgba(254, 240, 138, 0.7);
+    background: rgba(180, 213, 254, 0.55);
     color: transparent;
     -webkit-text-fill-color: transparent;
 }
 .code-editor-wrap .code-textarea:focus::selection {
-    background: rgba(250, 204, 21, 0.85);
+    background: rgba(147, 197, 253, 0.7);
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+}
+[data-theme="dark"] .code-editor-wrap .code-textarea::selection,
+html.dark .code-editor-wrap .code-textarea::selection {
+    background: rgba(59, 130, 246, 0.35);
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+}
+[data-theme="dark"] .code-editor-wrap .code-textarea:focus::selection,
+html.dark .code-editor-wrap .code-textarea:focus::selection {
+    background: rgba(59, 130, 246, 0.45);
     color: transparent;
     -webkit-text-fill-color: transparent;
 }
@@ -2806,12 +2831,14 @@ select::-ms-expand {
     z-index: 1001;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     transition: right 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .ai-drawer-toggle-cb:checked ~ .ai-drawer-panel {
     right: 0;
 }
 .ai-drawer-header {
+    flex-shrink: 0;
     padding: 1rem 1.25rem;
     border-bottom: 1px solid var(--border-subtle);
     display: flex;
@@ -2821,22 +2848,93 @@ select::-ms-expand {
 }
 .ai-drawer-body {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    overscroll-behavior: contain;
 }
 .ai-drawer-footer {
+    flex-shrink: 0;
     padding: 1rem 1.25rem;
     border-top: 1px solid var(--border-subtle);
     background: var(--bg-subtle);
+}
+.ai-drawer-tab-pane {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+.ai-drawer-tab-pane.active {
+    display: flex;
+}
+.ai-drawer-key-field {
+    display: none;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.ai-drawer-key-field.active {
+    display: flex;
+}
+.ai-drawer-hint {
+    display: none;
+    font-size: 0.7rem;
+    color: var(--text-light);
+    line-height: 1.4;
+}
+.ai-drawer-hint.active {
+    display: block;
+}
+.ai-drawer-login-btn {
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+.ai-drawer-login-btn.hidden {
+    display: none;
+}
+.ai-drawer-login-box {
+    display: none;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+.ai-drawer-login-box.active {
+    display: block;
+}
+.ai-drawer-agy-notice {
+    display: none;
+    font-size: 0.7rem;
+    color: var(--text-sub);
+    background: var(--bg-muted);
+    border-radius: 4px;
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.4rem;
+    line-height: 1.4;
+}
+.ai-drawer-agy-notice.active {
+    display: block;
+}
+.ai-drawer-login-code-row {
+    display: none;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+}
+.ai-drawer-login-code-row.active {
+    display: flex;
 }
 .ai-msg {
     padding: 0.85rem 1rem;
     border-radius: var(--radius-md);
     font-size: 0.875rem;
     line-height: 1.6;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 .ai-msg-user {
     background: var(--primary-light);
